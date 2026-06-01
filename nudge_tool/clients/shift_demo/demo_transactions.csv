@@ -14,3 +14,4 @@ time,state,items,climber_id,climber_name,climber_email
 2026-05-20 12:00:00,SUCCEEDED,Monthly Recurring Membership,D011,Ryan Foster,ryan.foster.demo@example.com
 2026-05-08 10:00:00,SUCCEEDED,2 Week Trial - Adult,D012,Nina Patel,nina.patel.demo@example.com
 2026-05-15 10:00:00,SUCCEEDED,2 Week Trial - Adult,D099,Luke (demo),lvvargo33@gmail.com
+2026-05-16 10:00:00,SUCCEEDED,2 Week Trial - Adult,D098,Chris (demo),chris@climbinggymgrowth.com
