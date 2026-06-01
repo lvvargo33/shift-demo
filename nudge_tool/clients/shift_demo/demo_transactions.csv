@@ -1,0 +1,16 @@
+time,state,items,climber_id,climber_name,climber_email
+2026-05-24 10:00:00,SUCCEEDED,2 Week Trial - Adult,D001,Maya Chen,maya.chen.demo@example.com
+2026-05-24 10:00:00,SUCCEEDED,2 Week Trial - Adult,D002,Diego Ramos,diego.ramos.demo@example.com
+2026-05-25 10:00:00,SUCCEEDED,2 Week Trial - Adult,D003,Sarah Kim,sarah.kim.demo@example.com
+2026-05-26 10:00:00,SUCCEEDED,2 Week Trial - Adult,D004,Tom Becker,tom.becker.demo@example.com
+2026-05-27 10:00:00,SUCCEEDED,2 Week Trial - Adult,D005,Priya Nair,priya.nair.demo@example.com
+2026-05-26 10:00:00,SUCCEEDED,2 Week Trial - Adult,D006,Jordan Wells,jordan.wells.demo@example.com
+2026-05-31 10:00:00,SUCCEEDED,2 Week Trial - Adult,D007,Ben Olsen,ben.olsen.demo@example.com
+2026-05-30 10:00:00,SUCCEEDED,2 Week Trial - Adult,D008,Chloe Adams,chloe.adams.demo@example.com
+2026-05-25 10:00:00,SUCCEEDED,2 Week Trial - Adult,D009,Marcus Lee,marcus.lee.demo@example.com
+2026-05-19 11:00:00,SUCCEEDED,1 Day Pass - Adult,D010,Ava Torres,ava.torres.demo@example.com
+2026-05-28 11:00:00,SUCCEEDED,1 Day Pass - Adult,D010,Ava Torres,ava.torres.demo@example.com
+2026-05-10 10:00:00,SUCCEEDED,2 Week Trial - Adult,D011,Ryan Foster,ryan.foster.demo@example.com
+2026-05-20 12:00:00,SUCCEEDED,Monthly Recurring Membership,D011,Ryan Foster,ryan.foster.demo@example.com
+2026-05-08 10:00:00,SUCCEEDED,2 Week Trial - Adult,D012,Nina Patel,nina.patel.demo@example.com
+2026-05-15 10:00:00,SUCCEEDED,2 Week Trial - Adult,D099,Luke (demo),lvvargo33@gmail.com

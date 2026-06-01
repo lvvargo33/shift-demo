@@ -1,0 +1,253 @@
+{
+  "slug": "shift_demo",
+  "client_name": "Shift Climbing (demo)",
+  "live_enabled": false,
+  "_live_enabled_note": "Structural safety lock. While false, NO --live run can tag real contacts even with --i-have-shift-signoff. Flip to true only after SHIFT clears consent + the Mailchimp Journey + copy.",
+  "env_file": ".env",
+  "_env_note": "Path (relative to SHIFT_Automation, or absolute) to the file holding this client's MAILCHIMP_API_KEY / MAILCHIMP_SERVER / MAILCHIMP_AUDIENCE_ID. Each client has their own Mailchimp account, so each gets their own env file.",
+  "test_contacts": {
+    "base_email": "lvvargo33+shifttest@gmail.com",
+    "max": 8
+  },
+  "_test_contacts_note": "S5 --test mode safety. In --test the tool NEVER tags a real climber. It remaps the computed queue onto plus-addressed dummies derived from base_email (e.g. lvvargo33+shifttest_survey_request@gmail.com), one per distinct tag, capped at max. All mail still delivers to base_email's inbox so Luke sees the tag land. testmode.assert_all_dummy() fail-closes the whole run if any target is not a plus-variant of base_email, so a real address can never slip through. base_email MUST contain a '+' so plus-addressing works; change it to whichever inbox Luke wants the test mail in.",
+  "data": {
+    "transactions_csv": "nudge_tool/clients/shift_demo/demo_transactions.csv",
+    "memberships_csv": "nudge_tool/clients/shift_demo/demo_memberships.csv",
+    "sessions_csv": "nudge_tool/clients/shift_demo/demo_sessions.csv"
+  },
+  "_data_note": "Paths relative to SHIFT_Automation (or absolute). Where this client's Beta exports land each cycle.",
+  "trial_skus": [
+    "2 week trial",
+    "two-week trial"
+  ],
+  "_trial_skus_note": "Lowercased substrings; a SUCCEEDED transaction whose items contain any of these counts as a trial purchase (the trial_purchase anchor).",
+  "low_commitment_skus": [
+    "day pass",
+    "punch pass",
+    "2 week trial",
+    "two-week trial"
+  ],
+  "_low_commitment_skus_note": "Entry-level products. low_commitment minus trial_skus = the day-pass set used by daypass_repeat. Grounded in SHIFT's real Transactions export (1 day pass - adult, new day pass, 10 punch pass - adult, etc.).",
+  "conversion_skus": [
+    "recurring",
+    "prepaid"
+  ],
+  "_conversion_skus_note": "Substrings that mean 'became a member'. 'recurring' catches monthly recurring / presale monthly recurring / 3x recurring monthly membership / unlimited monthly recurring membership; 'prepaid' catches one month prepaid. NOTE we deliberately do NOT use bare 'membership' because 'two-week trial - trial membership' contains it. converted = bought a conversion_sku OR appears in Memberships.csv.",
+  "converted_when": "buys any conversion_sku OR appears in Memberships",
+  "daypass_repeat": {
+    "min_count": 2,
+    "window_days": 30
+  },
+  "_daypass_repeat_note": "A 'day-pass regular' = bought >= min_count day passes within window_days. Feeds the daypass_to_trial nudge (requires.daypass_repeat).",
+  "survey": {
+    "enabled": true,
+    "_enabled_note": "FALSE until the real Google Form + response Sheet exist (see SURVEY_SETUP.md). While false the tool ignores survey data and behaves exactly like S1 (honest, no fake answers in the dashboard). Flip to true and set source=gsheet + gsheet_id once the form is live. TRUE as of 2026-06-01: live Google Form + response sheet wired (gsheet_id below).",
+    "source": "csv",
+    "_source_note": "'csv' reads a local response file (csv_path) for dev/testing; 'gsheet' reads the live Form responses via the gsheets bridge (gsheet_id + gsheet_range).",
+    "csv_path": "demo_survey_responses.csv",
+    "gsheet_id": "1ZLiJ5jwridx74vfiVt66y3jwztU4BBdUOYCeYbU-DEk",
+    "gsheet_range": "Form Responses 1!A:F",
+    "columns": {
+      "timestamp": "Timestamp",
+      "email": "Email",
+      "q1_overall": "How was your first visit overall?",
+      "q2_intent": "How likely is it that climbing could become something you do regularly?",
+      "q3_blocker": "Main issue, if any?",
+      "q4_text": "Want to tell us more?"
+    },
+    "_columns_note": "Header text in the response sheet -> our field. Match the exact Google Form question text. Edit if the form wording changes.",
+    "blocker_map": {
+      "too expensive": "too_expensive",
+      "too busy": "too_busy",
+      "too crowded": "too_busy",
+      "too hard": "too_hard",
+      "intimidating": "intimidating",
+      "front desk": "front_desk",
+      "not welcoming": "front_desk",
+      "confusing": "confusing",
+      "where do i start": "confusing",
+      "not enjoyable": "not_enjoyable",
+      "routes": "not_enjoyable",
+      "none": "",
+      "no issues": ""
+    },
+    "_blocker_map_note": "Q3 answer text (lowercased substring) -> the blocker value the nudge_* triggers require. 'none'/blank -> no blocker.",
+    "intent_map": {
+      "likely": "high",
+      "not sure": "medium",
+      "unlikely": "low"
+    },
+    "_intent_map_note": "Q2 answer (lowercased substring) -> intent bucket. nudge_round_two requires intent=high.",
+    "safety_keywords": [
+      "hurt",
+      "injur",
+      "unsafe",
+      "harass",
+      "assault",
+      "scared",
+      "creep",
+      "unwelcome",
+      "discriminat",
+      "threat"
+    ],
+    "_safety_keywords_note": "If any appears in Q4 free text (lowercased), the climber is flagged safety -> MANUAL precedence (manager call, no automated email)."
+  },
+  "triggers": [
+    {
+      "name": "survey_request",
+      "tag": "survey_request",
+      "template_id": "survey_v1",
+      "description": "New first-timer just visited. Send the 4-question survey.",
+      "anchor": "first_visit",
+      "days_since_min": 1,
+      "days_since_max": 2,
+      "requires": {
+        "not_surveyed": true
+      },
+      "once_only": true,
+      "active": true
+    },
+    {
+      "name": "nudge_round_two",
+      "tag": "nudge_round_two",
+      "template_id": "nudge_round_two_v1",
+      "description": "Survey says they loved it / high intent. Invite round two. (needs S2 survey data)",
+      "anchor": "survey_sent",
+      "days_since_min": 2,
+      "days_since_max": 4,
+      "requires": {
+        "survey_intent": "high"
+      },
+      "once_only": true,
+      "active": true
+    },
+    {
+      "name": "nudge_pricing",
+      "tag": "nudge_pricing",
+      "template_id": "nudge_pricing_v1",
+      "description": "Survey blocker: too expensive. Starter offer / 5-pack. (needs S2)",
+      "anchor": "survey_sent",
+      "days_since_min": 5,
+      "days_since_max": 7,
+      "requires": {
+        "survey_blocker": "too_expensive"
+      },
+      "once_only": true,
+      "active": true
+    },
+    {
+      "name": "nudge_crowding",
+      "tag": "nudge_crowding",
+      "template_id": "nudge_crowding_v1",
+      "description": "Survey blocker: too busy / crowded. Come at quiet hours. (needs S2)",
+      "anchor": "survey_sent",
+      "days_since_min": 5,
+      "days_since_max": 7,
+      "requires": {
+        "survey_blocker": "too_busy"
+      },
+      "once_only": true,
+      "active": true
+    },
+    {
+      "name": "nudge_too_hard",
+      "tag": "nudge_too_hard",
+      "template_id": "nudge_too_hard_v1",
+      "description": "Survey blocker: too hard. Easier routes + free intro. (needs S2)",
+      "anchor": "survey_sent",
+      "days_since_min": 5,
+      "days_since_max": 7,
+      "requires": {
+        "survey_blocker": "too_hard"
+      },
+      "once_only": true,
+      "active": true
+    },
+    {
+      "name": "nudge_intimidating",
+      "tag": "nudge_intimidating",
+      "template_id": "nudge_intimidating_v1",
+      "description": "Survey blocker: intimidating. Welcoming intro, bring a friend. (needs S2)",
+      "anchor": "survey_sent",
+      "days_since_min": 5,
+      "days_since_max": 7,
+      "requires": {
+        "survey_blocker": "intimidating"
+      },
+      "once_only": true,
+      "active": true
+    },
+    {
+      "name": "nudge_frontdesk",
+      "tag": "nudge_frontdesk",
+      "template_id": "nudge_frontdesk_v1",
+      "description": "Survey blocker: front desk / not welcoming. Personal note, come back as our guest. (needs S2)",
+      "anchor": "survey_sent",
+      "days_since_min": 5,
+      "days_since_max": 7,
+      "requires": {
+        "survey_blocker": "front_desk"
+      },
+      "once_only": true,
+      "active": true
+    },
+    {
+      "name": "nudge_confusing",
+      "tag": "nudge_confusing",
+      "template_id": "nudge_confusing_v1",
+      "description": "Survey blocker: confusing / where do I start. Intro tour + beginner guide. (needs S2)",
+      "anchor": "survey_sent",
+      "days_since_min": 5,
+      "days_since_max": 7,
+      "requires": {
+        "survey_blocker": "confusing"
+      },
+      "once_only": true,
+      "active": true
+    },
+    {
+      "name": "nudge_routes",
+      "tag": "nudge_routes",
+      "template_id": "nudge_routes_v1",
+      "description": "Survey blocker: routes weren't fun. We just reset routes, come try. (needs S2)",
+      "anchor": "survey_sent",
+      "days_since_min": 5,
+      "days_since_max": 7,
+      "requires": {
+        "survey_blocker": "not_enjoyable"
+      },
+      "once_only": true,
+      "active": true
+    },
+    {
+      "name": "comeback_soft",
+      "tag": "comeback_soft",
+      "template_id": "comeback_v1",
+      "description": "Bought a trial, no return visit, ~day 5 since purchase, not converted. (the section-13 day-5 trial nudge)",
+      "anchor": "trial_purchase",
+      "days_since_min": 4,
+      "days_since_max": 7,
+      "requires": {
+        "no_return": true
+      },
+      "once_only": true,
+      "active": true
+    },
+    {
+      "name": "daypass_to_trial",
+      "tag": "daypass_to_trial",
+      "template_id": "daypass_to_trial_v1",
+      "description": "Keeps buying day passes, not a member. Nudge to the 2-week trial.",
+      "anchor": "last_daypass",
+      "days_since_min": 0,
+      "days_since_max": 14,
+      "requires": {
+        "daypass_repeat": true
+      },
+      "once_only": false,
+      "cooldown_days": 30,
+      "active": true
+    }
+  ],
+  "_triggers_note": "PROVISIONAL pilot catalog (FTV_PILOT_SPEC.md section 14.6). Order = precedence (first = highest priority; one message per person per run, section 14.7). survey_request + comeback_soft + daypass_to_trial compute from Beta alone today; the survey-anchored nudge_* + nudge_round_two need S2 survey data and match nobody until then. MANUAL (safety) and converted-stop are precedence rules in engine.py, not rows here. Roadmap rows (trial_convert, trial_winback, member_miss_you) are added one block at a time."
+}

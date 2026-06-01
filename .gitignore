@@ -1,0 +1,9 @@
+# never commit secrets or generated PII
+sa_key.json
+.env
+*.key
+__pycache__/
+*.pyc
+publish/
+nudge_tool/clients/*/out/
+nudge_tool/clients/*/outreach_log.csv

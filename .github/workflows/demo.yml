@@ -1,0 +1,33 @@
+name: SHIFT demo dashboard
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # every ~5 min (GitHub may delay a few minutes)
+  workflow_dispatch: {}      # lets you trigger a run by hand too
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Build dashboards
+        env:
+          GSHEETS_SA_JSON: ${{ secrets.GOOGLE_SA_KEY }}
+        run: |
+          ASOF=$(date -d "+6 days" +%Y-%m-%d)
+          python -m nudge_tool run --client shift_demo --skip-status --as-of 2026-06-01
+          python -m nudge_tool run --client shift_demo_live --skip-status --as-of "$ASOF"
+          mkdir -p publish
+          cp nudge_tool/clients/shift_demo/out/dashboard.html      publish/walkthrough.html
+          cp nudge_tool/clients/shift_demo_live/out/dashboard.html publish/live.html
+          cp publish_index.html publish/index.html
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy publish --project-name=shift-demo
