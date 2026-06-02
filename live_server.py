@@ -88,13 +88,24 @@ BASIC_PASS = os.getenv("LIVE_PASS")
 DEFAULT_REFRESH = int(os.getenv("LIVE_REFRESH", "0") or "0")
 
 
-def _resolve_asof(params: dict) -> date:
-    """As-of date for the day-windows. ?asof= wins; else today + ?days (default 6)."""
+def _default_days(slug: str) -> int:
+    """How many days ahead of today the as-of date sits, by default.
+
+    The real `shift` client serves the TRUE current operational queue, so it
+    uses today (0). The fake-data demo clients use +6 so a just-submitted Form
+    response jumps straight to its day-5..7 nudge during a live pitch. Override
+    globally with the LIVE_DAYS_AHEAD env, or per-request with ?days=/?asof=."""
+    env = os.getenv("LIVE_DAYS_AHEAD")
+    if env not in (None, ""):
+        return int(env)
+    return 0 if slug == "shift" else DEFAULT_DAYS_AHEAD
+
+
+def _resolve_asof(params: dict, slug: str) -> date:
+    """As-of date for the day-windows. ?asof= wins; else today + ?days (per-client default)."""
     if params.get("asof"):
         return date.fromisoformat(params["asof"][0])
-    days = DEFAULT_DAYS_AHEAD
-    if params.get("days"):
-        days = int(params["days"][0])
+    days = int(params["days"][0]) if params.get("days") else _default_days(slug)
     return date.today() + timedelta(days=days)
 
 
@@ -182,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
 
         slug = params.get("client", [self.server.default_client])[0]
         try:
-            asof = _resolve_asof(params)
+            asof = _resolve_asof(params, slug)
             html = render(slug, asof)
             refresh = int(params["refresh"][0]) if params.get("refresh") else DEFAULT_REFRESH
             if refresh > 0:
