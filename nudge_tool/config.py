@@ -55,6 +55,7 @@ class ClientConfig:
     low_commitment_skus: list[str]
     conversion_skus: list[str]
     daypass_repeat: dict          # {"min_count": int, "window_days": int}
+    reporting: dict               # workbook-aligned reporting defs (cohort/entry-product/staff/conversion)
     survey: dict                  # survey loop config (S2); {} or {"enabled": False} = off
     test_contacts: dict           # S5 --test config; {"base_email": str, "max": int}
     triggers: list[Trigger]
@@ -98,6 +99,7 @@ def load_client(slug: str) -> ClientConfig:
         low_commitment_skus=[s.lower() for s in cfg.get("low_commitment_skus", [])],
         conversion_skus=[s.lower() for s in cfg.get("conversion_skus", [])],
         daypass_repeat=dict(cfg.get("daypass_repeat", {"min_count": 2, "window_days": 30})),
+        reporting=dict(cfg.get("reporting", {})),
         survey=dict(cfg.get("survey", {})),
         test_contacts=dict(cfg.get("test_contacts", {})),
         triggers=triggers_from_config(cfg.get("triggers", [])),

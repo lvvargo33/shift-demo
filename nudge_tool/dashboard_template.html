@@ -253,6 +253,49 @@ button, input, textarea, select { font-family: inherit; }
 .bar-count { color: var(--fg-muted); font-weight: 600; white-space: nowrap; }
 .bar-track { height: 22px; background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: 6px; overflow: hidden; }
 .bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary) 0%, #A53D22 100%); min-width: 2px; transition: width var(--t-norm); }
+.bar-fill.bar-green { background: linear-gradient(90deg, #16A34A 0%, #15803D 100%); }
+.bar-sub { font-size: 11px; color: var(--fg-hint); margin-top: 2px; }
+
+/* --- period toggle --- */
+.period-toggle { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; flex-wrap: wrap; }
+.period-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-subtle); font-weight: 700; }
+.period-select { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--card); color: var(--fg); font-size: 13px; font-weight: 600; cursor: pointer; }
+.period-select:hover { border-color: var(--fg-hint); }
+.period-note { font-size: 11.5px; color: var(--warning-fg); background: var(--warning-tint); border: 1px solid #FDBA74; border-radius: 7px; padding: 4px 10px; }
+
+/* --- insights: 2-up chart grid + conversion table --- */
+.chart-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+@media (max-width: 880px) { .chart-grid-2 { grid-template-columns: 1fr; } }
+.conv-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.conv-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-subtle); font-weight: 700; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.conv-table td { padding: 6px 6px; border-bottom: 1px solid var(--border-soft); }
+.conv-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.conv-table tr:last-child td { border-bottom: none; }
+
+/* --- queue: select + send --- */
+.queue-select { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-muted); }
+.queue-select input { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
+.bulk-bar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--primary-tint); border: 1px solid var(--primary-soft-2); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
+.bulk-bar .bulk-count { font-size: 13px; font-weight: 600; color: var(--fg); }
+.btn-send { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn-send:hover { background: var(--primary-hover); }
+
+/* --- modal --- */
+.modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(17,17,20,0.45); z-index: 4000; align-items: center; justify-content: center; padding: 20px; }
+.modal-backdrop.open { display: flex; }
+.modal { background: var(--card); border-radius: 14px; max-width: 460px; width: 100%; box-shadow: 0 18px 50px rgba(15,15,20,0.28); overflow: hidden; }
+.modal-head { padding: 18px 22px 6px; font-size: 17px; font-weight: 700; letter-spacing: -0.3px; display: flex; align-items: center; gap: 9px; }
+.modal-head svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 2; }
+.modal-body { padding: 4px 22px 18px; font-size: 13.5px; color: var(--fg-muted); line-height: 1.6; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 0 22px 20px; }
+
+/* --- inbox: unread dot + alert pin --- */
+.inbox-item.unread { border-left: 3px solid var(--primary); }
+.inbox-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); display: inline-block; flex-shrink: 0; }
+.inbox-item.read .inbox-item-name { font-weight: 500; color: var(--fg-muted); }
+.inbox-section-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-hint); font-weight: 700; padding: 8px 2px 2px; }
+.inbox-hidden-note { font-size: 11.5px; color: var(--fg-subtle); margin-top: 10px; line-height: 1.6; }
+.inbox-hidden-note a { color: var(--primary); cursor: pointer; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -284,19 +327,15 @@ button, input, textarea, select { font-family: inherit; }
       <svg viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
       Funnel
     </button>
-    <button class="nav-btn" data-view="settings" onclick="showView('settings')">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      Settings
+    <button class="nav-btn" id="nav-insights" data-view="insights">
+      <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+      Insights
     </button>
     <div class="nav-section-label" id="survey-nav-label">Survey loop</div>
     <button class="nav-btn" id="nav-inbox" data-view="inbox">
       <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      Inbox
+      Survey Responses
       <span class="nav-badge" id="inbox-badge" style="display:none;">0</span>
-    </button>
-    <button class="nav-btn" id="nav-insights" data-view="insights">
-      <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-      Insights
     </button>
   </div>
   <div class="sidebar-footer">
@@ -310,13 +349,13 @@ button, input, textarea, select { font-family: inherit; }
     <div id="view-queue" class="view"></div>
     <div id="view-detail" class="view"></div>
     <div id="view-funnel" class="view"></div>
-    <div id="view-settings" class="view"></div>
     <div id="view-inbox" class="view"></div>
     <div id="view-insights" class="view"></div>
   </div>
 </main>
 
 <div class="toast-host" id="toast-host"></div>
+<div class="modal-backdrop" id="modal-backdrop"><div class="modal" id="modal-card"></div></div>
 
 <script id="nudge-data" type="application/json">__DATA_JSON__</script>
 <script>
@@ -436,17 +475,148 @@ function safetyBanner() {
   const live = DATA.live_enabled && DATA.mode === 'live';
   if (live) {
     return '<div class="banner banner-warn">' + icon('shield') +
-      '<div><strong>LIVE mode.</strong> Eligible climbers below will be tagged in Mailchimp. Sending is handled by the approved Customer Journey.</div></div>';
+      '<div><strong>LIVE mode.</strong> The follow-ups below are ready to send to the climbers listed.</div></div>';
   }
   return '<div class="banner banner-safe">' + icon('shield') +
-    '<div><strong>Dry run — nothing is being sent.</strong> This is a preview of who we’d send a follow-up to. No emails go out, and no one is tagged, until the client clears consent and the Mailchimp Journey is approved.</div></div>';
+    '<div><strong>Demonstration — nothing is being sent.</strong> This is a preview of who you’d send a follow-up to, and the message each would get. Automated sending isn’t connected yet, so pressing Send just shows you the flow.</div></div>';
+}
+
+/* ============================ REPORTING PERIOD + AGGREGATES ============================ */
+// Workbook-aligned reporting (DATA.reporting). Numbers re-scope by FTV cohort
+// period entirely client-side. Definitions mirror the SHIFT FTV analysis workbook.
+let REPORT_PERIOD = 'all';
+function reportingOn() { return !!(DATA.reporting && DATA.reporting.enabled); }
+function allFtvs() { return (DATA.reporting && DATA.reporting.ftvs) || []; }
+function entryLabels() { return (DATA.reporting && DATA.reporting.entry_labels) || {}; }
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function monthName(m) { const p = (m||'').split('-'); return p.length === 2 ? MONTHS[+p[1]-1] + ' ' + p[0] : m; }
+function periodMonths() { return [...new Set(allFtvs().map(f => f.m))].sort().reverse(); }
+function periodYears() { return [...new Set(allFtvs().map(f => f.m.slice(0,4)))].sort().reverse(); }
+function defaultPeriod() {
+  return allFtvs().length ? 'r:30' : 'all';   // rolling last 30 days
+}
+function rollingCutoff(days) {
+  const asof = (DATA.reporting && DATA.reporting.as_of) || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asof)) return null;
+  const d = new Date(asof); d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+function filterFtvs() {
+  const p = REPORT_PERIOD, all = allFtvs();
+  if (p === 'all') return all;
+  if (p.startsWith('r:')) { const c = rollingCutoff(+p.slice(2)); return c ? all.filter(f => (f.d || '') >= c) : all; }
+  if (p.startsWith('y:')) return all.filter(f => f.m.slice(0,4) === p.slice(2));
+  if (p.startsWith('m:')) return all.filter(f => f.m === p.slice(2));
+  return all;
+}
+function periodLabel() {
+  const p = REPORT_PERIOD;
+  if (p === 'all') return 'All time (since SHIFT opened)';
+  if (p.startsWith('r:')) return 'Last ' + p.slice(2) + ' days';
+  if (p.startsWith('y:')) return 'Year ' + p.slice(2);
+  if (p.startsWith('m:')) return monthName(p.slice(2));
+  return '';
+}
+// is the selected period recent enough that conversion is still maturing?
+function periodIsRecent() {
+  const asof = (DATA.reporting && DATA.reporting.as_of) || '';
+  if (!asof) return false;
+  if (REPORT_PERIOD.startsWith('r:')) return +REPORT_PERIOD.slice(2) <= 90;
+  if (REPORT_PERIOD.startsWith('m:')) return REPORT_PERIOD.slice(2) >= asof.slice(0,7);
+  if (REPORT_PERIOD.startsWith('y:')) return REPORT_PERIOD.slice(2) >= asof.slice(0,4);
+  return false;
+}
+function periodSelectHtml() {
+  let o = '<optgroup label="Recent">' +
+    '<option value="r:30"' + (REPORT_PERIOD === 'r:30' ? ' selected' : '') + '>Last 30 days</option>' +
+    '<option value="r:90"' + (REPORT_PERIOD === 'r:90' ? ' selected' : '') + '>Last 90 days</option></optgroup>';
+  o += '<option value="all"' + (REPORT_PERIOD === 'all' ? ' selected' : '') + '>All time (since opening)</option>';
+  o += '<optgroup label="By year">';
+  periodYears().forEach(y => { o += '<option value="y:' + y + '"' + (REPORT_PERIOD === 'y:' + y ? ' selected' : '') + '>' + y + '</option>'; });
+  o += '</optgroup><optgroup label="By month">';
+  periodMonths().forEach(m => { o += '<option value="m:' + m + '"' + (REPORT_PERIOD === 'm:' + m ? ' selected' : '') + '>' + monthName(m) + '</option>'; });
+  o += '</optgroup>';
+  let note = periodIsRecent()
+    ? '<span class="period-note">Recent cohort — most members join within ~8 weeks of a first visit, so conversion here is still maturing.</span>' : '';
+  return '<div class="period-toggle"><span class="period-label">Showing</span>' +
+    '<select class="period-select" onchange="setReportPeriod(this.value)">' + o + '</select>' + note + '</div>';
+}
+function setReportPeriod(v) {
+  REPORT_PERIOD = v;
+  renderDashboard(); renderFunnel(); renderInsights();
+}
+function agg(ftvs) {
+  const n = ftvs.length;
+  const conv = ftvs.filter(f => f.conv).length;
+  const v1 = ftvs.filter(f => f.v1).length;
+  const ret = ftvs.filter(f => f.ret).length;
+  return { n, conv, v1, ret,
+    convPct: n ? 100 * conv / n : 0, retPct: n ? 100 * ret / n : 0, v1Pct: n ? 100 * v1 / n : 0 };
+}
+function byEntry(ftvs) {
+  const labels = entryLabels(), map = {};
+  ftvs.forEach(f => { const k = f.cat || 'OTHER'; (map[k] = map[k] || { n: 0, conv: 0 }); map[k].n++; if (f.conv) map[k].conv++; });
+  return Object.entries(map).map(([k, v]) => ({ cat: k, label: labels[k] || k, n: v.n, conv: v.conv, pct: v.n ? 100 * v.conv / v.n : 0 }))
+    .sort((a, b) => b.n - a.n);
+}
+function byVisits(ftvs) {
+  const buckets = [
+    { k: '0 (no check-in)', lo: 0, hi: 0 }, { k: '1 visit', lo: 1, hi: 1 },
+    { k: '2 visits', lo: 2, hi: 2 }, { k: '3 visits', lo: 3, hi: 3 },
+    { k: '4–5 visits', lo: 4, hi: 5 }, { k: '6+ visits', lo: 6, hi: 999 } ];
+  return buckets.map(b => {
+    const sub = ftvs.filter(f => f.nv >= b.lo && f.nv <= b.hi);
+    const conv = sub.filter(f => f.conv).length;
+    return { k: b.k, n: sub.length, conv, pct: sub.length ? 100 * conv / sub.length : 0 };
+  }).filter(b => b.n > 0);
+}
+function byTiming(ftvs) {
+  const buckets = [
+    { k: 'Within 1 week', lo: 0, hi: 7 }, { k: '1–2 weeks', lo: 8, hi: 14 },
+    { k: '2–4 weeks', lo: 15, hi: 30 }, { k: '1–2 months', lo: 31, hi: 60 },
+    { k: '2–3 months', lo: 61, hi: 90 }, { k: '3+ months', lo: 91, hi: 99999 } ];
+  const conv = ftvs.filter(f => f.conv && f.dtc != null);
+  return buckets.map(b => ({ k: b.k, n: conv.filter(f => f.dtc >= b.lo && f.dtc <= b.hi).length }))
+    .filter(b => b.n > 0);
+}
+
+/* ============================ MODAL + SEND (queue is not wired) ============================ */
+function closeModal() { $('modal-backdrop').classList.remove('open'); $('modal-card').innerHTML = ''; }
+function openModal(html) { $('modal-card').innerHTML = html; $('modal-backdrop').classList.add('open'); }
+function demoSentModal(count) {
+  const who = count === 1 ? 'this climber' : count + ' climbers';
+  openModal(
+    '<div class="modal-head">' + icon('shield') + 'Demonstration only</div>' +
+    '<div class="modal-body">Automated sending isn’t connected in this demo, so <strong>nothing was sent</strong> to ' + who + '.<br><br>' +
+    'In the live version this is where the follow-up would go out for you — you stay in control of every send.</div>' +
+    '<div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Got it</button></div>');
+}
+function confirmSendOne(id) {
+  const q = DATA.queue.find(x => x.climber_id === id);
+  if (!q) return;
+  openModal(
+    '<div class="modal-head">' + icon('mail') + 'Send this follow-up?</div>' +
+    '<div class="modal-body">You’re about to send the <strong>' + escapeHtml(triggerLabel(q.trigger_name)) + '</strong> message to ' +
+    '<strong>' + escapeHtml(q.name || 'this climber') + '</strong> (' + escapeHtml(q.email || 'no email') + ').</div>' +
+    '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-send" onclick="closeModal();demoSentModal(1)">Send follow-up</button></div>');
+}
+function confirmSendBulk() {
+  const sel = selectedQueueIds();
+  const count = sel.length ? sel.length : filteredQueue().length;
+  const allWord = sel.length ? 'the <strong>' + count + '</strong> selected climber' + (count === 1 ? '' : 's')
+    : '<strong>everyone in the queue</strong> (' + count + ' climber' + (count === 1 ? '' : 's') + ')';
+  openModal(
+    '<div class="modal-head">' + icon('mail') + 'Send to ' + (sel.length ? 'selected' : 'everyone') + '?</div>' +
+    '<div class="modal-body">Heads up: you’re about to send each person’s matched follow-up to ' + allWord + ' in one go. ' +
+    'Each climber gets the message that fits their situation.</div>' +
+    '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-send" onclick="closeModal();demoSentModal(' + count + ')">Send ' + count + ' follow-up' + (count === 1 ? '' : 's') + '</button></div>');
 }
 
 /* ============================ DASHBOARD ============================ */
 function renderDashboard() {
   const m = DATA.metrics, s = DATA.summary, dw = DATA.data_window;
-  const fn = DATA.funnel || [];
-  const convPct = fn.length ? fn[fn.length - 1].pct : 0;
   let h = pageHeader("Here's who to send to today",
     'Behavior pulled from ' + DATA.client + '’s Beta exports. Each priority below is a group we can send to right now; once the survey loop is on, the survey tells us which message fits.');
   h += safetyBanner();
@@ -471,17 +641,25 @@ function renderDashboard() {
   });
   h += '</div></div></div>';
 
-  // real headline numbers (no industry benchmarks)
+  // operational tiles (always "today", not period-scoped)
   h += '<div class="stats-grid-3">' +
     statTile('New visitors (last 7 days)', m.new_visitors_7d, 'First check-in within a week') +
-    statTile('Didn’t come back', m.one_and_done, 'Bought a trial, no return', true) +
     statTile('Needs follow-up today', m.eligible_now, 'In the recovery queue', m.eligible_now > 0) +
-  '</div>';
-  h += '<div class="stats-grid-3">' +
-    statTile('Trial buyers (all-time)', m.trial_buyers, 'In the Beta export') +
-    statTile('Trial → member conversion', convPct + '%', 'Of all trial buyers') +
     statTile('Day-pass regulars', m.daypass_regulars, '2+ day passes in 30 days') +
   '</div>';
+
+  // period-scoped first-timer + conversion numbers (workbook-aligned)
+  if (reportingOn()) {
+    const a = agg(filterFtvs());
+    h += '<div style="margin-top:24px;"><div class="card-title" style="margin-bottom:2px;">' + icon('funnel') + 'First-timers & conversion</div>' +
+      '<div class="card-description" style="margin-bottom:12px;">Same definitions as the FTV analysis: first-time visitors (staff excluded, since SHIFT opened), and how many became members. ' + escapeHtml(periodLabel()) + '.</div>';
+    h += periodSelectHtml();
+    h += '<div class="stats-grid-3">' +
+      statTile('First-timers', a.n.toLocaleString(), periodLabel()) +
+      statTile('Became a member', a.convPct.toFixed(1) + '%', a.conv.toLocaleString() + ' of ' + a.n.toLocaleString() + ' converted') +
+      statTile('Came back (2+ visits)', a.retPct.toFixed(1) + '%', a.ret.toLocaleString() + ' returned at least once') +
+    '</div></div>';
+  }
 
   h += '<div class="card"><div class="card-content with-top" style="font-size:12.5px;color:var(--fg-subtle);line-height:1.7;">' +
     'As of <strong>' + escapeHtml(DATA.as_of) + '</strong> &nbsp;·&nbsp; ' +
@@ -494,6 +672,28 @@ function renderDashboard() {
 
 /* ============================ RECOVERY QUEUE ============================ */
 let QUEUE_FILTER = 'all';
+let QUEUE_SELECTED = new Set();
+function toggleQueueSelect(id, el) { if (el.checked) QUEUE_SELECTED.add(id); else QUEUE_SELECTED.delete(id); updateBulkBar(); }
+function selectedQueueIds() { return filteredQueue().filter(q => q.trigger_name !== 'MANUAL').map(q => q.climber_id).filter(id => QUEUE_SELECTED.has(id)); }
+function clearQueueSelection() { QUEUE_SELECTED.clear(); renderQueue(); }
+function updateBulkBar() {
+  const el = $('bulk-count'); if (!el) return;
+  const sel = selectedQueueIds().length;
+  const total = filteredQueue().filter(q => q.trigger_name !== 'MANUAL').length;
+  $('bulk-btn').textContent = sel ? 'Send to ' + sel + ' selected' : 'Send to all ' + total;
+  el.textContent = sel ? (sel + ' selected') : (total + ' in this view');
+  const clr = $('bulk-clear'); if (clr) clr.style.display = sel ? '' : 'none';
+}
+function bulkBarHtml() {
+  const total = filteredQueue().filter(q => q.trigger_name !== 'MANUAL').length;
+  if (!total) return '';
+  return '<div class="bulk-bar">' +
+    '<span class="bulk-count" id="bulk-count">' + total + ' in this view</span>' +
+    '<button class="btn btn-send btn-sm" id="bulk-btn" onclick="confirmSendBulk()">Send to all ' + total + '</button>' +
+    '<button class="btn btn-ghost btn-sm" id="bulk-clear" style="display:none;" onclick="clearQueueSelection()">Clear selection</button>' +
+    '<span style="font-size:11.5px;color:var(--fg-subtle);margin-left:auto;">Tick a climber to send one-by-one, or send the whole list.</span>' +
+    '</div>';
+}
 function queueFilters() {
   const names = [];
   DATA.queue.forEach(q => { if (!names.includes(q.trigger_name)) names.push(q.trigger_name); });
@@ -558,14 +758,20 @@ function renderQueue() {
       '<div class="empty-state-title">No one is waiting</div>' +
       '<div class="empty-state-msg">No climbers match this filter for this run.</div>' +
       '</div></div>';
+  } else {
+    h += bulkBarHtml();
   }
   rows.forEach(q => { h += renderQueueCard(q); });
   $('view-queue').innerHTML = h;
+  updateBulkBar();
 }
 
 function renderQueueCard(q) {
+  const manual = q.trigger_name === 'MANUAL';
+  const checked = QUEUE_SELECTED.has(q.climber_id) ? ' checked' : '';
   return '<div class="card queue-card" id="card-' + escapeHtml(q.climber_id) + '">' +
     '<div class="card-header"><div class="queue-name-row">' +
+      (manual ? '' : '<label class="queue-select" title="Select for bulk send"><input type="checkbox"' + checked + ' onchange="toggleQueueSelect(\'' + escapeHtml(q.climber_id) + '\', this)"></label>') +
       '<div class="queue-name" onclick="openDetail(\'' + escapeHtml(q.climber_id) + '\')">' + escapeHtml(q.name || '(no name)') + '</div>' +
       '<div class="inline-badges">' +
         '<span class="badge badge-warning">#' + q.priority + '</span>' +
@@ -580,15 +786,16 @@ function renderQueueCard(q) {
         field('Template', q.template_id) +
       '</div>' +
       surveyStatusLine(q) +
-      '<button class="queue-expand-btn" onclick="toggleExpand(\'' + escapeHtml(q.climber_id) + '\')">▸ Preview the email</button>' +
+      '<button class="queue-expand-btn" onclick="toggleExpand(\'' + escapeHtml(q.climber_id) + '\')">▸ Preview the message</button>' +
       '<div class="queue-survey-panel" id="panel-' + escapeHtml(q.climber_id) + '">' +
         '<div class="email-subject">' + escapeHtml(q.subject) + '</div>' +
         '<div class="email-body">' + escapeHtml(q.body_preview) + '</div>' +
       '</div>' +
       '<div class="queue-actions">' +
         '<button class="btn btn-outline btn-sm" onclick="openDetail(\'' + escapeHtml(q.climber_id) + '\')">' + icon('users') + ' Full history</button>' +
-        '<button class="btn btn-outline btn-sm" onclick="copyEmail(\'' + escapeHtml(q.climber_id) + '\')">' + icon('copy') + ' Copy email text</button>' +
-        '<a class="btn btn-ghost btn-sm" href="mailto:' + encodeURIComponent(q.email) + '">' + icon('mail') + ' Open in mail client</a>' +
+        (manual
+          ? '<span class="badge badge-destructive">⚠ Manager call — handle personally, no automated send</span>'
+          : '<button class="btn btn-send btn-sm" onclick="confirmSendOne(\'' + escapeHtml(q.climber_id) + '\')">' + icon('mail') + ' Send follow-up</button>') +
       '</div>' +
     '</div></div>';
 }
@@ -612,7 +819,6 @@ function renderDetail(id) {
   h += '<div class="inline-badges" style="margin-bottom:18px;">' +
     '<span class="badge badge-warning">priority #' + q.priority + '</span>' +
     '<span class="badge badge-primary">' + escapeHtml(triggerLabel(q.trigger_name)) + '</span>' +
-    '<span class="badge">tag ' + escapeHtml(q.tag) + '</span>' +
     (q.is_member ? '<span class="badge badge-success">member</span>'
       : q.is_converted ? '<span class="badge badge-success">converted</span>'
       : '<span class="badge badge-warning">not a member</span>') +
@@ -626,15 +832,16 @@ function renderDetail(id) {
       field('Trigger', triggerLabel(q.trigger_name)) +
       field('Timing', anchorLabel(q.anchor) + ' + ' + q.days_since + 'd') +
       field('Anchor date', q.anchor_date || '—') +
-      field('Mailchimp tag', q.tag) +
+      field('Follow-up', triggerLabel(q.trigger_name)) +
     '</div>' +
     '<div class="queue-survey-panel open" style="margin-top:0;">' +
       '<div class="email-subject">' + escapeHtml(q.subject) + '</div>' +
       '<div class="email-body">' + escapeHtml(q.body_preview) + '</div>' +
     '</div>' +
     '<div class="queue-actions">' +
-      '<button class="btn btn-outline btn-sm" onclick="copyEmail(\'' + escapeHtml(q.climber_id) + '\')">' + icon('copy') + ' Copy email text</button>' +
-      '<a class="btn btn-ghost btn-sm" href="mailto:' + encodeURIComponent(q.email) + '">' + icon('mail') + ' Open in mail client</a>' +
+      (q.trigger_name === 'MANUAL'
+        ? '<span class="badge badge-destructive">⚠ Manager call — handle personally, no automated send</span>'
+        : '<button class="btn btn-send btn-sm" onclick="confirmSendOne(\'' + escapeHtml(q.climber_id) + '\')">' + icon('mail') + ' Send follow-up</button>') +
     '</div></div></div>';
 
   // history
@@ -665,30 +872,50 @@ function renderDetail(id) {
 }
 
 /* ============================ FUNNEL ============================ */
+function funnelStageRow(label, count, pct, note, prevCount) {
+  const drop = prevCount != null && prevCount > 0 ? Math.round(100 * (prevCount - count) / prevCount) : null;
+  return '<div class="funnel-row">' +
+    '<div class="funnel-top"><div class="funnel-label">' + escapeHtml(label) + '</div>' +
+      '<div class="funnel-count">' + count.toLocaleString() + ' &nbsp;·&nbsp; ' + pct.toFixed(1) + '%' +
+      (drop != null && drop > 0 ? ' <span style="color:var(--destructive);">(−' + drop + '%)</span>' : '') + '</div></div>' +
+    '<div class="funnel-track"><div class="funnel-fill" style="width:' + Math.max(pct, 4) + '%;">' + pct.toFixed(0) + '%</div></div>' +
+    '<div class="funnel-note">' + escapeHtml(note || '') + '</div></div>';
+}
 function renderFunnel() {
-  const fn = DATA.funnel || [];
-  let h = pageHeader('Trial → member funnel',
-    'The conversion story this project is about, told only with real counts from the Beta export. Every trial buyer, and how far each got.');
-  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('funnel') + 'Where trial buyers drop off</div>' +
+  let h = pageHeader('First-visit → member funnel',
+    'Every first-time visitor and how far each got, using the same definitions as the FTV analysis. Staff are excluded; the cohort starts when SHIFT opened.');
+  if (!reportingOn()) {
+    h += '<div class="card"><div class="empty-state"><div class="empty-state-title">No reporting data</div>' +
+      '<div class="empty-state-msg">This client has no reporting config yet.</div></div></div>';
+    $('view-funnel').innerHTML = h; return;
+  }
+  h += periodSelectHtml();
+  const ftvs = filterFtvs(), a = agg(ftvs);
+  const pct = x => a.n ? 100 * x / a.n : 0;
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('funnel') + 'Where first-timers drop off (' + escapeHtml(periodLabel()) + ')</div>' +
     '<div class="card-description">Each stage is a subset of the one above it, so the bar widths are honest.</div></div>' +
     '<div class="card-content with-top">';
-  let prev = null;
-  fn.forEach(st => {
-    const drop = prev != null && prev > 0 ? Math.round(100 * (prev - st.count) / prev) : null;
-    h += '<div class="funnel-row">' +
-      '<div class="funnel-top"><div class="funnel-label">' + escapeHtml(st.label) + '</div>' +
-        '<div class="funnel-count">' + st.count.toLocaleString() + ' &nbsp;·&nbsp; ' + st.pct + '%' +
-        (drop != null && drop > 0 ? ' <span style="color:var(--destructive);">(−' + drop + '%)</span>' : '') + '</div></div>' +
-      '<div class="funnel-track"><div class="funnel-fill" style="width:' + Math.max(st.pct, 4) + '%;">' + st.pct + '%</div></div>' +
-      '<div class="funnel-note">' + escapeHtml(st.note || '') + '</div>' +
-      '</div>';
-    prev = st.count;
-  });
+  h += funnelStageRow('First-time visitors', a.n, 100, 'The cohort', null);
+  h += funnelStageRow('Checked in at least once', a.v1, a.v1Pct, 'Showed up after their first purchase', a.n);
+  h += funnelStageRow('Came back (2+ visits)', a.ret, a.retPct, 'The habit starts here — the strongest conversion signal', a.v1);
+  h += funnelStageRow('Became a member', a.conv, a.convPct, 'Signed up for a membership', a.ret);
   h += '</div></div>';
 
+  // conversion by entry product
+  const be = byEntry(ftvs);
+  if (be.length) {
+    h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('users') + 'Conversion by entry product</div>' +
+      '<div class="card-description">How each first purchase type converts to membership. The product someone walks in on changes the odds.</div></div>' +
+      '<div class="card-content with-top"><table class="conv-table"><thead><tr><th>Entry product</th><th class="num">First-timers</th><th class="num">Became member</th><th class="num">Rate</th></tr></thead><tbody>';
+    be.forEach(e => {
+      h += '<tr><td>' + escapeHtml(e.label) + '</td><td class="num">' + e.n.toLocaleString() + '</td><td class="num">' + e.conv.toLocaleString() + '</td><td class="num"><strong>' + e.pct.toFixed(1) + '%</strong></td></tr>';
+    });
+    h += '</tbody></table></div></div>';
+  }
+
   h += '<div class="card"><div class="card-content with-top" style="font-size:12.5px;color:var(--fg-subtle);line-height:1.7;">' +
-    'Counts are distinct climbers, joined transactions ↔ check-ins on climber id. "Became a member" = bought a recurring/prepaid plan or appears in the Memberships export. ' +
-    'As of <strong>' + escapeHtml(DATA.as_of) + '</strong>.' +
+    'Counts are distinct climbers. A first-time visitor = their earliest day-pass, trial, punch, class, event, or membership purchase (staff excluded, since SHIFT opened). ' +
+    '"Became a member" = appears in the membership records. Same method as the FTV analysis workbook. As of <strong>' + escapeHtml(DATA.as_of) + '</strong>.' +
     '</div></div>';
   $('view-funnel').innerHTML = h;
 }
@@ -763,28 +990,74 @@ function skuBadges(arr) {
   return '<div class="inline-badges">' + (arr || []).map(s => '<span class="badge">' + escapeHtml(s) + '</span>').join('') + '</div>';
 }
 
-/* ============================ INBOX (survey responses) ============================ */
-let SELECTED_RESPONSE = 0;
-function selectResponse(i) { SELECTED_RESPONSE = i; renderInbox(); }
+/* ============================ SURVEY RESPONSES & ALERTS (inbox) ============================ */
+// Read / removed state is browser-local (localStorage). "Remove" only hides from
+// this dashboard; it NEVER deletes the underlying Google Form response. Read items
+// older than 7 days auto-hide. Unread count drives the sidebar badge.
+const INBOX_READ_KEY = 'shiftInboxRead', INBOX_RM_KEY = 'shiftInboxRemoved';
+let SELECTED_KEY = null;
+function lsGet(k) { try { return new Set(JSON.parse(localStorage.getItem(k) || '[]')); } catch (e) { return new Set(); } }
+function lsSet(k, set) { try { localStorage.setItem(k, JSON.stringify([...set])); } catch (e) {} }
+function respKey(r) { return (r.email || '') + '|' + (r.answered_at || '') + '|' + (r.q3_blocker_raw || ''); }
+function allResponses() { return (DATA.survey && DATA.survey.responses) || []; }
+function findResp(key) { return allResponses().find(r => respKey(r) === key); }
+function daysSinceAnswered(r) {
+  const a = (r.answered_at || '').slice(0, 10), b = (DATA.as_of || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) return 0;
+  return Math.round((new Date(b) - new Date(a)) / 86400000);
+}
+function inboxVisible() {
+  const read = lsGet(INBOX_READ_KEY), removed = lsGet(INBOX_RM_KEY);
+  const out = [];
+  allResponses().forEach(r => {
+    const key = respKey(r);
+    if (removed.has(key)) return;
+    const isRead = read.has(key);
+    if (isRead && !r.safety && daysSinceAnswered(r) > 7) return;  // auto-hide old read items
+    out.push({ r, key, read: isRead });
+  });
+  // safety first, then unread, then newest answered
+  out.sort((a, b) => (b.r.safety - a.r.safety) || (a.read - b.read) ||
+    String(b.r.answered_at || '').localeCompare(String(a.r.answered_at || '')));
+  return out;
+}
+function inboxUnreadCount() { return inboxVisible().filter(v => !v.read).length; }
+function refreshInboxBadge() {
+  const badge = $('inbox-badge'); if (!badge) return;
+  const n = surveyOn() ? inboxUnreadCount() : 0;
+  if (n) { badge.textContent = n; badge.style.display = ''; } else { badge.style.display = 'none'; }
+}
+function selectResponse(key) {
+  SELECTED_KEY = key;
+  const r = findResp(key);
+  if (r) { const s = lsGet(INBOX_READ_KEY); s.add(key); lsSet(INBOX_READ_KEY, s); }
+  renderInbox(); refreshInboxBadge();
+}
+function removeResponse(key) {
+  const s = lsGet(INBOX_RM_KEY); s.add(key); lsSet(INBOX_RM_KEY, s);
+  if (SELECTED_KEY === key) SELECTED_KEY = null;
+  renderInbox(); refreshInboxBadge();
+}
+function inboxUnhideAll() { lsSet(INBOX_RM_KEY, new Set()); renderInbox(); refreshInboxBadge(); }
 function renderInbox() {
-  const sv = DATA.survey || {};
-  const responses = sv.responses || [];
-  let h = pageHeader('Survey inbox',
-    'First-visit survey responses for ' + DATA.client + '. The answer tells us why, so the next message can be matched to the real blocker. Non-responders stay in the recovery queue.');
-  if (!responses.length) {
+  let h = pageHeader('Survey Responses & Alerts',
+    'What first-timers actually wrote about their visit. Read each one, watch for safety flags (handle those personally), then remove it once you’ve acted. Removing only clears it from here — the response stays in your form.');
+  const visible = inboxVisible();
+  if (!visible.length) {
+    const hadAny = allResponses().length > 0;
     h += '<div class="card"><div class="empty-state">' +
       '<div class="empty-state-icon">📭</div>' +
-      '<div class="empty-state-title">No survey responses yet</div>' +
-      '<div class="empty-state-msg">Responses show up here as first-timers fill out the survey.</div>' +
+      '<div class="empty-state-title">' + (hadAny ? 'Inbox clear' : 'No survey responses yet') + '</div>' +
+      '<div class="empty-state-msg">' + (hadAny ? 'You’ve read and cleared everything. New responses will appear here.' : 'Responses show up here as first-timers fill out the survey.') + '</div>' +
       '</div></div>';
     $('view-inbox').innerHTML = h; return;
   }
-  if (SELECTED_RESPONSE >= responses.length) SELECTED_RESPONSE = 0;
+  if (!visible.some(v => v.key === SELECTED_KEY)) SELECTED_KEY = visible[0].key;
   h += '<div class="inbox-layout"><div class="inbox-list">';
-  responses.forEach((r, i) => {
-    const who = r.name || r.email || '(no email)';
-    h += '<button class="inbox-item' + (i === SELECTED_RESPONSE ? ' active' : '') + '" onclick="selectResponse(' + i + ')">' +
-      '<div class="inbox-item-name">' + escapeHtml(who) + '</div>' +
+  visible.forEach(v => {
+    const r = v.r, who = r.name || r.email || '(no email)';
+    h += '<button class="inbox-item ' + (v.read ? 'read' : 'unread') + (v.key === SELECTED_KEY ? ' active' : '') + '" onclick="selectResponse(\'' + escapeHtml(v.key).replace(/'/g, "\\'") + '\')">' +
+      '<div class="inbox-item-name">' + (v.read ? '' : '<span class="inbox-dot"></span> ') + escapeHtml(who) + '</div>' +
       '<div class="inbox-item-meta">' +
         (r.answered_at ? '<span>' + escapeHtml(r.answered_at) + '</span>' : '') +
         (r.safety ? '<span class="badge badge-destructive">⚠ safety</span>'
@@ -792,13 +1065,23 @@ function renderInbox() {
         (r.matched ? '' : '<span class="badge">unmatched</span>') +
       '</div></button>';
   });
-  h += '</div><div>' + inboxDetail(responses[SELECTED_RESPONSE]) + '</div></div>';
+  const hiddenCount = lsGet(INBOX_RM_KEY).size;
+  if (hiddenCount) {
+    h += '<div class="inbox-hidden-note">' + hiddenCount + ' removed from this view (still in your form). <a onclick="inboxUnhideAll()">Show them again</a></div>';
+  }
+  const sel = visible.find(v => v.key === SELECTED_KEY);
+  h += '</div><div>' + inboxDetail(sel ? sel.r : null, sel ? sel.key : null) + '</div></div>';
   $('view-inbox').innerHTML = h;
 }
-function inboxDetail(r) {
+function inboxDetail(r, key) {
   if (!r) return '';
   const matchedItem = r.matched ? DATA.queue.find(q => q.climber_id === r.climber_id) : null;
-  let h = '<div class="card"><div class="card-header"><div class="card-title">' + icon('mail') + escapeHtml(r.name || r.email || '(no email)') + '</div>' +
+  let h = '';
+  if (r.safety) {
+    h += '<div class="banner banner-warn" style="margin-bottom:14px;">' + icon('shield') +
+      '<div><strong>Safety flag.</strong> This response tripped a safety keyword. Reach out personally — no automated message is sent for this person.</div></div>';
+  }
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('mail') + escapeHtml(r.name || r.email || '(no email)') + '</div>' +
     '<div class="card-description">' + escapeHtml(r.email || '') + (r.answered_at ? ' · ' + escapeHtml(r.answered_at) : '') + '</div></div>' +
     '<div class="card-content with-top">';
   h += '<div class="inline-badges" style="margin-bottom:14px;">' +
@@ -810,11 +1093,15 @@ function inboxDetail(r) {
   h += inboxQ('Overall first visit', r.q1_overall);
   h += inboxQ('Likely to become a regular?', r.q2_intent);
   h += inboxQ('Main issue, if any', r.q3_blocker_raw);
-  h += inboxQ('Anything else', r.q4_text);
+  h += inboxQ('In their own words', r.q4_text);
+  h += '<div class="queue-actions">';
   if (matchedItem) {
-    h += '<div class="queue-actions"><button class="btn btn-outline btn-sm" onclick="openDetail(\'' + escapeHtml(matchedItem.climber_id) + '\')">' + icon('users') + ' Open in recovery queue</button></div>';
-  } else if (!r.matched) {
-    h += '<div style="font-size:12px;color:var(--fg-subtle);margin-top:8px;line-height:1.6;">No climber in the Beta export matches this email (typo, or a contact we have not imported). Kept here for manual review, never dropped.</div>';
+    h += '<button class="btn btn-outline btn-sm" onclick="openDetail(\'' + escapeHtml(matchedItem.climber_id) + '\')">' + icon('users') + ' Open in recovery queue</button>';
+  }
+  h += '<button class="btn btn-ghost btn-sm" onclick="removeResponse(\'' + escapeHtml(key).replace(/'/g, "\\'") + '\')">' + icon('copy') + ' Remove from inbox</button>';
+  h += '</div>';
+  if (!r.matched) {
+    h += '<div style="font-size:12px;color:var(--fg-subtle);margin-top:8px;line-height:1.6;">No climber in the Beta export matches this email (typo, or a contact not imported). Kept here for manual review, never dropped.</div>';
   }
   h += '</div></div>';
   return h;
@@ -825,84 +1112,128 @@ function inboxQ(label, ans) {
     '<div class="q-ans' + (empty ? ' muted' : '') + '">' + (empty ? '(no answer)' : escapeHtml(ans)) + '</div></div>';
 }
 
-/* ============================ INSIGHTS (survey) ============================ */
+/* ============================ INSIGHTS (reporting + survey) ============================ */
 function bar(label, n, max) {
   const pct = max > 0 ? Math.round(100 * n / max) : 0;
   return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
     '<div class="bar-count">' + n + '</div></div>' +
     '<div class="bar-track"><div class="bar-fill" style="width:' + Math.max(pct, 2) + '%;"></div></div></div>';
 }
+function convBar(label, n, conv, pct, maxPct) {
+  const w = maxPct > 0 ? Math.round(100 * pct / maxPct) : 0;
+  return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
+    '<div class="bar-count">' + pct.toFixed(1) + '%</div></div>' +
+    '<div class="bar-track"><div class="bar-fill bar-green" style="width:' + Math.max(w, 2) + '%;"></div></div>' +
+    '<div class="bar-sub">' + conv.toLocaleString() + ' of ' + n.toLocaleString() + ' became members</div></div>';
+}
+function chartCard(title, desc, inner) {
+  return '<div class="card"><div class="card-header"><div class="card-title">' + icon('sparkles') + escapeHtml(title) + '</div>' +
+    '<div class="card-description">' + escapeHtml(desc) + '</div></div>' +
+    '<div class="card-content with-top">' + inner + '</div></div>';
+}
 function renderInsights() {
+  let h = pageHeader('Insights',
+    'What ' + DATA.client + '’s first-visit data is telling us. Same definitions as the FTV analysis, so these match the workbook. Pick a period to scope every chart.');
+
+  // ---- reporting (behavior) insights ----
+  if (reportingOn()) {
+    h += periodSelectHtml();
+    const ftvs = filterFtvs(), a = agg(ftvs);
+    h += '<div class="stats-grid-3">' +
+      statTile('First-timers', a.n.toLocaleString(), periodLabel()) +
+      statTile('Became a member', a.convPct.toFixed(1) + '%', a.conv.toLocaleString() + ' converted') +
+      statTile('Came back (2+ visits)', a.retPct.toFixed(1) + '%', a.ret.toLocaleString() + ' returned') +
+    '</div>';
+
+    h += '<div class="chart-grid-2">';
+    // conversion by return visits (the headline finding)
+    const bv = byVisits(ftvs);
+    let inner = '';
+    if (bv.length) {
+      const maxP = Math.max.apply(null, bv.map(b => b.pct)) || 1;
+      bv.forEach(b => { inner += convBar(b.k, b.n, b.conv, b.pct, maxP); });
+    } else { inner = '<div style="color:var(--fg-subtle);font-size:12.5px;">No check-in data for this period.</div>'; }
+    h += chartCard('Conversion by return visits', 'The single biggest driver: how many times a first-timer came back, and how that changes the odds of becoming a member.', inner);
+
+    // conversion by entry product
+    const be = byEntry(ftvs);
+    inner = '';
+    if (be.length) {
+      const maxP = Math.max.apply(null, be.map(e => e.pct)) || 1;
+      be.forEach(e => { inner += convBar(e.label, e.n, e.conv, e.pct, maxP); });
+    } else { inner = '<div style="color:var(--fg-subtle);font-size:12.5px;">No data for this period.</div>'; }
+    h += chartCard('Conversion by entry product', 'How the product someone first walks in on changes their odds of converting.', inner);
+    h += '</div>';
+
+    // when members join (timing) + seasonality
+    h += '<div class="chart-grid-2">';
+    const bt = byTiming(ftvs);
+    inner = '';
+    if (bt.length) {
+      const maxT = Math.max.apply(null, bt.map(b => b.n)) || 1;
+      bt.forEach(b => { inner += bar(b.k, b.n, maxT); });
+    } else { inner = '<div style="color:var(--fg-subtle);font-size:12.5px;">No conversions in this period yet.</div>'; }
+    h += chartCard('When members join', 'Days from a first visit to signing up. Tells you when a follow-up still has a chance.', inner);
+
+    // seasonality (only meaningful across >1 month)
+    const months = [...new Set(ftvs.map(f => f.m))].sort();
+    inner = '';
+    if (months.length > 1) {
+      const maxM = Math.max.apply(null, months.map(m => ftvs.filter(f => f.m === m).length)) || 1;
+      months.forEach(m => { inner += bar(monthName(m), ftvs.filter(f => f.m === m).length, maxM); });
+      h += chartCard('First-timers by month', 'How many new first-timers arrived each month in this period.', inner);
+    }
+    h += '</div>';
+  }
+
+  // ---- survey insights (only when the survey loop is on) ----
   const sv = DATA.survey || {};
   const responses = sv.responses || [];
-  let h = pageHeader('Survey insights',
-    'What the first-visit survey is telling us about ' + DATA.client + '. The same answers feed the deeper analysis.');
-  if (!responses.length) {
-    h += '<div class="card"><div class="empty-state">' +
-      '<div class="empty-state-icon">📊</div>' +
-      '<div class="empty-state-title">No survey data yet</div>' +
-      '<div class="empty-state-msg">Insights populate once survey responses come in.</div>' +
-      '</div></div>';
-    $('view-insights').innerHTML = h; return;
-  }
-  const matched = sv.matched || 0, unmatched = sv.unmatched || 0, safety = sv.safety || 0;
-  h += '<div class="stats-grid-3">' +
-    statTile('Responses', responses.length, 'First-visit surveys in') +
-    statTile('Matched to a climber', matched, 'Drive a matched follow-up') +
-    statTile('Safety flags', safety, 'Manager call, no auto-email', safety > 0) +
-  '</div>';
+  if (surveyOn() && responses.length) {
+    h += '<div class="card-title" style="margin:26px 0 10px;">' + icon('mail') + 'From the first-visit survey</div>';
+    const byBlocker = sv.by_blocker || {};
+    const blockerEntries = Object.entries(byBlocker).sort((a, b) => b[1] - a[1]);
+    let inner = '';
+    if (blockerEntries.length) {
+      const maxB = Math.max.apply(null, blockerEntries.map(e => e[1]));
+      blockerEntries.forEach(([b, n]) => { inner += bar(blockerLabel(b), n, maxB); });
+    } else { inner = '<div style="color:var(--fg-subtle);font-size:12.5px;">No blockers reported yet.</div>'; }
+    h += chartCard('Why first-timers hesitate', 'The blocker each respondent named (Q3). This is what each recovery message answers.', inner);
 
-  const byBlocker = sv.by_blocker || {};
-  const blockerEntries = Object.entries(byBlocker).sort((a, b) => b[1] - a[1]);
-  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('sparkles') + 'Why first-timers hesitate</div>' +
-    '<div class="card-description">The blocker each respondent named (Q3). This is what each recovery message answers.</div></div>' +
-    '<div class="card-content with-top">';
-  if (!blockerEntries.length) {
-    h += '<div style="color:var(--fg-subtle);font-size:12.5px;">No blockers reported yet.</div>';
-  } else {
-    const maxB = Math.max.apply(null, blockerEntries.map(e => e[1]));
-    blockerEntries.forEach(([b, n]) => { h += bar(blockerLabel(b), n, maxB); });
+    const intents = { high: 0, medium: 0, low: 0 };
+    responses.forEach(r => { if (r.intent && intents[r.intent] != null) intents[r.intent]++; });
+    const intentTotal = intents.high + intents.medium + intents.low;
+    inner = '';
+    if (intentTotal) {
+      const maxI = Math.max(intents.high, intents.medium, intents.low);
+      ['high', 'medium', 'low'].forEach(k => { if (intents[k]) inner += bar(intentLabel(k), intents[k], maxI); });
+    } else { inner = '<div style="color:var(--fg-subtle);font-size:12.5px;">No intent answers yet.</div>'; }
+    h += chartCard('How likely to become regulars', 'Self-reported intent (Q2). High-intent first-timers get the round-two invite.', inner);
   }
-  h += '</div></div>';
 
-  const intents = { high: 0, medium: 0, low: 0 };
-  responses.forEach(r => { if (r.intent && intents[r.intent] != null) intents[r.intent]++; });
-  const intentTotal = intents.high + intents.medium + intents.low;
-  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('funnel') + 'How likely to become regulars</div>' +
-    '<div class="card-description">Self-reported intent (Q2). High-intent first-timers get the round-two invite.</div></div>' +
-    '<div class="card-content with-top">';
-  if (!intentTotal) {
-    h += '<div style="color:var(--fg-subtle);font-size:12.5px;">No intent answers yet.</div>';
-  } else {
-    const maxI = Math.max(intents.high, intents.medium, intents.low);
-    ['high', 'medium', 'low'].forEach(k => { if (intents[k]) h += bar(intentLabel(k), intents[k], maxI); });
-  }
-  h += '</div></div>';
-
-  if (unmatched) {
-    h += '<div class="card"><div class="card-content with-top" style="font-size:12.5px;color:var(--fg-subtle);line-height:1.7;">' +
-      unmatched + ' response' + (unmatched === 1 ? '' : 's') + ' did not match a climber in the Beta export. Kept in the Inbox for manual review, never dropped.' +
-      '</div></div>';
+  if (!reportingOn() && !(surveyOn() && responses.length)) {
+    h += '<div class="card"><div class="empty-state"><div class="empty-state-icon">📊</div>' +
+      '<div class="empty-state-title">No data yet</div>' +
+      '<div class="empty-state-msg">Insights populate from the Beta exports and the survey.</div></div></div>';
   }
   $('view-insights').innerHTML = h;
 }
 
 function setupSurveyNav() {
   const inbox = $('nav-inbox'), insights = $('nav-insights');
-  const label = $('survey-nav-label'), badge = $('inbox-badge');
+  const label = $('survey-nav-label');
+  // Insights is always available now (it includes behavior reporting, not just survey).
+  insights.onclick = () => showView('insights');
+  renderInsights();
   if (surveyOn()) {
     label.textContent = 'Survey loop';
     inbox.onclick = () => showView('inbox');
-    insights.onclick = () => showView('insights');
-    const n = (DATA.survey.responses || []).length;
-    if (n) { badge.textContent = n; badge.style.display = ''; }
     renderInbox();
-    renderInsights();
+    refreshInboxBadge();
   } else {
     label.textContent = 'Coming with the survey loop';
-    [inbox, insights].forEach(b => { b.style.opacity = '0.5'; b.style.cursor = 'not-allowed'; });
-    inbox.onclick = () => toast('Inbox activates when the survey loop is on');
-    insights.onclick = () => toast('Insights activates when the survey loop is on');
+    inbox.style.opacity = '0.5'; inbox.style.cursor = 'not-allowed';
+    inbox.onclick = () => toast('Survey responses appear once the survey loop is on');
   }
 }
 
@@ -924,13 +1255,13 @@ function toast(msg) {
 }
 
 // init
+REPORT_PERIOD = reportingOn() ? defaultPeriod() : 'all';
 $('brand-sub').textContent = DATA.client || 'Send It';
 $('queue-badge').textContent = DATA.queue.length;
 $('footer-meta').textContent = 'as of ' + DATA.as_of + ' · ' + DATA.mode;
 renderDashboard();
 renderQueue();
 renderFunnel();
-renderSettings();
 setupSurveyNav();
 
 // Restore the tab across auto-refresh reloads (so a periodic refresh doesn't
@@ -939,9 +1270,9 @@ setupSurveyNav();
   let id = '';
   try { id = sessionStorage.getItem('shiftActiveView') || ''; } catch (e) {}
   if (!id) id = (location.hash || '').replace('#', '');
-  const valid = ['dashboard', 'queue', 'funnel', 'settings', 'inbox', 'insights'];
+  const valid = ['dashboard', 'queue', 'funnel', 'inbox', 'insights'];
   if (!valid.includes(id) || id === 'dashboard') return;
-  if ((id === 'inbox' || id === 'insights') && !surveyOn()) return;
+  if (id === 'inbox' && !surveyOn()) return;
   showView(id);
 })();
 </script>

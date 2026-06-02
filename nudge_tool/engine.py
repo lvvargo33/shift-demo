@@ -375,6 +375,50 @@ def build_funnel(ds: Dataset) -> list[dict]:
     ]
 
 
+def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
+    """Workbook-aligned reporting slice (Dashboard tiles / Funnel / Insights).
+
+    Ships one compact record per FTV in the cohort so the dashboard can re-scope
+    by period (all-time / year / month) entirely client-side. Definitions mirror
+    SHIFT_Analysis/scripts/01_data_prep.py (see DASHBOARD_REVAMP_SPEC):
+      - cohort  = climbers with an FTV-qualifying first purchase, NOT staff, on
+                  or after reporting.post_opening_date (PRESALE founders excluded).
+      - convert = reporting_converted (a real Memberships row).
+      - period  = bucketed by FTV first-visit month.
+    Returns enabled:false when no reporting config is present (older clients)."""
+    rep = client.reporting or {}
+    if not rep.get("ftv_qualifying_categories"):
+        return {"enabled": False, "ftvs": []}
+    opening = rep.get("post_opening_date")
+    ftvs = []
+    for c in ds.climbers.values():
+        fd = c.ftv_date
+        if not fd or c.is_staff:
+            continue
+        if opening and fd < opening:
+            continue
+        dtc = None
+        if c.reporting_converted and c.membership_created and c.membership_created >= fd:
+            dtc = ingest.days_between(fd, date.fromisoformat(c.membership_created))
+        ftvs.append({
+            "m": fd[:7],                 # YYYY-MM cohort month
+            "d": fd,                     # full FTV date (for rolling windows)
+            "cat": c.ftv_category,       # entry product
+            "nv": min(c.visit_count, 99),  # distinct check-in days (capped)
+            "v1": c.visit_count >= 1,    # checked in at least once
+            "ret": c.visit_count >= 2,   # came back (2+ visits)
+            "conv": bool(c.reporting_converted),
+            "dtc": dtc,                  # days from FTV to becoming a member (or null)
+        })
+    return {
+        "enabled": True,
+        "post_opening_date": opening,
+        "as_of": asof.isoformat(),
+        "entry_labels": rep.get("entry_product_labels", {}),
+        "ftvs": ftvs,
+    }
+
+
 def build_config_view(client: ClientConfig) -> dict:
     """Read-only snapshot of the live config for the Settings view. Grounds the
     'everything is tunable per client, no code' story."""
@@ -486,6 +530,7 @@ def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
         "survey": survey_block,
         "metrics": build_metrics(ds, queue, client, asof),
         "funnel": build_funnel(ds),
+        "reporting": build_reporting(ds, client, asof),
         "config": build_config_view(client),
         "triggers": [
             {"name": t.name, "tag": t.tag, "template_id": t.template_id,
