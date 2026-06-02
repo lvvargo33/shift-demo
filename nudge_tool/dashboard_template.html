@@ -412,6 +412,12 @@ function showView(viewId) {
   const navId = viewId === 'detail' ? 'queue' : viewId;
   const btn = document.querySelector('.nav-btn[data-view="' + navId + '"]');
   if (btn) btn.classList.add('active');
+  // Remember the tab in the URL hash so an auto-refresh reload restores it
+  // instead of snapping back to Dashboard. Detail is per-climber, so skip it.
+  if (viewId !== 'detail') {
+    try { history.replaceState(null, '', '#' + viewId); }
+    catch (e) { location.hash = viewId; }
+  }
   window.scrollTo(0, 0);
   closeMobileNav();
 }
@@ -924,6 +930,16 @@ renderQueue();
 renderFunnel();
 renderSettings();
 setupSurveyNav();
+
+// Restore the tab across auto-refresh reloads (so a periodic refresh doesn't
+// snap the reader back to Dashboard). Inbox/Insights only when the survey is on.
+(function restoreView() {
+  const id = (location.hash || '').replace('#', '');
+  const valid = ['dashboard', 'queue', 'funnel', 'settings', 'inbox', 'insights'];
+  if (!valid.includes(id) || id === 'dashboard') return;
+  if ((id === 'inbox' || id === 'insights') && !surveyOn()) return;
+  showView(id);
+})();
 </script>
 </body>
 </html>
