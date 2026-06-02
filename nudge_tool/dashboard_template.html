@@ -493,7 +493,7 @@ function monthName(m) { const p = (m||'').split('-'); return p.length === 2 ? MO
 function periodMonths() { return [...new Set(allFtvs().map(f => f.m))].sort().reverse(); }
 function periodYears() { return [...new Set(allFtvs().map(f => f.m.slice(0,4)))].sort().reverse(); }
 function defaultPeriod() {
-  return allFtvs().length ? 'r:30' : 'all';   // rolling last 30 days
+  return allFtvs().length ? 'r:90' : 'all';   // rolling last 90 days
 }
 function rollingCutoff(days) {
   const asof = (DATA.reporting && DATA.reporting.as_of) || '';
