@@ -12,8 +12,20 @@ services:
         sync: false
       - key: LIVE_PASS
         sync: false
-      - key: LIVE_CLIENT
-        value: shift_demo_live
+      - key: LIVE_CLIENT       # 'shift' = real data via Drive; 'shift_demo_live' = fake demo
+        value: shift
       - key: LIVE_REFRESH      # auto-reload the page every N seconds (0 = off)
         value: "15"
+      # Real Beta data: Drive file ids from `drive_sync.py push`. With these set,
+      # the host pulls fresh CSVs on load (read-only). Leave unset to keep the
+      # demo on fake data. The SAME GSHEETS_SA_JSON above must have Viewer/Editor
+      # on the Drive folder.
+      - key: BETA_DRIVE_TX
+        sync: false
+      - key: BETA_DRIVE_SES
+        sync: false
+      - key: BETA_DRIVE_MEM
+        sync: false
+      - key: BETA_DRIVE_TTL    # min seconds between Drive pulls (cache)
+        value: "60"
     healthCheckPath: /healthz

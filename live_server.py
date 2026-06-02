@@ -29,6 +29,7 @@ import argparse
 import base64
 import json
 import os
+import time
 import traceback
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,6 +40,40 @@ from nudge_tool.config import DASHBOARD_TEMPLATE, load_client
 
 DEFAULT_CLIENT = "shift_demo_live"
 DEFAULT_DAYS_AHEAD = 6  # as-of = today + 6 so a same-day submission routes to its nudge
+
+# Real Beta data lives in a private Drive folder (never in git). On the host,
+# set these to the Drive file ids (drive_sync.py push prints them) and the
+# server pulls fresh CSVs to the client's data paths before each render. Unset
+# (the local-dev default) = read the existing local CSVs, behavior unchanged.
+_DRIVE_IDS = {
+    "transactions_csv": os.getenv("BETA_DRIVE_TX"),
+    "sessions_csv": os.getenv("BETA_DRIVE_SES"),
+    "memberships_csv": os.getenv("BETA_DRIVE_MEM"),
+}
+_DRIVE_TTL = int(os.getenv("BETA_DRIVE_TTL", "60") or "60")  # min seconds between pulls
+_last_pull = 0.0
+
+
+def _ensure_beta_data(client) -> None:
+    """If Drive file ids are configured, pull fresh CSVs to the client's data
+    paths (read-only scope, TTL-throttled). No-op when no ids are set."""
+    global _last_pull
+    if not any(_DRIVE_IDS.values()):
+        return
+    now = time.monotonic()
+    if _last_pull and (now - _last_pull) < _DRIVE_TTL:
+        return
+    from nudge_tool import drive_io
+    svc = drive_io._service(drive_io._RO)
+    pulled = []
+    for attr, fid in _DRIVE_IDS.items():
+        if not fid:
+            continue
+        dest = str(getattr(client, attr))
+        drive_io.pull(fid, dest, svc=svc)
+        pulled.append(attr.replace("_csv", ""))
+    _last_pull = now
+    print(f"  pulled from Drive: {', '.join(pulled)}")
 
 # Optional login gate (protects the real PII on the hosted /live page). When
 # LIVE_USER + LIVE_PASS env vars are set, every request must pass HTTP Basic
@@ -70,6 +105,7 @@ def render(client_slug: str, asof: date) -> str:
     file, and skips the Mailchimp status read (like --skip-status) so a page load
     is fast and works even if creds/network are unavailable."""
     client = load_client(client_slug)
+    _ensure_beta_data(client)                          # pull real CSVs from Drive (host only)
     ds = ingest.load(client)
     survey_result = survey.apply(ds, client)          # reads the live Form sheet
     log = outreach.load(client)

@@ -5,6 +5,8 @@ sa_key.json
 __pycache__/
 *.pyc
 publish/
+beta_data/
+drive_manifest.json
 nudge_tool/clients/*/out/
 nudge_tool/clients/*/outreach_log.csv
 # local dev/test scratch (never commit)
