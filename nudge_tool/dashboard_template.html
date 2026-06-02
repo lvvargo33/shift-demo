@@ -510,7 +510,7 @@ function filteredQueue() {
 }
 
 function reasonLabel(r) {
-  return ({ unsubscribed: 'Unsubscribed / cleaned', already_sent: 'Already sent (once only)', cooldown: 'In cooldown' })[r] || r;
+  return ({ unsubscribed: 'Unsubscribed / cleaned', already_sent: 'Already sent (once only)', cooldown: 'In cooldown', shared_inbox: 'Shared inbox (deduped)' })[r] || r;
 }
 function withheldCard() {
   const sup = DATA.suppression || {};

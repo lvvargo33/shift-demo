@@ -124,7 +124,8 @@ def render(client_slug: str, asof: date) -> str:
 
     suppressed_out: list = []
     queue = engine.build_queue(ds, client, asof, log=log,
-                               unsubscribed=set(), suppressed_out=suppressed_out)
+                               unsubscribed=set(), suppressed_out=suppressed_out,
+                               dedup_email=True)
     generated_at = datetime.now().isoformat(timespec="seconds")
     payload = engine.build_payload(ds, queue, client, asof, "dry-run",
                                    generated_at, survey_result, suppressed_out)

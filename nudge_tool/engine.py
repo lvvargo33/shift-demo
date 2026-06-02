@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import date
+from types import SimpleNamespace
 
 from . import ingest, templates
 from .config import ClientConfig
@@ -150,6 +151,40 @@ def _suppressed(c: Climber, t: Trigger, asof: date,
     return None
 
 
+# --- dedup by email (rule 6: one email per inbox) ----------------------------
+
+def _dedup_by_email(items: list[QueueItem],
+                    suppressed_out: list | None) -> list[QueueItem]:
+    """Collapse the queue so each email address gets at most one nudge.
+
+    Some climbers share one email (e.g. a family booked under one address), so
+    without this they would each get their own follow-up and that single inbox
+    would receive several. `items` is already in priority order, so we keep the
+    FIRST (highest-priority) nudge per email and drop the rest, recording each
+    drop in suppressed_out as 'shared_inbox' so it shows on the dashboard as
+    withheld rather than vanishing.
+
+    Never deduped: MANUAL safety items (they send no email and must always
+    surface) and blank emails (nothing to collapse on)."""
+    seen: dict[str, QueueItem] = {}
+    kept: list[QueueItem] = []
+    for it in items:
+        email = (it.email or "").strip().lower()
+        if it.trigger_name == "MANUAL" or not email:
+            kept.append(it)
+            continue
+        if email in seen:
+            if suppressed_out is not None:
+                c_like = SimpleNamespace(climber_id=it.climber_id,
+                                         name=it.name, email=it.email)
+                t_like = SimpleNamespace(name=it.trigger_name, tag=it.tag)
+                suppressed_out.append((c_like, t_like, "shared_inbox"))
+            continue
+        seen[email] = it
+        kept.append(it)
+    return kept
+
+
 # --- queue construction ------------------------------------------------------
 
 def _make_item(c: Climber, t: Trigger, days: int, anchor_date: str,
@@ -193,14 +228,19 @@ def _manual_item(c: Climber, order: int) -> QueueItem:
 
 def build_queue(ds: Dataset, client: ClientConfig, asof: date,
                 log=None, unsubscribed: set | None = None,
-                suppressed_out: list | None = None) -> list[QueueItem]:
+                suppressed_out: list | None = None,
+                dedup_email: bool = False) -> list[QueueItem]:
     """Build today's queue applying all five precedence rules.
 
     log / unsubscribed power rules 4 + 5; both default to off so the S1/S2
     behavior is byte-identical when they aren't passed. When suppressed_out is a
     list, every (climber, trigger, reason) we dropped for rule 4/5 is appended to
     it (so the caller can report "would have sent X but it's unsubscribed /
-    already sent")."""
+    already sent").
+
+    dedup_email (off by default, on in the real cli/live callers): collapse the
+    queue to one nudge per email address so a shared (family) inbox isn't sent
+    several. Dropped duplicates are recorded in suppressed_out as 'shared_inbox'."""
     active = _active(client)
     order_of = {t.name: i for i, t in enumerate(active)}
     items: list[QueueItem] = []
@@ -236,6 +276,10 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
 
     # Display order: priority group, then oldest-in-window, then name.
     items.sort(key=lambda i: (i.order, -i.days_since, i.name.lower()))
+    # rule 6: one nudge per shared inbox (after the priority sort so the
+    # highest-priority nudge is the one kept for that email).
+    if dedup_email:
+        items = _dedup_by_email(items, suppressed_out)
     for n, it in enumerate(items, 1):
         it.priority = n
     return items
