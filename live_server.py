@@ -47,6 +47,11 @@ DEFAULT_DAYS_AHEAD = 6  # as-of = today + 6 so a same-day submission routes to i
 BASIC_USER = os.getenv("LIVE_USER")
 BASIC_PASS = os.getenv("LIVE_PASS")
 
+# Auto-reload interval (seconds) baked into every page so the bare URL refreshes
+# itself (handy for a "watch it land" demo without appending ?refresh=). 0 = off
+# (the local default). A per-request ?refresh=N still overrides; ?refresh=0 off.
+DEFAULT_REFRESH = int(os.getenv("LIVE_REFRESH", "0") or "0")
+
 
 def _resolve_asof(params: dict) -> date:
     """As-of date for the day-windows. ?asof= wins; else today + ?days (default 6)."""
@@ -143,8 +148,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             asof = _resolve_asof(params)
             html = render(slug, asof)
-            if params.get("refresh"):
-                html = _inject_refresh(html, int(params["refresh"][0]))
+            refresh = int(params["refresh"][0]) if params.get("refresh") else DEFAULT_REFRESH
+            if refresh > 0:
+                html = _inject_refresh(html, refresh)
             self._send(200, "text/html; charset=utf-8", html.encode("utf-8"))
         except Exception:
             tb = traceback.format_exc()
