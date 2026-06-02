@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: shift-live-dash
+    runtime: python
+    plan: starter            # ~$7/mo, always on (no cold starts). 'free' sleeps.
+    buildCommand: pip install -r requirements.txt
+    startCommand: python live_server.py
+    envVars:
+      - key: GSHEETS_SA_JSON  # paste the service-account key JSON (Viewer on the Form sheet)
+        sync: false
+      - key: LIVE_USER        # login gate for the PII page
+        sync: false
+      - key: LIVE_PASS
+        sync: false
+      - key: LIVE_CLIENT
+        value: shift_demo_live
+    healthCheckPath: /healthz

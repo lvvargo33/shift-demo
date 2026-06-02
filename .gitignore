@@ -7,3 +7,6 @@ __pycache__/
 publish/
 nudge_tool/clients/*/out/
 nudge_tool/clients/*/outreach_log.csv
+# local dev/test scratch (never commit)
+_*.html
+_*.txt
