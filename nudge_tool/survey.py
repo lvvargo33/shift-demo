@@ -264,11 +264,17 @@ def apply(ds: Dataset, client: ClientConfig) -> SurveyResult:
         c.survey_blocker = r.blocker
         c.survey_intent = r.intent
         if r.safety:
-            c.safety_flag = True
-            result.safety_count += 1
-        if r.blocker:
-            result.by_blocker[r.blocker] = result.by_blocker.get(r.blocker, 0) + 1
+            c.safety_flag = True   # escalate the matched climber to MANUAL
         result.matched += 1
         result.responses.append(r)
+
+    # Aggregate counts span EVERY response, matched or not: "what are first-timers
+    # reporting" should reflect everyone who answered, not only those we could tie
+    # back to a Beta climber. The matched-only MANUAL escalation stays above.
+    for r in result.responses:
+        if r.blocker:
+            result.by_blocker[r.blocker] = result.by_blocker.get(r.blocker, 0) + 1
+        if r.safety:
+            result.safety_count += 1
 
     return result
