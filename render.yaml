@@ -41,7 +41,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python beta_pull.py --drive --notify
     envVars:
-      - key: GSHEETS_SA_JSON   # SA key JSON; needs Editor on the Drive folder (push)
+      - key: GSHEETS_SA_B64    # base64 of the SA key JSON (paste-safe); Editor on the Drive folder
         sync: false
       - key: BETA_API_KEY      # Firebase web API key (AIza...)
         sync: false

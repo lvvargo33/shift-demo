@@ -30,13 +30,21 @@ _RO = "https://www.googleapis.com/auth/drive.readonly"
 
 def _creds(scope: str):
     from google.oauth2 import service_account
+    # GSHEETS_SA_B64 (base64 of the key JSON) is the most paste-safe form for
+    # cloud env fields, which can mangle the raw JSON's quotes/newlines.
+    b64 = os.getenv("GSHEETS_SA_B64")
+    if b64:
+        import base64
+        info = json.loads(base64.b64decode(b64))
+        return service_account.Credentials.from_service_account_info(info, scopes=[scope])
     key_path = os.getenv("GSHEETS_SA_KEY")
     if key_path:
         return service_account.Credentials.from_service_account_file(key_path, scopes=[scope])
     raw = os.getenv("GSHEETS_SA_JSON")
     if raw:
         return service_account.Credentials.from_service_account_info(json.loads(raw), scopes=[scope])
-    raise RuntimeError("no SA creds: set GSHEETS_SA_KEY (file path) or GSHEETS_SA_JSON (raw JSON)")
+    raise RuntimeError("no SA creds: set GSHEETS_SA_B64 (base64 JSON), "
+                       "GSHEETS_SA_KEY (file path), or GSHEETS_SA_JSON (raw JSON)")
 
 
 def _service(scope: str = _RW):
