@@ -28,24 +28,40 @@ _RW = "https://www.googleapis.com/auth/drive"
 _RO = "https://www.googleapis.com/auth/drive.readonly"
 
 
-def _creds(scope: str):
-    from google.oauth2 import service_account
-    # GSHEETS_SA_B64 (base64 of the key JSON) is the most paste-safe form for
-    # cloud env fields, which can mangle the raw JSON's quotes/newlines.
-    b64 = os.getenv("GSHEETS_SA_B64")
-    if b64:
+def _load_info(text: str) -> dict:
+    """Parse SA key info from text that is EITHER raw JSON OR base64-of-JSON.
+
+    Cloud env fields / file editors mangle the key's quotes and \\n escapes, so
+    base64 (plain ASCII, no escapes) is the paste-safe form. We try JSON first;
+    if that fails, normalize base64 (strip whitespace, accept url-safe -/_,
+    restore padding) and decode."""
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except Exception:
         import base64
         import re
-        s = re.sub(r"\s+", "", b64)        # drop any whitespace/newlines from paste
-        s += "=" * (-len(s) % 4)           # restore stripped padding
-        info = json.loads(base64.b64decode(s))
-        return service_account.Credentials.from_service_account_info(info, scopes=[scope])
+        s = re.sub(r"\s+", "", text).replace("-", "+").replace("_", "/")
+        s += "=" * (-len(s) % 4)
+        return json.loads(base64.b64decode(s))
+
+
+def _creds(scope: str):
+    from google.oauth2 import service_account
+    b64 = os.getenv("GSHEETS_SA_B64")
+    if b64:
+        return service_account.Credentials.from_service_account_info(
+            _load_info(b64), scopes=[scope])
     key_path = os.getenv("GSHEETS_SA_KEY")
-    if key_path:
-        return service_account.Credentials.from_service_account_file(key_path, scopes=[scope])
+    if key_path and os.path.exists(key_path):
+        with open(key_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        return service_account.Credentials.from_service_account_info(
+            _load_info(content), scopes=[scope])
     raw = os.getenv("GSHEETS_SA_JSON")
     if raw:
-        return service_account.Credentials.from_service_account_info(json.loads(raw), scopes=[scope])
+        return service_account.Credentials.from_service_account_info(
+            _load_info(raw), scopes=[scope])
     raise RuntimeError("no SA creds: set GSHEETS_SA_B64 (base64 JSON), "
                        "GSHEETS_SA_KEY (file path), or GSHEETS_SA_JSON (raw JSON)")
 
