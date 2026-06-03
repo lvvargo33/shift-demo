@@ -272,6 +272,21 @@ button, input, textarea, select { font-family: inherit; }
 .conv-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .conv-table tr:last-child td { border-bottom: none; }
 
+/* --- insights: trend line chart --- */
+.chart-svg { display: block; width: 100%; height: auto; max-height: 230px; overflow: visible; margin-top: 4px; }
+.chart-grid { stroke: var(--border-soft); stroke-width: 1; }
+.chart-axis { stroke: var(--border-strong); stroke-width: 1; }
+.chart-tick { font-size: 10.5px; fill: var(--fg-subtle); font-family: inherit; }
+.chart-area-you { fill: var(--primary); fill-opacity: 0.07; }
+.chart-line-you { stroke: var(--primary); stroke-width: 2.5; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.chart-line-mem { stroke: var(--success); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.chart-dot-you { fill: var(--primary); stroke: var(--card); stroke-width: 1.5; }
+.chart-dot-mem { fill: var(--success); stroke: var(--card); stroke-width: 1.5; }
+.chart-legend { display: flex; gap: 18px; margin-top: 12px; font-size: 11.5px; color: var(--fg-subtle); }
+.legend-swatch-line, .legend-swatch-mem { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.legend-swatch-line { background: var(--primary); }
+.legend-swatch-mem { background: var(--success); }
+
 /* --- queue: select + send --- */
 .queue-select { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-muted); }
 .queue-select input { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
@@ -337,9 +352,6 @@ button, input, textarea, select { font-family: inherit; }
       Survey Responses
       <span class="nav-badge" id="inbox-badge" style="display:none;">0</span>
     </button>
-  </div>
-  <div class="sidebar-footer">
-    <div class="user-chip" id="footer-meta">—</div>
   </div>
 </nav>
 
@@ -459,6 +471,13 @@ function showView(viewId) {
     try { history.replaceState(null, '', '#' + viewId); }
     catch (e2) { location.hash = viewId; }
   }
+  // Opening the inbox marks the currently-shown response as read, so the top
+  // item doesn't sit there looking unseen (it IS shown in the reading pane).
+  if (viewId === 'inbox' && surveyOn() && SELECTED_KEY) {
+    const seen = lsGet(INBOX_READ_KEY);
+    if (!seen.has(SELECTED_KEY)) { seen.add(SELECTED_KEY); lsSet(INBOX_READ_KEY, seen); renderInbox(); }
+    refreshInboxBadge();
+  }
   window.scrollTo(0, 0);
   closeMobileNav();
 }
@@ -478,7 +497,7 @@ function safetyBanner() {
       '<div><strong>LIVE mode.</strong> The follow-ups below are ready to send to the climbers listed.</div></div>';
   }
   return '<div class="banner banner-safe">' + icon('shield') +
-    '<div><strong>Demonstration — nothing is being sent.</strong> This is a preview of who you’d send a follow-up to, and the message each would get. Automated sending isn’t connected yet, so pressing Send just shows you the flow.</div></div>';
+    '<div><strong>Review mode.</strong> This shows exactly who you’d follow up with and the message each person gets. Sending isn’t switched on yet, so the Send buttons just walk you through the flow.</div></div>';
 }
 
 /* ============================ REPORTING PERIOD + AGGREGATES ============================ */
@@ -664,7 +683,7 @@ function renderDashboard() {
   h += '<div class="card"><div class="card-content with-top" style="font-size:12.5px;color:var(--fg-subtle);line-height:1.7;">' +
     'As of <strong>' + escapeHtml(DATA.as_of) + '</strong> &nbsp;·&nbsp; ' +
     'data window: transactions to ' + escapeHtml(dw.transactions_max || '?') + ', check-ins to ' + escapeHtml(dw.sessions_max || '?') + '<br>' +
-    'Generated ' + escapeHtml(DATA.generated_at) + ' &nbsp;·&nbsp; mode <strong>' + escapeHtml(DATA.mode) + '</strong>' +
+    'Generated ' + escapeHtml(DATA.generated_at) +
     '</div></div>';
 
   $('view-dashboard').innerHTML = h;
@@ -738,7 +757,7 @@ function withheldCard() {
 
 function renderQueue() {
   let h = pageHeader('Recovery Queue',
-    'Everyone queued to send to this run, highest priority first. Click a name for their full history. This is who the tool would tag; the Mailchimp Journey sends.');
+    'Everyone queued to send to this run, highest priority first. Click a name for their full history.');
   h += safetyBanner();
   h += withheldCard();
 
@@ -783,7 +802,6 @@ function renderQueueCard(q) {
         field('Trigger', triggerLabel(q.trigger_name)) +
         field('Timing', anchorLabel(q.anchor) + ' + ' + q.days_since + 'd') +
         field('Visits', String(q.visit_count)) +
-        field('Template', q.template_id) +
       '</div>' +
       surveyStatusLine(q) +
       '<button class="queue-expand-btn" onclick="toggleExpand(\'' + escapeHtml(q.climber_id) + '\')">▸ Preview the message</button>' +
@@ -883,7 +901,7 @@ function funnelStageRow(label, count, pct, note, prevCount) {
 }
 function renderFunnel() {
   let h = pageHeader('First-visit → member funnel',
-    'Every first-time visitor and how far each got, using the same definitions as the FTV analysis. Staff are excluded; the cohort starts when SHIFT opened.');
+    'Every first-time visitor and how far each got.');
   if (!reportingOn()) {
     h += '<div class="card"><div class="empty-state"><div class="empty-state-title">No reporting data</div>' +
       '<div class="empty-state-msg">This client has no reporting config yet.</div></div></div>';
@@ -914,8 +932,8 @@ function renderFunnel() {
   }
 
   h += '<div class="card"><div class="card-content with-top" style="font-size:12.5px;color:var(--fg-subtle);line-height:1.7;">' +
-    'Counts are distinct climbers. A first-time visitor = their earliest day-pass, trial, punch, class, event, or membership purchase (staff excluded, since SHIFT opened). ' +
-    '"Became a member" = appears in the membership records. Same method as the FTV analysis workbook. As of <strong>' + escapeHtml(DATA.as_of) + '</strong>.' +
+    'Counts are distinct climbers. A first-time visitor = their earliest day-pass, trial, punch, class, event, or membership purchase (staff excluded). ' +
+    '"Became a member" = appears in the membership records. As of <strong>' + escapeHtml(DATA.as_of) + '</strong>.' +
     '</div></div>';
   $('view-funnel').innerHTML = h;
 }
@@ -976,7 +994,7 @@ function renderSettings() {
   h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('shield') + 'Safety locks</div></div>' +
     '<div class="card-content with-top">' +
     '<div style="margin-bottom:10px;">Live sending is <strong>' + (c.safety.live_enabled ? 'ENABLED' : 'OFF') + '</strong> for this client. ' +
-    'The tool only ever applies a Mailchimp tag; a Customer Journey does the sending, and only after the client approves it.</div>' +
+    'The tool only flags who should get a follow-up. Nothing is sent until you switch it on and approve the messages.</div>' +
     '<ul style="margin:0 0 0 18px;font-size:12.5px;color:var(--fg-muted);line-height:1.7;">' +
     c.safety.locks.map(l => '<li>' + escapeHtml(l) + '</li>').join('') +
     '</ul></div></div>';
@@ -1131,9 +1149,53 @@ function chartCard(title, desc, inner) {
     '<div class="card-description">' + escapeHtml(desc) + '</div></div>' +
     '<div class="card-content with-top">' + inner + '</div></div>';
 }
+// round a value up to a clean axis maximum (5, 10, 20, 25, 50, ...)
+function niceMax(v) {
+  if (v <= 5) return 5;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  const steps = [1, 2, 2.5, 5, 10];
+  for (let i = 0; i < steps.length; i++) { if (v <= steps[i] * pow) return steps[i] * pow; }
+  return 10 * pow;
+}
+// two-line trend chart (real data: e.g. first-timers vs new members per month)
+function trendChart(labels, s1, s2, label1, label2) {
+  const W = 760, H = 200, P = { l: 34, r: 14, t: 14, b: 26 };
+  const innerW = W - P.l - P.r, innerH = H - P.t - P.b;
+  const yMax = niceMax(Math.max(1, Math.max.apply(null, s1.concat(s2))));
+  const n = labels.length;
+  const xStep = innerW / Math.max(1, n - 1);
+  const x = i => P.l + i * xStep;
+  const y = v => P.t + innerH - (v / yMax) * innerH;
+  let svg = '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">';
+  for (let i = 0; i <= 4; i++) {
+    const yPos = P.t + (innerH / 4) * i;
+    svg += '<line class="chart-grid" x1="' + P.l + '" y1="' + yPos + '" x2="' + (W - P.r) + '" y2="' + yPos + '"/>';
+    svg += '<text class="chart-tick" x="' + (P.l - 6) + '" y="' + (yPos + 3) + '" text-anchor="end">' + Math.round(yMax - (yMax / 4) * i) + '</text>';
+  }
+  svg += '<line class="chart-axis" x1="' + P.l + '" y1="' + (H - P.b) + '" x2="' + (W - P.r) + '" y2="' + (H - P.b) + '"/>';
+  const skip = Math.ceil(n / 12);
+  labels.forEach((lab, i) => {
+    if (i % skip === 0 || i === n - 1) svg += '<text class="chart-tick" x="' + x(i) + '" y="' + (H - P.b + 16) + '" text-anchor="middle">' + escapeHtml(lab) + '</text>';
+  });
+  const area = s1.map((v, i) => (i === 0 ? 'M' : 'L') + x(i) + ',' + y(v)).join(' ') +
+    ' L' + x(n - 1) + ',' + (H - P.b) + ' L' + x(0) + ',' + (H - P.b) + ' Z';
+  svg += '<path class="chart-area-you" d="' + area + '"/>';
+  svg += '<path class="chart-line-you" d="' + s1.map((v, i) => (i === 0 ? 'M' : 'L') + x(i) + ',' + y(v)).join(' ') + '"/>';
+  svg += '<path class="chart-line-mem" d="' + s2.map((v, i) => (i === 0 ? 'M' : 'L') + x(i) + ',' + y(v)).join(' ') + '"/>';
+  s1.forEach((v, i) => {
+    const tip = labels[i] + ' · ' + label1 + ': ' + v + ' · ' + label2 + ': ' + s2[i];
+    svg += '<circle class="chart-dot-you" cx="' + x(i) + '" cy="' + y(v) + '" r="3.5"><title>' + escapeHtml(tip) + '</title></circle>';
+    svg += '<circle class="chart-dot-mem" cx="' + x(i) + '" cy="' + y(s2[i]) + '" r="3"><title>' + escapeHtml(tip) + '</title></circle>';
+    svg += '<rect x="' + (x(i) - 16) + '" y="' + P.t + '" width="32" height="' + innerH + '" fill="transparent" pointer-events="all"><title>' + escapeHtml(tip) + '</title></rect>';
+  });
+  svg += '</svg><div class="chart-legend">' +
+    '<span><span class="legend-swatch-line"></span>' + escapeHtml(label1) + '</span>' +
+    '<span><span class="legend-swatch-mem"></span>' + escapeHtml(label2) + '</span></div>';
+  return svg;
+}
 function renderInsights() {
   let h = pageHeader('Insights',
-    'What ' + DATA.client + '’s first-visit data is telling us. Same definitions as the FTV analysis, so these match the workbook. Pick a period to scope every chart.');
+    'What ' + DATA.client + '’s first-visit data is telling us. Pick a period to scope every chart.');
 
   // ---- reporting (behavior) insights ----
   if (reportingOn()) {
@@ -1165,8 +1227,17 @@ function renderInsights() {
     h += chartCard('Conversion by entry product', 'How the product someone first walks in on changes their odds of converting.', inner);
     h += '</div>';
 
-    // when members join (timing) + seasonality
-    h += '<div class="chart-grid-2">';
+    // trend over time: first-timers + new members per month (real data)
+    const months = [...new Set(ftvs.map(f => f.m))].sort();
+    if (months.length > 1) {
+      const ftvSeries = months.map(mm => ftvs.filter(f => f.m === mm).length);
+      const memSeries = months.map(mm => ftvs.filter(f => f.m === mm && f.conv).length);
+      h += chartCard('First-timers and new members over time',
+        'How many first-timers arrived each month, and how many of them went on to become members.',
+        trendChart(months.map(monthName), ftvSeries, memSeries, 'First-timers', 'Became members'));
+    }
+
+    // when members join (timing)
     const bt = byTiming(ftvs);
     inner = '';
     if (bt.length) {
@@ -1174,16 +1245,6 @@ function renderInsights() {
       bt.forEach(b => { inner += bar(b.k, b.n, maxT); });
     } else { inner = '<div style="color:var(--fg-subtle);font-size:12.5px;">No conversions in this period yet.</div>'; }
     h += chartCard('When members join', 'Days from a first visit to signing up. Tells you when a follow-up still has a chance.', inner);
-
-    // seasonality (only meaningful across >1 month)
-    const months = [...new Set(ftvs.map(f => f.m))].sort();
-    inner = '';
-    if (months.length > 1) {
-      const maxM = Math.max.apply(null, months.map(m => ftvs.filter(f => f.m === m).length)) || 1;
-      months.forEach(m => { inner += bar(monthName(m), ftvs.filter(f => f.m === m).length, maxM); });
-      h += chartCard('First-timers by month', 'How many new first-timers arrived each month in this period.', inner);
-    }
-    h += '</div>';
   }
 
   // ---- survey insights (only when the survey loop is on) ----
@@ -1258,7 +1319,6 @@ function toast(msg) {
 REPORT_PERIOD = reportingOn() ? defaultPeriod() : 'all';
 $('brand-sub').textContent = DATA.client || 'Send It';
 $('queue-badge').textContent = DATA.queue.length;
-$('footer-meta').textContent = 'as of ' + DATA.as_of + ' · ' + DATA.mode;
 renderDashboard();
 renderQueue();
 renderFunnel();
