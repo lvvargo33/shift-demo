@@ -84,8 +84,12 @@ def _http(url: str, *, data: bytes | None = None, headers: dict | None = None,
 
 def mint_token() -> str:
     """Long-lived refresh token -> fresh 1-hour Firebase ID token. No browser."""
-    api_key = os.getenv("BETA_API_KEY", "").strip()
-    refresh = os.getenv("BETA_REFRESH_TOKEN", "").strip()
+    # Strip ALL whitespace, not just the ends: cloud env fields wrap long values
+    # and can store real line breaks INSIDE the token. Tokens never contain
+    # whitespace, so collapsing it is safe and undoes that corruption.
+    import re
+    api_key = re.sub(r"\s+", "", os.getenv("BETA_API_KEY", ""))
+    refresh = re.sub(r"\s+", "", os.getenv("BETA_REFRESH_TOKEN", ""))
     missing = [n for n, v in (("BETA_API_KEY", api_key),
                               ("BETA_REFRESH_TOKEN", refresh)) if not v]
     if missing:
