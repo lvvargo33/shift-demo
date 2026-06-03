@@ -35,7 +35,10 @@ def _creds(scope: str):
     b64 = os.getenv("GSHEETS_SA_B64")
     if b64:
         import base64
-        info = json.loads(base64.b64decode(b64))
+        import re
+        s = re.sub(r"\s+", "", b64)        # drop any whitespace/newlines from paste
+        s += "=" * (-len(s) % 4)           # restore stripped padding
+        info = json.loads(base64.b64decode(s))
         return service_account.Credentials.from_service_account_info(info, scopes=[scope])
     key_path = os.getenv("GSHEETS_SA_KEY")
     if key_path:
