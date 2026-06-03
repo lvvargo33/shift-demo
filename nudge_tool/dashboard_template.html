@@ -889,10 +889,9 @@ function renderDetail(id) {
     '<div class="card-description">Why this person is in the queue, and the email that is queued for them.</div></div>' +
     '<div class="card-content with-top">' +
     '<div class="queue-fields" style="margin-bottom:10px;">' +
-      field('Trigger', triggerLabel(q.trigger_name)) +
+      field('Follow-up', triggerLabel(q.trigger_name)) +
       field('Timing', anchorLabel(q.anchor) + ' + ' + q.days_since + 'd') +
       field('Anchor date', q.anchor_date || '—') +
-      field('Follow-up', triggerLabel(q.trigger_name)) +
     '</div>' +
     '<div class="queue-survey-panel open" style="margin-top:0;">' +
       '<div class="email-subject">' + escapeHtml(q.subject) + '</div>' +
