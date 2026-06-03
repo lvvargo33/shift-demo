@@ -280,11 +280,19 @@ def main() -> None:
 
     if a.notify:
         when = rbd.STAMP
-        subject = f"[Beta refresh] {status} - {when}"
-        footer = ("\n\n--\nIf this says FAILURE, the dashboard data did NOT refresh "
-                  "today; pull the Beta exports manually.")
+        if status == "SUCCESS":
+            subject = f"SUCCESS - Beta data refreshed ({when})"
+            banner = ("==================================================\n"
+                      "  SUCCESS - Beta data refreshed. Nothing to do.\n"
+                      "==================================================\n\n")
+        else:
+            subject = f"FAILURE - Beta refresh FAILED, pull manually ({when})"
+            banner = ("==================================================\n"
+                      "  FAILURE - the dashboard did NOT refresh today.\n"
+                      "  ACTION: pull the Beta exports manually.\n"
+                      "==================================================\n\n")
         try:
-            send_email(subject, report + footer)
+            send_email(subject, banner + report)
         except Exception:
             print("  EMAIL SEND FAILED:\n" + traceback.format_exc())
             status = "FAILURE"
