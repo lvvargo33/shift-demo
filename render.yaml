@@ -29,3 +29,45 @@ services:
       - key: BETA_DRIVE_TTL    # min seconds between Drive pulls (cache)
         value: "60"
     healthCheckPath: /healthz
+
+  # Daily auto-pull of Beta data (replaces the manual export). Runs on a fresh
+  # container each time, so it: pulls the canonical CSVs from Drive -> merges a
+  # rolling 2-day Beta window (dedup) -> pushes them back to Drive -> emails a
+  # success/failure report. The web service above then serves the refreshed data.
+  - type: cron
+    name: shift-beta-pull
+    runtime: python
+    schedule: "0 18 * * *"     # TEST: 1 PM CDT (18:00 UTC). 3 AM EDT = "0 7 * * *".
+    buildCommand: pip install -r requirements.txt
+    startCommand: python beta_pull.py --drive --notify
+    envVars:
+      - key: GSHEETS_SA_JSON   # SA key JSON; needs Editor on the Drive folder (push)
+        sync: false
+      - key: BETA_API_KEY      # Firebase web API key (AIza...)
+        sync: false
+      - key: BETA_REFRESH_TOKEN  # long-lived Firebase refresh token (from browser, once)
+        sync: false
+      - key: BETA_DRIVE_TX     # Drive file ids (same as the web service uses)
+        sync: false
+      - key: BETA_DRIVE_SES
+        sync: false
+      - key: BETA_DRIVE_MEM
+        sync: false
+      - key: BETA_GYM_ID
+        value: "13353"
+      - key: BETA_TX_PATH      # working paths inside the (ephemeral) cron container
+        value: beta_data/Transactions.csv
+      - key: BETA_SES_PATH
+        value: beta_data/Sessions.csv
+      - key: BETA_MEM_PATH
+        value: beta_data/Memberships.csv
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER         # the Gmail address that sends the report
+        sync: false
+      - key: SMTP_PASS         # Gmail APP PASSWORD (not the account password)
+        sync: false
+      - key: NOTIFY_TO         # where the daily report goes
+        sync: false
