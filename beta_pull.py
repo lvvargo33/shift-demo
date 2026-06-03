@@ -91,6 +91,11 @@ def mint_token() -> str:
     if missing:
         raise RuntimeError(f"Missing secret(s): {', '.join(missing)} "
                            f"(set in {BASE / '.env'} or the environment).")
+    # Diagnostic: a truncated paste is the usual cause of INVALID_REFRESH_TOKEN.
+    # The known-good token is 204 chars; a different length means the env value
+    # got cut or altered. (Length only -- the secret itself is never logged.)
+    print(f"  refresh-token length: {len(refresh)} (expected 204), "
+          f"api-key length: {len(api_key)} (expected 39)")
     body = urllib.parse.urlencode(
         {"grant_type": "refresh_token", "refresh_token": refresh}).encode()
     out = _http(f"{TOKEN_URL}?key={api_key}", data=body, method="POST",
