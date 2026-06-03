@@ -37,7 +37,7 @@ services:
   - type: cron
     name: shift-beta-pull
     runtime: python
-    schedule: "0 18 * * *"     # TEST: 1 PM CDT (18:00 UTC). 3 AM EDT = "0 7 * * *".
+    schedule: "30 18 * * *"    # TEST: 1:30 PM CDT (18:30 UTC). 3 AM EDT = "0 7 * * *".
     buildCommand: pip install -r requirements.txt
     startCommand: python beta_pull.py --drive --notify
     envVars:
