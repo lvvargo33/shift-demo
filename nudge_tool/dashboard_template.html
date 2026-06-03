@@ -582,7 +582,28 @@ function periodSelectHtml() {
 }
 function setReportPeriod(v) {
   REPORT_PERIOD = v;
+  persistInsightsState();
   renderDashboard(); renderFunnel(); renderInsights();
+}
+// Persist the Insights view state so the auto-refresh reload keeps the user's
+// period, Counts/% choice, and which chart they were on (sessionStorage survives
+// a reload, clears when the tab closes).
+function persistInsightsState() {
+  try {
+    sessionStorage.setItem('shiftReportPeriod', REPORT_PERIOD);
+    sessionStorage.setItem('shiftReportMetric', REPORT_METRIC);
+    sessionStorage.setItem('shiftInsightsSlide', String(INSIGHTS_SLIDE));
+  } catch (e) {}
+}
+function restoreInsightsState() {
+  try {
+    const p = sessionStorage.getItem('shiftReportPeriod');
+    if (p && PERIOD_OPTS.some(o => o[0] === p)) REPORT_PERIOD = p;
+    const mt = sessionStorage.getItem('shiftReportMetric');
+    if (mt === 'count' || mt === 'pct') REPORT_METRIC = mt;
+    const s = parseInt(sessionStorage.getItem('shiftInsightsSlide') || '', 10);
+    if (!isNaN(s) && s >= 0) INSIGHTS_SLIDE = s;
+  } catch (e) {}
 }
 function agg(ftvs) {
   const n = ftvs.length;
@@ -1214,12 +1235,44 @@ function trendChart(labels, s1, s2, label1, label2) {
     '<span><span class="legend-swatch-mem"></span>' + escapeHtml(label2) + '</span></div>';
   return svg;
 }
+// single-line percentage trend (y-axis in %), for the over-time chart in % mode
+function pctLineChart(labels, series, label) {
+  const W = 760, H = 200, P = { l: 38, r: 14, t: 14, b: 26 };
+  const innerW = W - P.l - P.r, innerH = H - P.t - P.b;
+  const yMax = niceMax(Math.max(1, Math.max.apply(null, series)));
+  const n = labels.length;
+  const xStep = innerW / Math.max(1, n - 1);
+  const x = i => P.l + i * xStep;
+  const y = v => P.t + innerH - (v / yMax) * innerH;
+  let svg = '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">';
+  for (let i = 0; i <= 4; i++) {
+    const yPos = P.t + (innerH / 4) * i;
+    svg += '<line class="chart-grid" x1="' + P.l + '" y1="' + yPos + '" x2="' + (W - P.r) + '" y2="' + yPos + '"/>';
+    svg += '<text class="chart-tick" x="' + (P.l - 6) + '" y="' + (yPos + 3) + '" text-anchor="end">' + Math.round(yMax - (yMax / 4) * i) + '%</text>';
+  }
+  svg += '<line class="chart-axis" x1="' + P.l + '" y1="' + (H - P.b) + '" x2="' + (W - P.r) + '" y2="' + (H - P.b) + '"/>';
+  const skip = Math.ceil(n / 12);
+  labels.forEach((lab, i) => {
+    if (i % skip === 0 || i === n - 1) svg += '<text class="chart-tick" x="' + x(i) + '" y="' + (H - P.b + 16) + '" text-anchor="middle">' + escapeHtml(lab) + '</text>';
+  });
+  const area = series.map((v, i) => (i === 0 ? 'M' : 'L') + x(i) + ',' + y(v)).join(' ') +
+    ' L' + x(n - 1) + ',' + (H - P.b) + ' L' + x(0) + ',' + (H - P.b) + ' Z';
+  svg += '<path class="chart-area-you" d="' + area + '"/>';
+  svg += '<path class="chart-line-you" d="' + series.map((v, i) => (i === 0 ? 'M' : 'L') + x(i) + ',' + y(v)).join(' ') + '"/>';
+  series.forEach((v, i) => {
+    const tip = labels[i] + ' · ' + label + ': ' + v.toFixed(1) + '%';
+    svg += '<circle class="chart-dot-you" cx="' + x(i) + '" cy="' + y(v) + '" r="3.5"><title>' + escapeHtml(tip) + '</title></circle>';
+    svg += '<rect x="' + (x(i) - 16) + '" y="' + P.t + '" width="32" height="' + innerH + '" fill="transparent" pointer-events="all"><title>' + escapeHtml(tip) + '</title></rect>';
+  });
+  svg += '</svg><div class="chart-legend"><span><span class="legend-swatch-line"></span>' + escapeHtml(label) + '</span></div>';
+  return svg;
+}
 
 /* ---- Insights carousel: one chart at a time, Counts/% toggle ---- */
 let INSIGHTS_SLIDE = 0;
 function metricIsPct() { return REPORT_METRIC === 'pct'; }
-function setInsightsMetric(m) { REPORT_METRIC = m; renderInsights(); }
-function insightsGoto(i, count) { if (count > 0) INSIGHTS_SLIDE = ((i % count) + count) % count; renderInsights(); }
+function setInsightsMetric(m) { REPORT_METRIC = m; persistInsightsState(); renderInsights(); }
+function insightsGoto(i, count) { if (count > 0) INSIGHTS_SLIDE = ((i % count) + count) % count; persistInsightsState(); renderInsights(); }
 function noData(msg) { return '<div style="color:var(--fg-subtle);font-size:12.5px;padding:10px 0;">' + escapeHtml(msg) + '</div>'; }
 function metricToggleHtml() {
   return '<div class="metric-toggle"><span class="period-label">Show</span>' +
@@ -1276,7 +1329,12 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
     if (months.length > 1) {
       const fS = months.map(mm => ftvs.filter(f => f.m === mm).length);
       const mS = months.map(mm => ftvs.filter(f => f.m === mm && f.conv).length);
-      slides.push({ title: 'First-timers and new members over time', desc: 'How many first-timers arrived each month, and how many of them went on to become members.', html: trendChart(months.map(monthName), fS, mS, 'First-timers', 'Became members') });
+      if (metricIsPct()) {
+        const pS = months.map((mm, i) => fS[i] > 0 ? 100 * mS[i] / fS[i] : 0);
+        slides.push({ title: 'Conversion rate over time', desc: 'The share of each month’s first-timers who went on to become members.', html: pctLineChart(months.map(monthName), pS, 'Conversion rate') });
+      } else {
+        slides.push({ title: 'First-timers and new members over time', desc: 'How many first-timers arrived each month, and how many of them went on to become members.', html: trendChart(months.map(monthName), fS, mS, 'First-timers', 'Became members') });
+      }
     }
 
     const bt = byTiming(ftvs);
@@ -1320,16 +1378,8 @@ function renderInsights() {
     $('view-insights').innerHTML = h; return;
   }
 
-  // fixed controls (period + counts/%) and the 3 tiles stay pinned above the carousel
+  // fixed controls (period + counts/%) stay pinned above the carousel
   h += '<div class="insights-controls">' + (hasReport ? periodSelectHtml() : '') + metricToggleHtml() + '</div>';
-  if (hasReport) {
-    const a = agg(filterFtvs());
-    h += '<div class="stats-grid-3">' +
-      statTile('First-timers', a.n.toLocaleString(), periodLabel()) +
-      statTile('Came back (2+ visits)', a.retPct.toFixed(1) + '%', a.ret.toLocaleString() + ' returned') +
-      statTile('Became a member', a.convPct.toFixed(1) + '%', a.conv.toLocaleString() + ' converted') +
-    '</div>';
-  }
 
   // carousel: one chart at a time, arrows + dots to cycle
   const slides = buildInsightSlides(hasReport, hasSurvey, sv, responses);
@@ -1389,6 +1439,7 @@ function toast(msg) {
 
 // init
 REPORT_PERIOD = reportingOn() ? defaultPeriod() : 'all';
+restoreInsightsState();   // re-apply period / counts-% / chart after an auto-refresh reload
 $('brand-sub').textContent = DATA.client || 'Send It';
 $('queue-badge').textContent = DATA.queue.length;
 renderDashboard();

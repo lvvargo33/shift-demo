@@ -85,7 +85,12 @@ BASIC_PASS = os.getenv("LIVE_PASS")
 # Auto-reload interval (seconds) baked into every page so the bare URL refreshes
 # itself (handy for a "watch it land" demo without appending ?refresh=). 0 = off
 # (the local default). A per-request ?refresh=N still overrides; ?refresh=0 off.
-DEFAULT_REFRESH = int(os.getenv("LIVE_REFRESH", "0") or "0")
+# A full-page reload interrupts whoever is reading, so keep the baked-in interval
+# gentle: never auto-reload faster than every 3 minutes, even if a smaller value
+# is configured. (Explicit ?refresh=N is left alone for ad-hoc "watch it land" tests.)
+MIN_AUTO_REFRESH = 180
+_raw_refresh = int(os.getenv("LIVE_REFRESH", "0") or "0")
+DEFAULT_REFRESH = max(_raw_refresh, MIN_AUTO_REFRESH) if _raw_refresh > 0 else 0
 
 
 def _default_days(slug: str) -> int:
