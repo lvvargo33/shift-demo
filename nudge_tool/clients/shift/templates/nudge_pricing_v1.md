@@ -10,7 +10,7 @@ If you're interested in climbing more consistently without committing to a full 
 
 2-Week Trial: just reply to this email or reach us at {contact_email} and we'll get you set up.
 
-Membership Lite: {membership_lite_link}
+Membership Lite: [see the membership options]({membership_lite_link})
 
 Both are great ways to keep climbing and see if Shift becomes part of your routine.
 

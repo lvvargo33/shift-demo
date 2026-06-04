@@ -9,7 +9,7 @@ Since you've already come in a few times, we wanted to make sure you knew about 
 2-Week Trial: A great option if you want to climb as much as possible for a couple weeks and really see what it's like to make climbing part of your routine. Just reply to this email or reach us at {contact_email} and we'll get you set up.
 
 Membership Lite: Perfect if you only plan to climb a few times each month. It includes 3 visits per month and is often a better value than purchasing individual day passes.
-{membership_lite_link}
+[See the membership options]({membership_lite_link})
 
 Both options are designed to make it easier to keep the momentum going and continue progressing on the walls.
 

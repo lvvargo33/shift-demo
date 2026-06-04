@@ -151,6 +151,8 @@ button, input, textarea, select { font-family: inherit; }
 .inline-badges { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 .email-subject { font-weight: 600; color: var(--fg); margin-bottom: 6px; font-size: 13px; }
 .email-body { color: var(--fg-muted); white-space: pre-wrap; font-size: 12.5px; line-height: 1.55; }
+.email-body a { color: var(--primary); font-weight: 600; text-decoration: none; border-bottom: 1px solid var(--primary-soft-2); }
+.email-body a:hover { border-bottom-color: var(--primary); }
 
 .banner { border-radius: var(--radius); padding: 12px 16px; margin-bottom: 20px; font-size: 13px; display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
 .banner svg { width: 17px; height: 17px; flex-shrink: 0; margin-top: 1px; stroke: currentColor; fill: none; stroke-width: 2; }
@@ -406,6 +408,18 @@ const DATA = JSON.parse(document.getElementById('nudge-data').textContent);
 const $ = id => document.getElementById(id);
 
 function escapeHtml(s) { if (s == null) return ''; return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+/* Render an email body for display: escape, then turn markdown links [label](url)
+   into clickable anchors and linkify any bare http(s) URL left over. */
+function formatEmailBody(s) {
+  let h = escapeHtml(s);
+  h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (m, label, url) => '<a href="' + url + '" target="_blank" rel="noopener">' + label + ' →</a>');
+  h = h.replace(/(^|[\s])(https?:\/\/[^\s<]+)/g,
+    (m, pre, url) => pre + '<a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>');
+  return h;
+}
+/* Plain-text version (for clipboard): drop markdown link syntax to "label: url". */
+function mdToPlain(s) { return String(s == null ? '' : s).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1: $2'); }
 function anchorLabel(a) { return ({ first_visit: 'the first visit', trial_purchase: 'the trial purchase', survey_sent: 'the survey send', last_visit: 'the last visit', last_daypass: 'the last day pass' })[a] || a; }
 function triggerLabel(name) {
   return ({
@@ -849,7 +863,7 @@ function renderQueueCard(q) {
       '<button class="queue-expand-btn" onclick="toggleExpand(\'' + escapeHtml(q.climber_id) + '\')">▸ Preview the message</button>' +
       '<div class="queue-survey-panel" id="panel-' + escapeHtml(q.climber_id) + '">' +
         '<div class="email-subject">' + escapeHtml(q.subject) + '</div>' +
-        '<div class="email-body">' + escapeHtml(q.body_preview) + '</div>' +
+        '<div class="email-body">' + formatEmailBody(q.body_preview) + '</div>' +
       '</div>' +
       '<div class="queue-actions">' +
         '<button class="btn btn-outline btn-sm" onclick="openDetail(\'' + escapeHtml(q.climber_id) + '\')">' + icon('users') + ' Full history</button>' +
@@ -895,7 +909,7 @@ function renderDetail(id) {
     '</div>' +
     '<div class="queue-survey-panel open" style="margin-top:0;">' +
       '<div class="email-subject">' + escapeHtml(q.subject) + '</div>' +
-      '<div class="email-body">' + escapeHtml(q.body_preview) + '</div>' +
+      '<div class="email-body">' + formatEmailBody(q.body_preview) + '</div>' +
     '</div>' +
     '<div class="queue-actions">' +
       (q.trigger_name === 'MANUAL'
@@ -1423,7 +1437,7 @@ function setupSurveyNav() {
 function copyEmail(id) {
   const q = DATA.queue.find(x => x.climber_id === id);
   if (!q) return;
-  const text = 'To: ' + q.email + '\nSubject: ' + q.subject + '\n\n' + q.body_preview;
+  const text = 'To: ' + q.email + '\nSubject: ' + q.subject + '\n\n' + mdToPlain(q.body_preview);
   navigator.clipboard.writeText(text).then(() => toast('Email text copied to clipboard'),
                                           () => toast('Copy failed - select manually'));
 }

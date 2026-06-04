@@ -7,7 +7,7 @@ Thanks again for coming in to climb with us! We hope you had a great time at Shi
 We're always trying to make the experience better for new climbers, so we'd love to hear how your first visit went.
 
 We put together a super short 4-question survey here:
-{survey_link}
+[Take the quick survey]({survey_link})
 
 Hope to see you around the gym again soon!
 
