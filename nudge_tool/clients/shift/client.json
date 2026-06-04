@@ -10,6 +10,12 @@
     "max": 8
   },
   "_test_contacts_note": "S5 --test mode safety. In --test the tool NEVER tags a real climber. It remaps the computed queue onto plus-addressed dummies derived from base_email (e.g. lvvargo33+shifttest_survey_request@gmail.com), one per distinct tag, capped at max. All mail still delivers to base_email's inbox so Luke sees the tag land. testmode.assert_all_dummy() fail-closes the whole run if any target is not a plus-variant of base_email, so a real address can never slip through. base_email MUST contain a '+' so plus-addressing works; change it to whichever inbox Luke wants the test mail in.",
+  "links": {
+    "survey_link": "https://docs.google.com/forms/d/e/1FAIpQLSeJgRNTSwMaWuwBKUuoaa1ueHGpgciw7tII1i46DrqAstJ3Ag/viewform",
+    "membership_lite_link": "https://www.shiftclimbing.com/purchase-a-membership",
+    "contact_email": "info@shiftclimbing.com"
+  },
+  "_links_note": "Link/CTA tokens substituted into templates by templates.render (any {token} matching a key here is replaced; unknown tokens are left as-is). survey_link = the public Google Form (Form -> Send -> link). membership_lite_link = SHIFT's membership purchase page (Membership Lite is one option in the cart there; no direct deep link exists). contact_email = the staff inbox used for the 2-week-trial and discounted-day-pass CTAs, which are staff-judged per climber so they are a 'reply / email us' ask, not a self-serve link (2026-06-04 decision). Update here, not in the .md files.",
   "data": {
     "transactions_csv": "beta_data/Transactions.csv",
     "memberships_csv": "beta_data/Memberships.csv",

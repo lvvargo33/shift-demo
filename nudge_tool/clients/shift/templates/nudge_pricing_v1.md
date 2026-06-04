@@ -1,10 +1,19 @@
-Subject: A smaller way in, {first_name}
+Subject: A couple ways to make climbing more affordable
 
 Hey {first_name},
 
-Totally hear you that the membership is a jump. If you're not ready for that, our day passes and punch packs let you climb at your own pace without committing.
+Thanks again for filling out our survey and being honest with us.
 
-Want me to lay out the options that fit how often you think you'd come? Just reply.
+We totally understand that climbing memberships and day passes can add up, especially when you're just getting started.
 
-Climb on,
-The SHIFT crew
+If you're interested in climbing more consistently without committing to a full membership, here are a couple of options:
+
+2-Week Trial: just reply to this email or reach us at {contact_email} and we'll get you set up.
+
+Membership Lite: {membership_lite_link}
+
+Both are great ways to keep climbing and see if Shift becomes part of your routine.
+
+If you have any questions at all, just reply to this email. We'd be happy to help.
+
+- The Shift Team

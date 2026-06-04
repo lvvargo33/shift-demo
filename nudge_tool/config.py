@@ -57,6 +57,7 @@ class ClientConfig:
     daypass_repeat: dict          # {"min_count": int, "window_days": int}
     reporting: dict               # workbook-aligned reporting defs (cohort/entry-product/staff/conversion)
     survey: dict                  # survey loop config (S2); {} or {"enabled": False} = off
+    links: dict                   # client link/CTA tokens substituted into templates ({token}: url/text)
     test_contacts: dict           # S5 --test config; {"base_email": str, "max": int}
     triggers: list[Trigger]
     templates: dict[str, Template]
@@ -101,6 +102,7 @@ def load_client(slug: str) -> ClientConfig:
         daypass_repeat=dict(cfg.get("daypass_repeat", {"min_count": 2, "window_days": 30})),
         reporting=dict(cfg.get("reporting", {})),
         survey=dict(cfg.get("survey", {})),
+        links=dict(cfg.get("links", {})),
         test_contacts=dict(cfg.get("test_contacts", {})),
         triggers=triggers_from_config(cfg.get("triggers", [])),
         templates=load_templates(client_dir / "templates"),

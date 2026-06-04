@@ -8,7 +8,10 @@ File format (easy to edit, no code, no escaping):
     ...body...
 
 First line is `Subject: ...`; everything after the blank line is the body.
-`{first_name}` is the only placeholder substituted today. The tool does NOT
+`{first_name}` is always substituted. Any `{token}` whose name is a key in the
+client's `links` block (client.json) is also substituted (e.g. `{survey_link}`,
+`{membership_lite_link}`, `{contact_email}`). Unknown `{tokens}` are left as-is.
+The tool does NOT
 send these; a Mailchimp Customer Journey tied to the trigger tag does. They
 live here so the dashboard can preview them and SHIFT can review the exact
 words before any Journey is built.
@@ -51,9 +54,21 @@ def load_templates(templates_dir: Path) -> dict[str, Template]:
 
 
 def render(templates: dict[str, Template], template_id: str,
-           first_name: str) -> tuple[str, str]:
-    """Return (subject, body) with {first_name} substituted."""
+           first_name: str, links: dict | None = None) -> tuple[str, str]:
+    """Return (subject, body) with {first_name} and any {link_token} substituted.
+
+    `links` maps a token name (without braces) to its replacement value, e.g.
+    {"survey_link": "https://..."} substitutes `{survey_link}`. Unknown tokens
+    are left untouched.
+    """
     t = templates[template_id]
     fn = first_name or "there"
-    return (t.subject.replace("{first_name}", fn),
-            t.body.replace("{first_name}", fn))
+    subs = {"first_name": fn}
+    subs.update(links or {})
+
+    def apply(text: str) -> str:
+        for key, val in subs.items():
+            text = text.replace("{" + key + "}", str(val))
+        return text
+
+    return (apply(t.subject), apply(t.body))

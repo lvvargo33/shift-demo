@@ -190,7 +190,7 @@ def _dedup_by_email(items: list[QueueItem],
 def _make_item(c: Climber, t: Trigger, days: int, anchor_date: str,
                order: int, client: ClientConfig) -> QueueItem:
     fn = ingest.first_name(c.name)
-    subject, body = templates.render(client.templates, t.template_id, fn)
+    subject, body = templates.render(client.templates, t.template_id, fn, client.links)
     return QueueItem(
         climber_id=c.climber_id, name=c.name, email=c.email,
         trigger_name=t.name, tag=t.tag, template_id=t.template_id,
@@ -198,7 +198,7 @@ def _make_item(c: Climber, t: Trigger, days: int, anchor_date: str,
         visit_count=c.visit_count, blocker=c.survey_blocker,
         survey_answered=c.survey_answered, intent=c.survey_intent,
         safety_flag=c.safety_flag,
-        subject=subject, body_preview=body[:200],
+        subject=subject, body_preview=body,
         trial_date=c.trial_date or anchor_date, days_since_trial=days,
         order=order,
         visit_dates=sorted(c.visit_days),

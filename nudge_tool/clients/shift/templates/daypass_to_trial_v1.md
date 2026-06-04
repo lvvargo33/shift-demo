@@ -1,10 +1,20 @@
-Subject: You're basically a regular, {first_name}
+Subject: Looking to climb more often?
 
 Hey {first_name},
 
-We've seen you in a few times on day passes, which is awesome. At the rate you're climbing, the 2-Week Trial would save you money and give you unlimited visits to really build momentum.
+It's been great seeing you back in the gym lately!
 
-Want me to break down what the trial gets you versus day passes? Just reply.
+Since you've already come in a few times, we wanted to make sure you knew about a couple options that can save you money if you'd like to keep climbing regularly.
 
-See you soon,
-The SHIFT crew
+2-Week Trial: A great option if you want to climb as much as possible for a couple weeks and really see what it's like to make climbing part of your routine. Just reply to this email or reach us at {contact_email} and we'll get you set up.
+
+Membership Lite: Perfect if you only plan to climb a few times each month. It includes 3 visits per month and is often a better value than purchasing individual day passes.
+{membership_lite_link}
+
+Both options are designed to make it easier to keep the momentum going and continue progressing on the walls.
+
+If you're not sure which option is the best fit, just reply to this email and we'd be happy to help.
+
+Hope to see you back in the gym soon!
+
+- The Shift Team
