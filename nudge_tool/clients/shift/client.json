@@ -67,6 +67,10 @@
       "EVENT"
     ],
     "_ftv_qualifying_note": "A climber's FTV = their earliest SUCCEEDED transaction whose product category is one of these. RETAIL/FEE/GIFT_CARD purchases do not count as a first visit.",
+    "exclude_from_cohort": [
+      "MEMBERSHIP"
+    ],
+    "_exclude_from_cohort_note": "Entry categories dropped from the REPORTING cohort entirely (dashboard tiles / funnel / insights). MEMBERSHIP = direct memberships: climbers who bought a membership on their first visit. They are already members on arrival, so a first-visit follow-up never influenced them; including them would inflate the conversion rate the tool can claim. The workbook keeps both views for the full picture; the live tool reports only the follow-up-addressable group. Does NOT affect the Recovery Queue (it skips members regardless).",
     "entry_product_labels": {
       "TRIAL_2WK": "2-Week Trial",
       "DAY_PASS": "Day Pass",

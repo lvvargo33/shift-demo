@@ -390,10 +390,19 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
     if not rep.get("ftv_qualifying_categories"):
         return {"enabled": False, "ftvs": []}
     opening = rep.get("post_opening_date")
+    # Entry products to keep OUT of the reporting cohort entirely. Direct
+    # memberships (climbers who bought a membership on their first visit) are
+    # already members on arrival, so a first-visit follow-up never drove them;
+    # crediting them would overstate what the tool can move. They are excluded
+    # from the dashboard tiles / funnel / insights (the Recovery Queue is
+    # unaffected; it skips members already). Config-driven, no code per client.
+    excluded_cats = set(rep.get("exclude_from_cohort", []))
     ftvs = []
     for c in ds.climbers.values():
         fd = c.ftv_date
         if not fd or c.is_staff:
+            continue
+        if c.ftv_category in excluded_cats:
             continue
         if opening and fd < opening:
             continue
