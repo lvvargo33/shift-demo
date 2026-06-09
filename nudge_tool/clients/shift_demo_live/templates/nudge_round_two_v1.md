@@ -1,10 +1,13 @@
-Subject: Round two, {first_name}?
+Subject: Keep the momentum going!
 
 Hey {first_name},
 
-Loved hearing your first visit landed well. The second climb is where it really starts to click, so let's get you back in.
+We were stoked to hear you had a great first visit at Shift!
 
-Reply here and we'll help you pick a time, or just walk in whenever works. Your trial's still good.
+If you're able to, we recommend coming back within your first week. That's usually when things start to click and people see the biggest improvements.
 
-See you on the wall,
-The SHIFT crew
+Bring a friend, try some new climbs, and keep the momentum going.
+
+Hope to climb with you again soon!
+
+- The Shift Team

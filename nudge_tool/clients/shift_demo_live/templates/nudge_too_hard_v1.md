@@ -1,10 +1,15 @@
-Subject: It gets easier fast, {first_name}
+Subject: Climbing gets easier faster than you think
 
 Hey {first_name},
 
-The first few visits are the hardest, and almost everyone feels that. The good news is climbing comes quickly once someone shows you a few basics.
+Thanks for coming in and for sharing your feedback with us.
 
-We run a free intro that covers movement and the easier routes most people skip on day one. Want me to point you to the next one?
+One thing we hear from a lot of first-time climbers is that the climbs can feel harder than expected at first. Totally normal.
 
-You've got this,
-The SHIFT crew
+There's definitely a learning curve with climbing, but most people see big improvements if they come back within their first week. That's usually when things start to click.
+
+If you'd like a little extra guidance, we recommend checking out our Intro to Shift class or asking our staff to point you toward some good climbs to start on.
+
+We hope you'll come give it another shot sometime soon!
+
+- The Shift Team

@@ -28,6 +28,8 @@ services:
         sync: false
       - key: BETA_DRIVE_TTL    # min seconds between Drive pulls (cache)
         value: "60"
+      - key: OUTREACH_DRIVE_ID # Drive file id of outreach_log.csv -> powers the Recovery Queue "Export" of who was sent what
+        sync: false
     healthCheckPath: /healthz
 
   # Daily auto-pull of Beta data (replaces the manual export). Runs on a fresh
@@ -71,4 +73,56 @@ services:
       - key: SMTP_PASS         # Gmail APP PASSWORD (not the account password)
         sync: false
       - key: NOTIFY_TO         # where the daily report goes
+        sync: false
+
+  # Daily AUTO-SEND. Runs ~30 min after shift-beta-pull (so it tags off fresh
+  # data): pulls the Beta CSVs + outreach log from Drive -> builds today's queue
+  # -> tags each climber in Mailchimp (a Journey then sends) -> pushes the log
+  # back -> emails a report. GATED OFF: with NUDGE_LIVE_ENABLED unset it computes
+  # the queue and tags NOBODY (safe no-op). Set NUDGE_LIVE_ENABLED=true to go live
+  # (only after SHIFT signoff + the welcome-on-subscribe automation is handled +
+  # the Journey + approved copy). The bundle ships live_enabled:false, so this one
+  # env var is the whole go-live switch, no rebuild.
+  - type: cron
+    name: shift-nudge-send
+    runtime: python
+    schedule: "30 7 * * *"     # 3:30 AM ET (EDT). After DST ends -> "30 8 * * *".
+    buildCommand: pip install -r requirements.txt
+    startCommand: python send_nudges.py --drive --notify --yes --i-have-shift-signoff
+    envVars:
+      - key: NUDGE_LIVE_ENABLED  # THE go-live switch. unset/false = no-op (tags nobody).
+        value: "false"
+      - key: NUDGE_CLIENT
+        value: shift
+      - key: GSHEETS_SA_B64    # base64 of the SA key JSON; Editor on the Drive folder
+        sync: false
+      - key: MAILCHIMP_API_KEY   # the SEND account's creds (this cron tags real climbers)
+        sync: false
+      - key: MAILCHIMP_SERVER
+        sync: false
+      - key: MAILCHIMP_AUDIENCE_ID
+        sync: false
+      - key: BETA_DRIVE_TX     # same Beta CSV ids as the web service
+        sync: false
+      - key: BETA_DRIVE_SES
+        sync: false
+      - key: BETA_DRIVE_MEM
+        sync: false
+      - key: OUTREACH_DRIVE_ID # canonical outreach_log.csv (pre-create + share with the SA)
+        sync: false
+      - key: BETA_TX_PATH      # working paths = the client's data paths in the bundle
+        value: beta_data/Transactions.csv
+      - key: BETA_SES_PATH
+        value: beta_data/Sessions.csv
+      - key: BETA_MEM_PATH
+        value: beta_data/Memberships.csv
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: NOTIFY_TO
         sync: false

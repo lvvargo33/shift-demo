@@ -1,10 +1,15 @@
-Subject: You belong here, {first_name}
+Subject: Climbing is better together
 
 Hey {first_name},
 
-A climbing gym can feel like everyone already knows what they're doing. They don't, and most of us started exactly where you are.
+Thanks again for sharing your feedback with us.
 
-Bring a friend next time, or come to one of our welcome sessions where a staffer climbs with you the whole way. No pressure, no audience.
+Trying climbing for the first time can feel a little intimidating, and a lot of people feel that way walking into a climbing gym for the first time.
 
-Hope to see you,
-The SHIFT crew
+The good news is that our community is full of friendly people who enjoy figuring climbs out together.
+
+If you decide to come back in, bringing a friend can make things feel way more comfortable, and our Intro to Shift class is also a great way to meet people and get acclimated.
+
+We hope you'll come give it another shot sometime soon!
+
+- The Shift Team

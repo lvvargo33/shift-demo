@@ -1,13 +1,14 @@
-Subject: How was your first climb, {first_name}?
+Subject: Thanks for climbing with us!
 
 Hey {first_name},
 
-Thanks for coming in to SHIFT. We're always trying to make the first visit better, and you're the best person to tell us how it went.
+Thanks again for coming in to climb with us! We hope you had a great time at Shift.
 
-It's four quick questions, less than a minute:
-[SURVEY LINK]
+We're always trying to make the experience better for new climbers, so we'd love to hear how your first visit went.
 
-Whatever you say helps us, and there are no wrong answers.
+We put together a super short 4-question survey here:
+[Take the quick survey]({survey_link})
 
-Thanks,
-The SHIFT crew
+Hope to see you around the gym again soon!
+
+- The Shift Team

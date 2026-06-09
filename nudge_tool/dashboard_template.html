@@ -811,10 +811,56 @@ function withheldCard() {
   return h;
 }
 
+/* --- export: who was sent what (reads DATA.sent_log, the outreach record) --- */
+let EXPORT_PERIOD = 'r:30';
+const SENT_PERIOD_OPTS = [['r:30','Last 30 days'],['r:90','Last 90 days'],['r:180','Last 6 months'],['r:365','Last year'],['all','All time']];
+function sentLog() { return DATA.sent_log || []; }
+function setExportPeriod(v) { EXPORT_PERIOD = v; renderQueue(); }
+function sentCutoff(days) {
+  const asof = DATA.as_of || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asof)) return null;
+  const d = new Date(asof); d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+function filteredSentLog() {
+  const p = EXPORT_PERIOD, all = sentLog();
+  if (p === 'all') return all;
+  if (p.startsWith('r:')) { const c = sentCutoff(+p.slice(2)); return c ? all.filter(r => (r.sent_date || '') >= c) : all; }
+  return all;
+}
+function csvCell(v) { v = (v == null ? '' : String(v)); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function downloadCsv(name, text) {
+  const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function exportSentLog() {
+  const rows = filteredSentLog();
+  if (!rows.length) { alert('No messages were sent in this period yet.'); return; }
+  const head = ['Date sent', 'Name', 'Email', 'Message'];
+  const body = rows.map(r => [r.sent_date, r.name, r.email, triggerLabel(r.trigger_name)]);
+  const csv = [head].concat(body).map(cols => cols.map(csvCell).join(',')).join('\r\n');
+  const lbl = (SENT_PERIOD_OPTS.find(o => o[0] === EXPORT_PERIOD) || ['', 'all'])[1].toLowerCase().replace(/ /g, '-');
+  downloadCsv('sent-messages_' + lbl + '.csv', csv);
+}
+function exportControlHtml() {
+  const opts = SENT_PERIOD_OPTS.map(([v, l]) =>
+    '<option value="' + v + '"' + (EXPORT_PERIOD === v ? ' selected' : '') + '>' + l + '</option>').join('');
+  const n = filteredSentLog().length;
+  return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;">' +
+    '<span style="font-size:12.5px;color:var(--fg-subtle);font-weight:600;">Export who was sent what</span>' +
+    '<select class="period-select" onchange="setExportPeriod(this.value)">' + opts + '</select>' +
+    '<button class="btn btn-ghost btn-sm" onclick="exportSentLog()">' + icon('download') + 'Export CSV (' + n + ')</button>' +
+    '</div>';
+}
+
 function renderQueue() {
   let h = pageHeader('Recovery Queue',
     'Everyone queued to send to this run, highest priority first. Click a name for their full history.');
   h += safetyBanner();
+  h += exportControlHtml();
   h += withheldCard();
 
   const filters = queueFilters();

@@ -520,9 +520,36 @@ def _survey_block(client: ClientConfig, survey_result) -> dict:
     }
 
 
+def build_sent_log(sent_rows: list | None, ds: Dataset) -> list[dict]:
+    """Flatten the outreach log into the rows the Recovery Queue export reads:
+    one record per real send (date, climber name, email, message type).
+
+    `sent_rows` are raw outreach-log dicts (outreach.load_rows). Test dummies
+    (mode='test') are excluded so a client-facing export only shows real sends.
+    The name is resolved from the dataset by climber_id when available (the log
+    stores the email + id, not the display name). Newest send first."""
+    rows: list[dict] = []
+    for r in sent_rows or []:
+        if (r.get("mode") or "").strip() == "test":
+            continue
+        cid = (r.get("climber_id") or "").strip()
+        c = ds.climbers.get(cid) if cid else None
+        rows.append({
+            "sent_date": (r.get("sent_date") or "").strip()[:10],
+            "name": (c.name if c else "") or "",
+            "email": (r.get("email") or "").strip(),
+            "trigger_name": (r.get("trigger_name") or "").strip(),
+            "tag": (r.get("tag") or "").strip(),
+            "mode": (r.get("mode") or "").strip(),
+        })
+    rows.sort(key=lambda x: x["sent_date"], reverse=True)
+    return rows
+
+
 def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
                   asof: date, mode: str, generated_at: str,
-                  survey_result=None, suppressed_out: list | None = None) -> dict:
+                  survey_result=None, suppressed_out: list | None = None,
+                  sent_rows: list | None = None) -> dict:
     survey_block = _survey_block(client, survey_result)
     return {
         "client": client.client_name,
@@ -537,6 +564,7 @@ def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
         "summary": summarize(ds, queue, client),
         "suppression": summarize_suppression(suppressed_out),
         "survey": survey_block,
+        "sent_log": build_sent_log(sent_rows, ds),
         "metrics": build_metrics(ds, queue, client, asof),
         "funnel": build_funnel(ds),
         "reporting": build_reporting(ds, client, asof),

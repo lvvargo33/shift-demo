@@ -8,7 +8,13 @@ publish/
 beta_data/
 drive_manifest.json
 nudge_tool/clients/*/out/
-nudge_tool/clients/*/outreach_log.csv
+# the REAL client's send log may hold climber emails once live -> never commit.
+# the fake demo logs (shift_demo*) ARE committed so the hosted walkthrough's
+# Export button shows data.
+nudge_tool/clients/shift/outreach_log.csv
 # local dev/test scratch (never commit)
 _*.html
 _*.txt
+# session/handoff logs the hooks may drop into folders (not part of the app)
+SESSION_LOG.md
+HANDOFF.md

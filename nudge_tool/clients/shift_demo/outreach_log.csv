@@ -1,0 +1,11 @@
+sent_date,email,climber_id,trigger_name,tag,mode
+2026-03-10,ryan.foster.demo@example.com,D011,survey_request,survey_request,live
+2026-03-17,ryan.foster.demo@example.com,D011,nudge_pricing,nudge_pricing,live
+2026-04-02,nina.patel.demo@example.com,D012,survey_request,survey_request,live
+2026-04-20,ava.torres.demo@example.com,D010,daypass_to_trial,daypass_to_trial,live
+2026-04-28,lvvargo33@gmail.com,D099,survey_request,survey_request,live
+2026-05-05,nina.patel.demo@example.com,D012,nudge_round_two,nudge_round_two,live
+2026-05-12,chris@climbinggymgrowth.com,D098,survey_request,survey_request,live
+2026-05-18,jordan.wells.demo@example.com,D006,survey_request,survey_request,live
+2026-05-22,ryan.foster.demo@example.com,D011,comeback_soft,comeback_soft,live
+2026-05-29,chris@climbinggymgrowth.com,D098,nudge_round_two,nudge_round_two,live

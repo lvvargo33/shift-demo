@@ -1,10 +1,13 @@
-Subject: Here's where to start, {first_name}
+Subject: Climbing can be confusing
 
 Hey {first_name},
 
-A lot of first-timers tell us they weren't sure where to begin. Walls, ratings, gear, it's a lot at once.
+Thanks again for the feedback and for coming in to check out Shift.
 
-Next time you're in, grab any staffer for a quick tour and we'll walk you through the basics and point you at the routes worth trying first. Want our one-page beginner guide in the meantime? Just reply.
+There's definitely a lot going on in a climbing gym when you first walk in, and it's super normal to feel unsure where to start.
 
-See you soon,
-The SHIFT crew
+Next time you come in, feel free to ask our staff for recommendations too. We're always happy to point people toward good beginner climbs and explain how everything works.
+
+We hope you'll come give it another shot sometime soon!
+
+- The Shift Team

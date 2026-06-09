@@ -23,7 +23,7 @@ from datetime import datetime
 
 from requests.exceptions import RequestException
 
-from . import config, engine, ingest, outreach, survey, testmode
+from . import config, engine, ingest, livesend, outreach, survey, testmode
 from .config import load_client, load_settings
 from .mailchimp_client import MailchimpClient, MailchimpError
 
@@ -133,7 +133,8 @@ def cmd_run(args: argparse.Namespace) -> int:
                                dedup_email=True)
     generated_at = datetime.now().isoformat(timespec="seconds")
     payload = engine.build_payload(ds, queue, client, asof, mode, generated_at,
-                                   survey_result, suppressed_out)
+                                   survey_result, suppressed_out,
+                                   sent_rows=outreach.load_rows(client))
     out_path = engine.write_data_json(payload, client)
     html_path = engine.write_dashboard(payload, client)
 
@@ -172,10 +173,55 @@ def cmd_run(args: argparse.Namespace) -> int:
     if mode == "test":
         return _run_test_mode(args, client, queue, log, asof)
     if mode == "live":
-        print("  LIVE gates cleared, but real-climber tagging is intentionally NOT "
-              "wired yet.\n           --live writes nothing until SHIFT clears "
-              "consent + the Journey + copy.")
+        return _run_live_mode(args, client, queue, asof)
+    return 0
+
+
+def _run_live_mode(args, client, queue, asof) -> int:
+    """Tag the REAL climbers in the final queue so the Mailchimp Journey sends.
+
+    The queue is already the safe list (every precedence rule + shared-inbox
+    dedup ran in build_queue). Gates above already required --i-have-shift-signoff
+    and live_enabled=true. Like --test, this PREVIEWS without --yes and only
+    writes with --yes."""
+    targets = livesend.derive_sends(queue)
+    manual = [q for q in queue if q.trigger_name == "MANUAL"]
+    if manual:
+        print(f"  {len(manual)} safety (MANUAL) item(s) -> manager call, never "
+              "auto-emailed; skipped here.")
+    if not targets:
+        print("  LIVE: nothing to send (queue has no auto-email climbers this run).")
         return 0
+
+    print(f"  LIVE: {len(targets)} climber(s) cleared to tag "
+          f"(survey/cooldown/unsub already filtered):")
+    for t in targets:
+        print(f"    {t.tag:<16} {t.name:<22.22} {t.email}")
+
+    if not args.yes:
+        print(f"\n  PREVIEW only. Tagged NOBODY. {len(targets)} climber(s) would "
+              "be tagged in Mailchimp.\n  Re-run with --live --i-have-shift-signoff "
+              "--yes to actually push the tags.")
+        return 0
+
+    try:
+        settings = load_settings(client, require=True)
+    except RuntimeError as e:
+        print(f"  FAIL  credentials needed to tag climbers: {e}")
+        return 2
+    mc = MailchimpClient(settings)
+    print(f"\n  --yes: tagging {len(targets)} climber(s) in Mailchimp ...")
+    tagged: list = []
+    for t in targets:
+        try:
+            mc.tag_member(t.email, t.first_name, t.tag)
+            tagged.append(t)
+            print(f"    ok    {t.tag:<16} {t.email}")
+        except (MailchimpError, RequestException) as e:
+            print(f"    FAIL  {t.tag:<16} {t.email}  ({e})")
+    written = outreach.append(client, livesend.log_rows(tagged, asof))
+    print(f"\n  LIVE done: tagged {len(tagged)} climber(s), logged {written} row(s) "
+          "to the outreach log.")
     return 0
 
 

@@ -1,10 +1,13 @@
-Subject: Ready to come back, {first_name}?
+Subject: Keep the momentum going
 
 Hey {first_name},
 
-Hope your first session at SHIFT was a good one. Your 2-Week Trial still has time on it, and we'd love to see you back on the wall.
+We noticed you haven't had a chance to make it back in since you started your trial, so we just wanted to check in.
 
-If you've got questions about routes, gear, or what to try next, just hit reply. We're around.
+We know life gets busy, but if you're able to, we highly recommend coming back in for your second visit within your first week. That's usually when things start to click and people begin feeling much more comfortable on the walls.
 
-See you soon,
-The SHIFT crew
+We're also here if you have any questions about your trial membership or if you'd like some climb recommendations.
+
+Hope to see you back in the gym sometime soon!
+
+- The Shift Team

@@ -10,6 +10,12 @@
     "max": 8
   },
   "_test_contacts_note": "S5 --test mode safety. In --test the tool NEVER tags a real climber. It remaps the computed queue onto plus-addressed dummies derived from base_email (e.g. lvvargo33+shifttest_survey_request@gmail.com), one per distinct tag, capped at max. All mail still delivers to base_email's inbox so Luke sees the tag land. testmode.assert_all_dummy() fail-closes the whole run if any target is not a plus-variant of base_email, so a real address can never slip through. base_email MUST contain a '+' so plus-addressing works; change it to whichever inbox Luke wants the test mail in.",
+  "links": {
+    "survey_link": "https://docs.google.com/forms/d/e/1FAIpQLSeJgRNTSwMaWuwBKUuoaa1ueHGpgciw7tII1i46DrqAstJ3Ag/viewform",
+    "membership_lite_link": "https://www.shiftclimbing.com/purchase-a-membership",
+    "contact_email": "info@shiftclimbing.com"
+  },
+  "_links_note": "Link/CTA tokens substituted into templates by templates.render (any {token} matching a key here is replaced; unknown tokens are left as-is). survey_link = the public Google Form (Form -> Send -> link). membership_lite_link = SHIFT's membership purchase page (Membership Lite is one option in the cart there; no direct deep link exists). contact_email = the staff inbox used for the 2-week-trial and discounted-day-pass CTAs, which are staff-judged per climber so they are a 'reply / email us' ask, not a self-serve link (2026-06-04 decision). Update here, not in the .md files.",
   "data": {
     "transactions_csv": "nudge_tool/clients/shift_demo/demo_transactions.csv",
     "memberships_csv": "nudge_tool/clients/shift_demo/demo_memberships.csv",
@@ -39,6 +45,145 @@
     "window_days": 30
   },
   "_daypass_repeat_note": "A 'day-pass regular' = bought >= min_count day passes within window_days. Feeds the daypass_to_trial nudge (requires.daypass_repeat).",
+  "reporting": {
+    "_note": "Definitions for the REPORTING layer only (Dashboard tiles, Funnel, Insights). Mirrors the SHIFT FTV analysis workbook (SHIFT_Analysis/scripts/01_data_prep.py) so the dashboard's numbers match the analysis. These do NOT affect the Recovery Queue eligibility engine, which keeps its own trial/conversion_skus logic above. Everything here is tunable without code.",
+    "post_opening_date": "2025-03-01",
+    "_post_opening_date_note": "SHIFT opened to the public ~this date; earlier first-visits are PRESALE founders. The dashboard's 'All-time' view starts here, so the headline FTV count + conversion rate match the workbook's post-opening cohort (~3,501 FTVs / ~8.1%), not the raw 3,558.",
+    "staff_emails": [
+      "chase@shiftclimbing.com"
+    ],
+    "staff_tier_keywords": [
+      "staff",
+      "staffshift"
+    ],
+    "_staff_note": "Excluded from the FTV cohort. staff_emails is the explicit founder/staff list; any Memberships row whose prices or metadata contains a staff_tier_keyword also marks that email as staff.",
+    "ftv_qualifying_categories": [
+      "DAY_PASS",
+      "TRIAL_2WK",
+      "TRIAL_30DAY",
+      "PUNCH",
+      "MEMBERSHIP",
+      "CLASS",
+      "EVENT"
+    ],
+    "_ftv_qualifying_note": "A climber's FTV = their earliest SUCCEEDED transaction whose product category is one of these. RETAIL/FEE/GIFT_CARD purchases do not count as a first visit.",
+    "exclude_from_cohort": [
+      "MEMBERSHIP"
+    ],
+    "_exclude_from_cohort_note": "Entry categories dropped from the REPORTING cohort entirely (dashboard tiles / funnel / insights). MEMBERSHIP = direct memberships: climbers who bought a membership on their first visit. They are already members on arrival, so a first-visit follow-up never influenced them; including them would inflate the conversion rate the tool can claim. The workbook keeps both views for the full picture; the live tool reports only the follow-up-addressable group. Does NOT affect the Recovery Queue (it skips members regardless).",
+    "entry_product_labels": {
+      "TRIAL_2WK": "2-Week Trial",
+      "DAY_PASS": "Day Pass",
+      "TRIAL_30DAY": "30-Day Trial",
+      "PUNCH": "Punch Pass",
+      "MEMBERSHIP": "Direct Membership",
+      "CLASS": "Class / Camp",
+      "EVENT": "Event"
+    },
+    "product_rules": [
+      {
+        "category": "MEMBERSHIP",
+        "any": [
+          "monthly recurring"
+        ]
+      },
+      {
+        "category": "MEMBERSHIP",
+        "all": [
+          "recurring",
+          "membership"
+        ]
+      },
+      {
+        "category": "MEMBERSHIP",
+        "any": [
+          "family lite recurring",
+          "family unlimited",
+          "dual unlimited recurring",
+          "unlimited monthly recurring",
+          "youth unlimited recurring",
+          "staff membership"
+        ]
+      },
+      {
+        "category": "TRIAL_2WK",
+        "any": [
+          "two-week trial",
+          "2 week trial",
+          "2-week trial"
+        ]
+      },
+      {
+        "category": "TRIAL_30DAY",
+        "any": [
+          "30 day trial",
+          "30-day trial",
+          "one month prepaid",
+          "prepaid 1 month"
+        ]
+      },
+      {
+        "category": "DAY_PASS",
+        "any": [
+          "day pass"
+        ]
+      },
+      {
+        "category": "PUNCH",
+        "any": [
+          "punch pass",
+          " punch"
+        ]
+      },
+      {
+        "category": "CLASS",
+        "any": [
+          "camp",
+          "homeschool",
+          "shift sessions",
+          "intro to",
+          "intro class",
+          "lesson",
+          "kids club"
+        ]
+      },
+      {
+        "category": "EVENT",
+        "any": [
+          "delirium",
+          "birthday",
+          "party",
+          "ticket",
+          "comp ticket",
+          "competition"
+        ]
+      },
+      {
+        "category": "MEMBERSHIP",
+        "any": [
+          "family lite"
+        ]
+      },
+      {
+        "category": "FEE",
+        "any": [
+          "freeze fee",
+          "late fee",
+          "fee"
+        ]
+      },
+      {
+        "category": "GIFT_CARD",
+        "any": [
+          "gift card"
+        ]
+      }
+    ],
+    "product_default_category": "RETAIL",
+    "_product_rules_note": "Ordered, first-match-wins substring rules on each line-item product name (lowercased). 'any' = match if any substring present; 'all' = match only if every substring present. Ported verbatim from the workbook's categorize_product(). Edit only if SHIFT's product catalog changes.",
+    "conversion": "membership_row",
+    "_conversion_note": "Reporting conversion = the climber has a Memberships.csv row with a real (non-empty) price/tier. Matches the workbook's converted_to_member (membership_created not null, Freeze-Fee/blank rows dropped). This is the rate shown on the dashboard tiles + funnel. (The queue's separate 'is_converted' = recurring/prepaid SKU OR any Memberships row, used only to stop messaging a member.)"
+  },
   "survey": {
     "enabled": true,
     "_enabled_note": "FALSE until the real Google Form + response Sheet exist (see SURVEY_SETUP.md). While false the tool ignores survey data and behaves exactly like S1 (honest, no fake answers in the dashboard). Flip to true and set source=gsheet + gsheet_id once the form is live. TRUE as of 2026-06-01: live Google Form + response sheet wired (gsheet_id below).",

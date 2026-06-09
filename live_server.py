@@ -50,6 +50,10 @@ _DRIVE_IDS = {
     "sessions_csv": os.getenv("BETA_DRIVE_SES"),
     "memberships_csv": os.getenv("BETA_DRIVE_MEM"),
 }
+# The outreach log (the send record that powers the Recovery Queue export) lives
+# in the same private Drive folder. The send_nudges cron pushes it after each
+# run; the web service pulls it read-only so the export shows current sends.
+_OUTREACH_DRIVE_ID = os.getenv("OUTREACH_DRIVE_ID")
 _DRIVE_TTL = int(os.getenv("BETA_DRIVE_TTL", "60") or "60")  # min seconds between pulls
 _last_pull = 0.0
 
@@ -58,7 +62,7 @@ def _ensure_beta_data(client) -> None:
     """If Drive file ids are configured, pull fresh CSVs to the client's data
     paths (read-only scope, TTL-throttled). No-op when no ids are set."""
     global _last_pull
-    if not any(_DRIVE_IDS.values()):
+    if not any(_DRIVE_IDS.values()) and not _OUTREACH_DRIVE_ID:
         return
     now = time.monotonic()
     if _last_pull and (now - _last_pull) < _DRIVE_TTL:
@@ -72,6 +76,9 @@ def _ensure_beta_data(client) -> None:
         dest = str(getattr(client, attr))
         drive_io.pull(fid, dest, svc=svc)
         pulled.append(attr.replace("_csv", ""))
+    if _OUTREACH_DRIVE_ID:
+        drive_io.pull(_OUTREACH_DRIVE_ID, str(client.outreach_log), svc=svc)
+        pulled.append("outreach_log")
     _last_pull = now
     print(f"  pulled from Drive: {', '.join(pulled)}")
 
@@ -133,7 +140,8 @@ def render(client_slug: str, asof: date) -> str:
                                dedup_email=True)
     generated_at = datetime.now().isoformat(timespec="seconds")
     payload = engine.build_payload(ds, queue, client, asof, "dry-run",
-                                   generated_at, survey_result, suppressed_out)
+                                   generated_at, survey_result, suppressed_out,
+                                   sent_rows=outreach.load_rows(client))
 
     template = DASHBOARD_TEMPLATE.read_text(encoding="utf-8")
     data_str = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
