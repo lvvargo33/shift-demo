@@ -2,7 +2,7 @@ name: SHIFT demo dashboard
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # every ~5 min (GitHub may delay a few minutes)
+    - cron: "0 9 * * *"      # once daily ~5am ET; demos only roll by date, every-5-min hit Cloudflare deploy limits
   workflow_dispatch: {}      # lets you trigger a run by hand too
 
 jobs:
