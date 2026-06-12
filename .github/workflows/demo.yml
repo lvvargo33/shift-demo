@@ -2,7 +2,8 @@ name: SHIFT demo dashboard
 
 on:
   schedule:
-    - cron: "0 9 * * *"      # once daily ~5am ET; demos only roll by date, every-5-min hit Cloudflare deploy limits
+    - cron: "0 9 * * *"    # once daily ~5am ET (S15: throttled from */5 to stop
+                            # Cloudflare Pages deploy-rate-limit failure spam).
   workflow_dispatch: {}      # lets you trigger a run by hand too
 
 jobs:

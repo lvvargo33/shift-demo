@@ -13,8 +13,10 @@
   "links": {
     "survey_link": "https://docs.google.com/forms/d/e/1FAIpQLSeJgRNTSwMaWuwBKUuoaa1ueHGpgciw7tII1i46DrqAstJ3Ag/viewform",
     "membership_lite_link": "https://www.shiftclimbing.com/purchase-a-membership",
-    "contact_email": "info@shiftclimbing.com"
+    "contact_email": "info@shiftclimbing.com",
+    "daypass_code": "SHIFT50"
   },
+  "_daypass_code_note": "PLACEHOLDER code for the first_visit_reengage 50%-off-day-pass offer (substituted into reengage_offer_v1.md as {daypass_code}). Confirm/replace with SHIFT's real code before go-live. SIMPLEST path (code-only, no Beta wiring): staff recognize this one shared code at the desk and apply 50% off manually at checkout; tracking = staff tally or count of emails sent. BETA-TRACKED option (if SHIFT wants automatic redemption counts): SHIFT creates a real discount code / '50% Day Pass' product in Beta so redemptions are logged natively; then this value = that Beta code. A shared code can be re-shared publicly; acceptable for a pilot. Per-person unique codes would need a code-generation + mapping build (deferred).",
   "_links_note": "Link/CTA tokens substituted into templates by templates.render (any {token} matching a key here is replaced; unknown tokens are left as-is). survey_link = the public Google Form (Form -> Send -> link). membership_lite_link = SHIFT's membership purchase page (Membership Lite is one option in the cart there; no direct deep link exists). contact_email = the staff inbox used for the 2-week-trial and discounted-day-pass CTAs, which are staff-judged per climber so they are a 'reply / email us' ask, not a self-serve link (2026-06-04 decision). Update here, not in the .md files.",
   "data": {
     "transactions_csv": "beta_data/Transactions.csv",
@@ -238,6 +240,28 @@
     "_safety_keywords_note": "If any appears in Q4 free text (lowercased), the climber is flagged safety -> MANUAL precedence (manager call, no automated email)."
   },
   "triggers": [
+    {
+      "name": "first_visit_reengage",
+      "tag": "first_visit_reengage",
+      "template_id": "reengage_offer_v1",
+      "description": "PILOT (client request 2026-06-12): anyone with exactly ONE visit, any entry pass (day pass / 2-wk trial / etc.), who has not returned and is not a member. Pairs the survey with a 50% off next-day-pass re-engagement offer in one message. SUPERSEDES survey_request for one-visit climbers because it sits first in precedence and includes the survey ask.",
+      "anchor": "first_visit",
+      "days_since_min": 1,
+      "days_since_max": 30,
+      "requires": {
+        "max_visits": 1,
+        "not_surveyed": true,
+        "entry_category": [
+          "DAY_PASS",
+          "TRIAL_2WK"
+        ],
+        "first_visit_on_or_after": ""
+      },
+      "once_only": true,
+      "active": true,
+      "_active_note": "active:true = VISIBLE in the dashboard/queue for preview (Luke pushed the preview live 2026-06-12). SENDING is still fully OFF: the cloud copy forces live_enabled:false and the shift-nudge-send cron has NUDGE_LIVE_ENABLED=false, so the daily cron computes this queue and tags NOBODY. The 'active' flag never controlled sending (live_enabled does). To GO LIVE later: set first_visit_on_or_after to the go-live date, set survey_request.active:false, build the Mailchimp Journey on the first_visit_reengage tag, then flip NUDGE_LIVE_ENABLED=true.",
+      "_provisional_note": "GATED OFF (active:false) + double-locked by live_enabled:false. Decisions locked per Luke 2026-06-12: (a) COMBO message (survey + 50%-off-day-pass offer in one email) is THE first-timer message -> at go-live also set survey_request.active:false so paid one-visit climbers get exactly ONE email. (b) FORWARD-ONLY, nothing historical: at go-live set requires.first_visit_on_or_after to the go-live date (empty now so the preview shows realistic volume; with it set, the queue starts at 0 and fills as NEW first-timers arrive). (c) CODE redemption via {daypass_code}. (d) Audience = paid DAY_PASS + TRIAL_2WK (own email). Window 1-30d = single visit 1-30 days ago. PHASE 2 (after SHIFT starts capturing each guest's OWN email at check-in): add guests. Guests have no purchase (ftv_category None) so entry_category won't catch them; including them needs a GUEST category derived from sessions (guest_of/pass_type) + an own-email guard (skip emails shared with another climber, i.e. the host). Build when SHIFT confirms forward guest-email capture. STILL OPEN before flip: confirm Mailchimp opt-in for day-pass/trial contacts; confirm {daypass_code} value + desk vs Beta-tracked redemption; final copy OK."
+    },
     {
       "name": "survey_request",
       "tag": "survey_request",

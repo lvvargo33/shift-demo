@@ -105,6 +105,21 @@ def _requires_ok(c: Climber, req: dict, asof: date, client: ClientConfig) -> boo
         elif key == "not_surveyed":
             if val and c.survey_answered:
                 return False
+        elif key == "entry_category":
+            # val is a list of reporting ftv_category codes (DAY_PASS, TRIAL_2WK,
+            # ...). Match only climbers whose first-visit purchase is one of them.
+            # Climbers with no qualifying purchase (ftv_category None = guests /
+            # comps / youth-on-a-parent's-account) FAIL, so a paid-entry trigger
+            # never messages the host's or parent's inbox.
+            if c.ftv_category not in set(val):
+                return False
+        elif key == "first_visit_on_or_after":
+            # Forward-only floor. Only message climbers whose FIRST visit is on or
+            # after this date. Empty/blank value = no floor. Set it to the go-live
+            # date at activation so NOTHING historical is ever sent: on day one the
+            # queue is 0 and it fills naturally as new first-timers arrive.
+            if val and (c.first_visit_date or "") < val:
+                return False
         else:
             return False
     return True
