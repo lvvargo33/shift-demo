@@ -128,7 +128,8 @@ def _read_rows(client: ClientConfig) -> list[dict]:
         # GSHEETS_SA_KEY to a key-file path, or GSHEETS_SA_JSON to the raw JSON.
         # When neither is set we fall back to the local gsheets bridge (Luke's
         # ADC login), so existing on-machine runs behave exactly as before.
-        if os.getenv("GSHEETS_SA_KEY") or os.getenv("GSHEETS_SA_JSON"):
+        if (os.getenv("GSHEETS_SA_KEY") or os.getenv("GSHEETS_SA_JSON")
+                or os.getenv("GSHEETS_SA_B64")):
             return _read_gsheet_sa(sheet_id, rng)
         out = subprocess.run(
             [sys.executable, str(GSHEETS), "read", sheet_id, rng],
@@ -145,19 +146,17 @@ _SHEETS_RO = "https://www.googleapis.com/auth/spreadsheets.readonly"
 
 def _read_gsheet_sa(sheet_id: str, rng: str) -> list[dict]:
     """Read the response sheet with a service-account key (cloud/headless).
-    Returns the same list-of-dict shape as the CSV/bridge readers."""
-    import json
-    from google.oauth2 import service_account
+    Returns the same list-of-dict shape as the CSV/bridge readers.
+
+    Auth goes through drive_io._creds so it tolerates the SAME key forms as the
+    Drive round-trip: a base64 env var (GSHEETS_SA_B64), a key FILE holding raw
+    JSON OR base64 (GSHEETS_SA_KEY, e.g. a Render Secret File), or raw JSON
+    (GSHEETS_SA_JSON). google's from_service_account_file accepts raw JSON only,
+    which broke on the base64 Secret File the send cron mounts."""
     from googleapiclient.discovery import build
 
-    key_path = os.getenv("GSHEETS_SA_KEY")
-    if key_path:
-        creds = service_account.Credentials.from_service_account_file(
-            key_path, scopes=[_SHEETS_RO])
-    else:
-        info = json.loads(os.getenv("GSHEETS_SA_JSON", "{}"))
-        creds = service_account.Credentials.from_service_account_info(
-            info, scopes=[_SHEETS_RO])
+    from . import drive_io
+    creds = drive_io._creds(_SHEETS_RO)
     svc = build("sheets", "v4", credentials=creds, cache_discovery=False)
     values = (svc.spreadsheets().values()
               .get(spreadsheetId=sheet_id, range=rng).execute()
