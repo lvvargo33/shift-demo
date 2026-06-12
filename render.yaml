@@ -94,8 +94,12 @@ services:
         value: "false"
       - key: NUDGE_CLIENT
         value: shift
-      - key: GSHEETS_SA_B64    # base64 of the SA key JSON; Editor on the Drive folder
-        sync: false
+      # SA key via Secret File (proven path; raw/base64 env-field pastes corrupt
+      # on Render). In the dashboard add a Secret File named sa_key.json holding
+      # the SAME base64 SA key content as shift-beta-pull; it mounts at the path
+      # below. Editor on the Drive folder.
+      - key: GSHEETS_SA_KEY
+        value: /etc/secrets/sa_key.json
       - key: MAILCHIMP_API_KEY   # the SEND account's creds (this cron tags real climbers)
         sync: false
       - key: MAILCHIMP_SERVER
