@@ -6,8 +6,9 @@
   "env_file": ".env",
   "_env_note": "Path (relative to SHIFT_Automation, or absolute) to the file holding this client's MAILCHIMP_API_KEY / MAILCHIMP_SERVER / MAILCHIMP_AUDIENCE_ID. Each client has their own Mailchimp account, so each gets their own env file.",
   "test_contacts": {
-    "base_email": "lvvargo33+shifttest@gmail.com",
-    "max": 8
+    "base_email": "lvvargo33+sittest2@gmail.com",
+    "max": 8,
+    "_base_email_note": "Changed 2026-06-17 from +shifttest to +sittest2: the +shifttest_* dummies were permanently deleted in Mailchimp and CANNOT be re-imported (permanent delete is irreversible), so reusing them fails. Going forward, remove test dummies with the tool's `cleanup` (which ARCHIVES, reversible) instead of a permanent delete. If a base ever gets burned again, just bump this to a new +alias."
   },
   "_test_contacts_note": "S5 --test mode safety. In --test the tool NEVER tags a real climber. It remaps the computed queue onto plus-addressed dummies derived from base_email (e.g. lvvargo33+shifttest_survey_request@gmail.com), one per distinct tag, capped at max. All mail still delivers to base_email's inbox so Luke sees the tag land. testmode.assert_all_dummy() fail-closes the whole run if any target is not a plus-variant of base_email, so a real address can never slip through. base_email MUST contain a '+' so plus-addressing works; change it to whichever inbox Luke wants the test mail in.",
   "links": {
@@ -261,7 +262,8 @@
     },
     {
       "name": "survey_request",
-      "tag": "survey_request",
+      "tag": "send_it_survey_request",
+      "_tag_note": "Mailchimp tag the journey listens for. Uses the send_it_ prefix because SHIFT's Mailchimp already had a pre-existing 'survey_request' tag that collided with our journey trigger (2026-06-17). Namespacing avoids that. The Mailchimp Journey 'Send It - Survey' triggers on this exact tag.",
       "template_id": "survey_v1",
       "description": "EMAIL 1 (two-email flow): the 4-question feedback survey, sent to EVERY first-timer 1-2 days after their first visit, ALL pass types, even if they have already come back (we still want their first-visit feedback). NOT in the 'second_visit' group, so it always goes; the day-5-7 offer (email 2) is separate.",
       "anchor": "first_visit",
