@@ -428,7 +428,7 @@
       "name": "daypass_to_trial",
       "tag": "daypass_to_trial",
       "template_id": "daypass_to_trial_v1",
-      "description": "Keeps buying day passes, not a member. Nudge to the 2-week trial.",
+      "description": "OFF 2026-06-17 (Luke: first-time visitors only for now). Repeat day-pass buyers (not a member) -> 2-week-trial nudge. Different audience from the two-email first-visit flow. Re-enable (active:true) when SHIFT wants to add the day-pass-regular nudge.",
       "anchor": "last_daypass",
       "days_since_min": 0,
       "days_since_max": 14,
@@ -437,7 +437,7 @@
       },
       "once_only": false,
       "cooldown_days": 30,
-      "active": true
+      "active": false
     }
   ],
   "_triggers_note": "PROVISIONAL pilot catalog (FTV_PILOT_SPEC.md section 14.6). Order = precedence (first = highest priority; one message per person per run, section 14.7). survey_request + comeback_soft + daypass_to_trial compute from Beta alone today; the survey-anchored nudge_* + nudge_round_two need S2 survey data and match nobody until then. MANUAL (safety) and converted-stop are precedence rules in engine.py, not rows here. Roadmap rows (trial_convert, trial_winback, member_miss_you) are added one block at a time.",
