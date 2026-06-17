@@ -142,7 +142,8 @@ def run_send(a) -> None:
     asof = engine.resolve_asof(ds, a.as_of) if a.as_of else today
     suppressed_out: list = []
     queue = engine.build_queue(ds, client, asof, log=log, unsubscribed=unsubscribed,
-                               suppressed_out=suppressed_out, dedup_email=True)
+                               suppressed_out=suppressed_out, dedup_email=True,
+                               own_email_guard=True)
     targets = livesend.derive_sends(queue)
     manual = sum(1 for q in queue if q.trigger_name == "MANUAL")
 

@@ -142,16 +142,20 @@ def _match(c: Climber, t: Trigger, asof: date,
 # --- suppression hooks (S3: outreach log + Mailchimp status) -----------------
 
 def _suppressed(c: Climber, t: Trigger, asof: date,
-                log, unsubscribed: set | None) -> str | None:
+                log, unsubscribed: set | None,
+                group_siblings: list[str] | None = None) -> str | None:
     """Rules 4 + 5 (section 14.7). Returns a reason string if this trigger must
     be suppressed for this climber, else None.
 
       rule 5: email is unsubscribed/cleaned in Mailchimp     -> "unsubscribed"
       rule 4: once_only trigger already sent (ever)          -> "already_sent"
               cooldown trigger sent within cooldown_days      -> "cooldown"
+      group:  any OTHER trigger in this trigger's campaign    -> "group_sent"
+              group has already been sent to this email
+              (so a climber gets exactly one message per group)
 
-    Both inputs are optional: with no log and no status set (the S1/S2 default)
-    nothing is suppressed, so older callers keep their exact behavior."""
+    All optional: with no log and no status set (the S1/S2 default) nothing is
+    suppressed, so older callers keep their exact behavior."""
     email = (c.email or "").strip().lower()
     if unsubscribed and email and email in unsubscribed:
         return "unsubscribed"
@@ -163,6 +167,11 @@ def _suppressed(c: Climber, t: Trigger, asof: date,
             cd = int(t.cooldown_days or 0)
             if cd > 0 and ingest.days_between(max(dates), asof) < cd:
                 return "cooldown"
+        # group cap: if any sibling trigger in the same campaign group has gone
+        # out to this inbox, suppress this one (one message per group per person).
+        for sib in (group_siblings or ()):
+            if sib != t.tag and log.sent_dates(email, sib):
+                return "group_sent"
     return None
 
 
@@ -244,7 +253,8 @@ def _manual_item(c: Climber, order: int) -> QueueItem:
 def build_queue(ds: Dataset, client: ClientConfig, asof: date,
                 log=None, unsubscribed: set | None = None,
                 suppressed_out: list | None = None,
-                dedup_email: bool = False) -> list[QueueItem]:
+                dedup_email: bool = False,
+                own_email_guard: bool = False) -> list[QueueItem]:
     """Build today's queue applying all five precedence rules.
 
     log / unsubscribed power rules 4 + 5; both default to off so the S1/S2
@@ -255,9 +265,29 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
 
     dedup_email (off by default, on in the real cli/live callers): collapse the
     queue to one nudge per email address so a shared (family) inbox isn't sent
-    several. Dropped duplicates are recorded in suppressed_out as 'shared_inbox'."""
+    several. Dropped duplicates are recorded in suppressed_out as 'shared_inbox'.
+
+    own_email_guard (off by default, on in the real callers): never message an
+    email that belongs to more than one climber in the dataset. A guest often
+    checks in under the host's email, and a family may share one inbox, so a
+    shared address can't be safely tied to this one climber. Withheld items are
+    recorded in suppressed_out as 'shared_email'."""
     active = _active(client)
     order_of = {t.name: i for i, t in enumerate(active)}
+    # campaign-group membership: group name -> all tags in that group.
+    group_tags: dict[str, list[str]] = {}
+    for t in active:
+        if t.group:
+            group_tags.setdefault(t.group, []).append(t.tag)
+    # own-email guard: emails used by more than one distinct climber.
+    shared_emails: set[str] = set()
+    if own_email_guard:
+        counts: dict[str, int] = {}
+        for c in ds.climbers.values():
+            e = (c.email or "").strip().lower()
+            if e:
+                counts[e] = counts.get(e, 0) + 1
+        shared_emails = {e for e, n in counts.items() if n > 1}
     items: list[QueueItem] = []
 
     for c in ds.climbers.values():
@@ -274,7 +304,8 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
             m = _match(c, t, asof, client)
             if m is None:
                 continue
-            reason = _suppressed(c, t, asof, log, unsubscribed)  # rules 4 + 5 (S3)
+            siblings = group_tags.get(t.group) if t.group else None
+            reason = _suppressed(c, t, asof, log, unsubscribed, siblings)  # rules 4 + 5 + group
             if reason:
                 if suppressed_out is not None:
                     suppressed_out.append((c, t, reason))
@@ -287,6 +318,11 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
         # index); tie-break oldest-in-window first.
         matches.sort(key=lambda m: (m[0], -m[2]))
         idx, t, days, ad = matches[0]
+        # own-email guard: a shared inbox can't be tied to this climber -> withhold.
+        if own_email_guard and (c.email or "").strip().lower() in shared_emails:
+            if suppressed_out is not None:
+                suppressed_out.append((c, t, "shared_email"))
+            continue
         items.append(_make_item(c, t, days, ad, idx, client))
 
     # Display order: priority group, then oldest-in-window, then name.

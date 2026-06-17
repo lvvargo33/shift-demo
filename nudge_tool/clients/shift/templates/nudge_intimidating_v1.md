@@ -10,6 +10,8 @@ The good news is that our community is full of friendly people who enjoy figurin
 
 If you decide to come back in, bringing a friend can make things feel way more comfortable, and our Intro to Shift class is also a great way to meet people and get acclimated.
 
+And to make that next visit easy, here's 50% off: just use code {daypass_code} at the front desk.
+
 We hope you'll come give it another shot sometime soon!
 
 - The Shift Team

@@ -244,34 +244,32 @@
       "name": "first_visit_reengage",
       "tag": "first_visit_reengage",
       "template_id": "reengage_offer_v1",
-      "description": "PILOT (client request 2026-06-12): anyone with exactly ONE visit, any entry pass (day pass / 2-wk trial / etc.), who has not returned and is not a member. Pairs the survey with a 50% off next-day-pass re-engagement offer in one message. SUPERSEDES survey_request for one-visit climbers because it sits first in precedence and includes the survey ask.",
+      "description": "EMAIL 2, GENERIC (two-email follow-up, client plan 2026-06-17): the 'come back, here's 50% off' offer for one-visit, no-return climbers who did NOT complete the survey. ALL pass types (day pass / 2-wk trial / guest). Survey responders instead get a matching-feedback nudge (nudge_* / nudge_round_two) that carries the SAME code; not_surveyed here keeps the two mutually exclusive, and group 'second_visit' caps it at exactly one offer email per person even for late survey responders.",
       "anchor": "first_visit",
-      "days_since_min": 1,
-      "days_since_max": 30,
+      "days_since_min": 5,
+      "days_since_max": 7,
       "requires": {
-        "max_visits": 1,
+        "no_return": true,
         "not_surveyed": true,
-        "entry_category": [
-          "DAY_PASS",
-          "TRIAL_2WK"
-        ],
         "first_visit_on_or_after": ""
       },
       "once_only": true,
       "active": true,
-      "_active_note": "active:true = VISIBLE in the dashboard/queue for preview (Luke pushed the preview live 2026-06-12). SENDING is still fully OFF: the cloud copy forces live_enabled:false and the shift-nudge-send cron has NUDGE_LIVE_ENABLED=false, so the daily cron computes this queue and tags NOBODY. The 'active' flag never controlled sending (live_enabled does). To GO LIVE later: set first_visit_on_or_after to the go-live date, set survey_request.active:false, build the Mailchimp Journey on the first_visit_reengage tag, then flip NUDGE_LIVE_ENABLED=true.",
-      "_provisional_note": "GATED OFF (active:false) + double-locked by live_enabled:false. Decisions locked per Luke 2026-06-12: (a) COMBO message (survey + 50%-off-day-pass offer in one email) is THE first-timer message -> at go-live also set survey_request.active:false so paid one-visit climbers get exactly ONE email. (b) FORWARD-ONLY, nothing historical: at go-live set requires.first_visit_on_or_after to the go-live date (empty now so the preview shows realistic volume; with it set, the queue starts at 0 and fills as NEW first-timers arrive). (c) CODE redemption via {daypass_code}. (d) Audience = paid DAY_PASS + TRIAL_2WK (own email). Window 1-30d = single visit 1-30 days ago. PHASE 2 (after SHIFT starts capturing each guest's OWN email at check-in): add guests. Guests have no purchase (ftv_category None) so entry_category won't catch them; including them needs a GUEST category derived from sessions (guest_of/pass_type) + an own-email guard (skip emails shared with another climber, i.e. the host). Build when SHIFT confirms forward guest-email capture. STILL OPEN before flip: confirm Mailchimp opt-in for day-pass/trial contacts; confirm {daypass_code} value + desk vs Beta-tracked redemption; final copy OK."
+      "group": "second_visit",
+      "_active_note": "active:true = VISIBLE in the dashboard/queue for preview. SENDING is still fully OFF: the cloud copy forces live_enabled:false and the shift-nudge-send cron has NUDGE_LIVE_ENABLED=false, so the daily cron computes this queue and tags NOBODY. The 'active' flag never controlled sending (live_enabled does). To GO LIVE later: set first_visit_on_or_after (here AND on every other sending trigger) to the go-live date, build the Mailchimp Journey on each tag, then flip NUDGE_LIVE_ENABLED=true.",
+      "_provisional_note": "TWO-EMAIL FLOW locked per Luke 2026-06-17 (email thread w/ Isaac/SHIFT). EMAIL 1 = survey_request (day 1-2, all first-timers, even returners). EMAIL 2 (this 'second_visit' group, ~day 5-7) = ONE offer email carrying {daypass_code} (SECONDVISIT): survey responders get the matching-feedback variant (nudge_round_two for high intent, nudge_<blocker> for a named blocker), everyone else gets THIS generic one. ALL PASS TYPES incl. guests; the own_email_guard in engine.build_queue withholds any inbox shared by 2+ climbers (a guest under the host's email, a shared family inbox), so we never message the wrong person until SHIFT captures each guest's own email at check-in. FORWARD-ONLY at go-live: set first_visit_on_or_after to the go-live date on this + survey_request + the nudge_* triggers (empty now so the preview shows realistic volume). STILL OPEN before flip: Mailchimp opt-in/consent, Journeys per tag, final copy."
     },
     {
       "name": "survey_request",
       "tag": "survey_request",
       "template_id": "survey_v1",
-      "description": "New first-timer just visited. Send the 4-question survey.",
+      "description": "EMAIL 1 (two-email flow): the 4-question feedback survey, sent to EVERY first-timer 1-2 days after their first visit, ALL pass types, even if they have already come back (we still want their first-visit feedback). NOT in the 'second_visit' group, so it always goes; the day-5-7 offer (email 2) is separate.",
       "anchor": "first_visit",
       "days_since_min": 1,
       "days_since_max": 2,
       "requires": {
-        "not_surveyed": true
+        "not_surveyed": true,
+        "first_visit_on_or_after": ""
       },
       "once_only": true,
       "active": true
@@ -285,10 +283,13 @@
       "days_since_min": 2,
       "days_since_max": 4,
       "requires": {
-        "survey_intent": "high"
+        "survey_intent": "high",
+        "no_return": true,
+        "first_visit_on_or_after": ""
       },
       "once_only": true,
-      "active": true
+      "active": true,
+      "group": "second_visit"
     },
     {
       "name": "nudge_pricing",
@@ -299,10 +300,13 @@
       "days_since_min": 5,
       "days_since_max": 7,
       "requires": {
-        "survey_blocker": "too_expensive"
+        "survey_blocker": "too_expensive",
+        "no_return": true,
+        "first_visit_on_or_after": ""
       },
       "once_only": true,
-      "active": true
+      "active": true,
+      "group": "second_visit"
     },
     {
       "name": "nudge_crowding",
@@ -313,10 +317,13 @@
       "days_since_min": 5,
       "days_since_max": 7,
       "requires": {
-        "survey_blocker": "too_busy"
+        "survey_blocker": "too_busy",
+        "no_return": true,
+        "first_visit_on_or_after": ""
       },
       "once_only": true,
-      "active": true
+      "active": true,
+      "group": "second_visit"
     },
     {
       "name": "nudge_too_hard",
@@ -327,10 +334,13 @@
       "days_since_min": 5,
       "days_since_max": 7,
       "requires": {
-        "survey_blocker": "too_hard"
+        "survey_blocker": "too_hard",
+        "no_return": true,
+        "first_visit_on_or_after": ""
       },
       "once_only": true,
-      "active": true
+      "active": true,
+      "group": "second_visit"
     },
     {
       "name": "nudge_intimidating",
@@ -341,10 +351,13 @@
       "days_since_min": 5,
       "days_since_max": 7,
       "requires": {
-        "survey_blocker": "intimidating"
+        "survey_blocker": "intimidating",
+        "no_return": true,
+        "first_visit_on_or_after": ""
       },
       "once_only": true,
-      "active": true
+      "active": true,
+      "group": "second_visit"
     },
     {
       "name": "nudge_frontdesk",
@@ -355,10 +368,13 @@
       "days_since_min": 5,
       "days_since_max": 7,
       "requires": {
-        "survey_blocker": "front_desk"
+        "survey_blocker": "front_desk",
+        "no_return": true,
+        "first_visit_on_or_after": ""
       },
       "once_only": true,
-      "active": true
+      "active": true,
+      "group": "second_visit"
     },
     {
       "name": "nudge_confusing",
@@ -369,10 +385,13 @@
       "days_since_min": 5,
       "days_since_max": 7,
       "requires": {
-        "survey_blocker": "confusing"
+        "survey_blocker": "confusing",
+        "no_return": true,
+        "first_visit_on_or_after": ""
       },
       "once_only": true,
-      "active": true
+      "active": true,
+      "group": "second_visit"
     },
     {
       "name": "nudge_routes",
@@ -383,16 +402,19 @@
       "days_since_min": 5,
       "days_since_max": 7,
       "requires": {
-        "survey_blocker": "not_enjoyable"
+        "survey_blocker": "not_enjoyable",
+        "no_return": true,
+        "first_visit_on_or_after": ""
       },
       "once_only": true,
-      "active": true
+      "active": true,
+      "group": "second_visit"
     },
     {
       "name": "comeback_soft",
       "tag": "comeback_soft",
       "template_id": "comeback_v1",
-      "description": "Bought a trial, no return visit, ~day 5 since purchase, not converted. (the section-13 day-5 trial nudge)",
+      "description": "RETIRED 2026-06-17 (folded into the two-email flow). Was: bought a trial, no return, ~day 5. Trial buyers who didn't return are now one-visit no-return climbers covered by the unified EMAIL 2 (first_visit_reengage generic, or a nudge_* feedback variant if they completed the survey). Kept here, active:false, so the old day-5 trial nudge can be restored if needed.",
       "anchor": "trial_purchase",
       "days_since_min": 4,
       "days_since_max": 7,
@@ -400,7 +422,7 @@
         "no_return": true
       },
       "once_only": true,
-      "active": true
+      "active": false
     },
     {
       "name": "daypass_to_trial",

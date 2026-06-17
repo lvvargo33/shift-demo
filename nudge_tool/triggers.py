@@ -43,6 +43,11 @@ class Trigger:
     once_only: bool = False         # never repeat for a person (needs outreach log, S3)
     cooldown_days: int = 0          # else honor this gap between repeats (S3)
     active: bool = True
+    group: str = ""                 # campaign group: sending ANY trigger in this
+                                    # group suppresses every other trigger in it for
+                                    # the same person (e.g. the "second_visit" offer
+                                    # set, so a climber gets exactly one offer email
+                                    # whether it's the personalized or generic one).
 
 
 def trigger_from_dict(d: dict) -> Trigger:
@@ -64,6 +69,7 @@ def trigger_from_dict(d: dict) -> Trigger:
         once_only=bool(d.get("once_only", False)),
         cooldown_days=int(d.get("cooldown_days", 0)),
         active=bool(d.get("active", True)),
+        group=d.get("group", ""),
     )
 
 

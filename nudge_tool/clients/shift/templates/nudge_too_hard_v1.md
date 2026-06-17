@@ -10,6 +10,8 @@ There's definitely a learning curve with climbing, but most people see big impro
 
 If you'd like a little extra guidance, we recommend checking out our Intro to Shift class or asking our staff to point you toward some good climbs to start on.
 
+And to make your next visit easy, here's 50% off: just use code {daypass_code} at the front desk.
+
 We hope you'll come give it another shot sometime soon!
 
 - The Shift Team

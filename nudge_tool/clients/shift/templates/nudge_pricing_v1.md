@@ -14,6 +14,8 @@ Membership Lite: [see the membership options]({membership_lite_link})
 
 Both are great ways to keep climbing and see if Shift becomes part of your routine.
 
+And to get you back on the wall right away, here's 50% off your next visit: just use code {daypass_code} at the front desk.
+
 If you have any questions at all, just reply to this email. We'd be happy to help.
 
 - The Shift Team

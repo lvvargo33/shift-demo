@@ -130,7 +130,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     queue = engine.build_queue(ds, client, asof, log=log,
                                unsubscribed=unsubscribed,
                                suppressed_out=suppressed_out,
-                               dedup_email=True)
+                               dedup_email=True, own_email_guard=True)
     generated_at = datetime.now().isoformat(timespec="seconds")
     payload = engine.build_payload(ds, queue, client, asof, mode, generated_at,
                                    survey_result, suppressed_out,

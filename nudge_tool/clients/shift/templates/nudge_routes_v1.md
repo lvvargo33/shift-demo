@@ -10,4 +10,6 @@ A lot of people find that climbing becomes much more enjoyable once they've had 
 
 If you're willing to give it another shot, we'd love to help point you toward climbs that match what you're looking for. Just let us know what you enjoyed (or didn't enjoy) about your first visit, and we'll be happy to make some recommendations.
 
+And to make that next visit easy, here's 50% off: just use code {daypass_code} at the front desk.
+
 - The Shift Team

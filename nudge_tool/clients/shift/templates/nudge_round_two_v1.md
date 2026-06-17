@@ -8,6 +8,8 @@ If you're able to, we recommend coming back within your first week. That's usual
 
 Bring a friend, try some new climbs, and keep the momentum going.
 
+And to make your next visit easy, here's 50% off: just use code {daypass_code} at the front desk.
+
 Hope to climb with you again soon!
 
 - The Shift Team
