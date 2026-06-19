@@ -91,7 +91,7 @@ services:
     startCommand: python send_nudges.py --drive --notify --yes --i-have-shift-signoff
     envVars:
       - key: NUDGE_LIVE_ENABLED  # THE go-live switch. unset/false = no-op (tags nobody).
-        value: "false"
+        value: "true"   # LIVE as of 2026-06-19 (SHIFT signoff + Mailchimp creds in place). Forward-only floor still gates who is eligible.
       - key: NUDGE_CLIENT
         value: shift
       # SA key via Secret File (proven path; raw/base64 env-field pastes corrupt
