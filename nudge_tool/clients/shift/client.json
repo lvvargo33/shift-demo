@@ -252,7 +252,7 @@
       "requires": {
         "no_return": true,
         "not_surveyed": true,
-        "first_visit_on_or_after": ""
+        "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true,
@@ -271,7 +271,7 @@
       "days_since_max": 2,
       "requires": {
         "not_surveyed": true,
-        "first_visit_on_or_after": ""
+        "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true
@@ -287,7 +287,7 @@
       "requires": {
         "survey_intent": "high",
         "no_return": true,
-        "first_visit_on_or_after": ""
+        "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true,
@@ -304,7 +304,7 @@
       "requires": {
         "survey_blocker": "too_expensive",
         "no_return": true,
-        "first_visit_on_or_after": ""
+        "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true,
@@ -321,7 +321,7 @@
       "requires": {
         "survey_blocker": "too_busy",
         "no_return": true,
-        "first_visit_on_or_after": ""
+        "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true,
@@ -338,7 +338,7 @@
       "requires": {
         "survey_blocker": "too_hard",
         "no_return": true,
-        "first_visit_on_or_after": ""
+        "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true,
@@ -355,7 +355,7 @@
       "requires": {
         "survey_blocker": "intimidating",
         "no_return": true,
-        "first_visit_on_or_after": ""
+        "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true,
@@ -372,7 +372,7 @@
       "requires": {
         "survey_blocker": "front_desk",
         "no_return": true,
-        "first_visit_on_or_after": ""
+        "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true,
@@ -389,7 +389,7 @@
       "requires": {
         "survey_blocker": "confusing",
         "no_return": true,
-        "first_visit_on_or_after": ""
+        "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true,
@@ -406,7 +406,7 @@
       "requires": {
         "survey_blocker": "not_enjoyable",
         "no_return": true,
-        "first_visit_on_or_after": ""
+        "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true,
