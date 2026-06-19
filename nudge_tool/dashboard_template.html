@@ -536,13 +536,12 @@ function closeMobileNav() {
 }
 
 function safetyBanner() {
-  const live = DATA.live_enabled && DATA.mode === 'live';
-  if (live) {
+  if (DATA.send_enabled) {
     return '<div class="banner banner-warn">' + icon('shield') +
-      '<div><strong>LIVE mode.</strong> The follow-ups below are ready to send to the climbers listed.</div></div>';
+      '<div><strong>Live.</strong> New first-time visitors are followed up automatically every day. You can also send any person’s follow-up right now with the Send button.</div></div>';
   }
   return '<div class="banner banner-safe">' + icon('shield') +
-    '<div><strong>Review mode.</strong> This shows exactly who you’d follow up with and the message each person gets. Sending isn’t switched on yet, so the Send buttons just walk you through the flow.</div></div>';
+    '<div><strong>Live view.</strong> Follow-ups send automatically each day to the people listed here. Sending by hand from this page isn’t switched on for this account yet.</div></div>';
 }
 
 /* ============================ REPORTING PERIOD + AGGREGATES ============================ */
@@ -654,16 +653,47 @@ function byTiming(ftvs) {
     .filter(b => b.n > 0);
 }
 
-/* ============================ MODAL + SEND (queue is not wired) ============================ */
+/* ============================ MODAL + SEND ============================ */
 function closeModal() { $('modal-backdrop').classList.remove('open'); $('modal-card').innerHTML = ''; }
 function openModal(html) { $('modal-card').innerHTML = html; $('modal-backdrop').classList.add('open'); }
-function demoSentModal(count) {
-  const who = count === 1 ? 'this climber' : count + ' climbers';
-  openModal(
-    '<div class="modal-head">' + icon('shield') + 'Demonstration only</div>' +
-    '<div class="modal-body">Automated sending isn’t connected in this demo, so <strong>nothing was sent</strong> to ' + who + '.<br><br>' +
-    'In the live version this is where the follow-up would go out for you, and you stay in control of every send.</div>' +
-    '<div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Got it</button></div>');
+
+/* POST the chosen climber ids to the server, which tags them in Mailchimp (the
+   Journey then sends). The server only sends to people still eligible in today's
+   queue, so a double-click or a person who already returned is a safe no-op. */
+async function doSend(ids, label) {
+  openModal('<div class="modal-head">' + icon('mail') + 'Sending…</div>' +
+    '<div class="modal-body">Sending ' + escapeHtml(label) + '. One moment…</div>');
+  let res;
+  try {
+    const r = await fetch('/send', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: ids })
+    });
+    res = await r.json();
+  } catch (e) {
+    res = { ok: false, message: 'Could not reach the server, so nothing was sent. Try again.' };
+  }
+  sendResultModal(res);
+}
+function sendResultModal(res) {
+  if (!res || !res.ok) {
+    const msg = (res && res.message) ? res.message : 'Sending isn’t available right now, so nothing was sent.';
+    openModal('<div class="modal-head">' + icon('shield') + 'Not sent</div>' +
+      '<div class="modal-body">' + escapeHtml(msg) + '</div>' +
+      '<div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Got it</button></div>');
+    return;
+  }
+  const sent = (res.sent || []).length, failed = (res.failed || []).length;
+  let body;
+  if (!sent && !failed) {
+    body = 'No one here was eligible to send right now. They may have already been contacted or already come back.';
+  } else {
+    body = '<strong>' + sent + '</strong> follow-up' + (sent === 1 ? '' : 's') + ' sent.';
+    if (failed) body += '<br><br><strong>' + failed + '</strong> could not be sent. Check the daily report email for details.';
+  }
+  openModal('<div class="modal-head">' + icon('mail') + 'Done</div>' +
+    '<div class="modal-body">' + body + '</div>' +
+    '<div class="modal-foot"><button class="btn btn-primary" onclick="location.reload()">Refresh list</button></div>');
 }
 function confirmSendOne(id) {
   const q = DATA.queue.find(x => x.climber_id === id);
@@ -673,11 +703,19 @@ function confirmSendOne(id) {
     '<div class="modal-body">You’re about to send the <strong>' + escapeHtml(triggerLabel(q.trigger_name)) + '</strong> message to ' +
     '<strong>' + escapeHtml(q.name || 'this climber') + '</strong> (' + escapeHtml(q.email || 'no email') + ').</div>' +
     '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn btn-send" onclick="closeModal();demoSentModal(1)">Send follow-up</button></div>');
+    '<button class="btn btn-send" onclick="doSend([' + JSON.stringify(q.climber_id) + '], \'this follow-up\')">Send follow-up</button></div>');
 }
 function confirmSendBulk() {
   const sel = selectedQueueIds();
-  const count = sel.length ? sel.length : filteredQueue().length;
+  const ids = sel.length ? sel
+    : filteredQueue().filter(q => q.trigger_name !== 'MANUAL' && (q.email || '').trim()).map(q => q.climber_id);
+  const count = ids.length;
+  if (!count) {
+    openModal('<div class="modal-head">' + icon('mail') + 'Nothing to send</div>' +
+      '<div class="modal-body">No one in this view is eligible to send right now.</div>' +
+      '<div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Got it</button></div>');
+    return;
+  }
   const allWord = sel.length ? 'the <strong>' + count + '</strong> selected climber' + (count === 1 ? '' : 's')
     : '<strong>everyone in the queue</strong> (' + count + ' climber' + (count === 1 ? '' : 's') + ')';
   openModal(
@@ -685,7 +723,10 @@ function confirmSendBulk() {
     '<div class="modal-body">Heads up: you’re about to send each person’s matched follow-up to ' + allWord + ' in one go. ' +
     'Each climber gets the message that fits their situation.</div>' +
     '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn btn-send" onclick="closeModal();demoSentModal(' + count + ')">Send ' + count + ' follow-up' + (count === 1 ? '' : 's') + '</button></div>');
+    '<button class="btn btn-send" id="bulk-send-confirm">Send ' + count + ' follow-up' + (count === 1 ? '' : 's') + '</button></div>');
+  document.getElementById('bulk-send-confirm').onclick = function () {
+    doSend(ids, count + ' follow-up' + (count === 1 ? '' : 's'));
+  };
 }
 
 /* ============================ DASHBOARD ============================ */

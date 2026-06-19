@@ -29,14 +29,15 @@ import argparse
 import base64
 import json
 import os
+import threading
 import time
 import traceback
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from nudge_tool import config, engine, ingest, outreach, survey
-from nudge_tool.config import DASHBOARD_TEMPLATE, load_client
+from nudge_tool import config, engine, ingest, livesend, outreach, survey
+from nudge_tool.config import DASHBOARD_TEMPLATE, load_client, load_settings
 
 DEFAULT_CLIENT = "shift_demo_live"
 DEFAULT_DAYS_AHEAD = 6  # as-of = today + 6 so a same-day submission routes to its nudge
@@ -121,6 +122,109 @@ def _resolve_asof(params: dict, slug: str) -> date:
     return date.today() + timedelta(days=days)
 
 
+def _truthy(v) -> bool:
+    return (v or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _send_enabled(client) -> bool:
+    """True only when live sending is switched on (NUDGE_LIVE_ENABLED env or the
+    client config) AND Mailchimp send creds are present. Drives the dashboard
+    banner and whether the Send buttons (POST /send) actually tag anyone."""
+    if not (_truthy(os.getenv("NUDGE_LIVE_ENABLED")) or getattr(client, "live_enabled", False)):
+        return False
+    try:
+        load_settings(client, require=True)
+        return True
+    except Exception:
+        return False
+
+
+def _push_outreach_log(client) -> None:
+    """Push the updated outreach log back to its Drive file id so the daily cron
+    and the next page load both see a manual send. No id (local dev) = skip."""
+    fid = os.getenv("OUTREACH_DRIVE_ID")
+    if not fid or not client.outreach_log.exists():
+        return
+    from nudge_tool import drive_io
+    drive_io.push(str(client.outreach_log), file_id=fid, svc=drive_io._service(drive_io._RW))
+
+
+_send_lock = threading.Lock()
+
+
+def send_now(client_slug: str, req: dict) -> dict:
+    """Manually tag the requested climbers in Mailchimp (a Journey then sends),
+    record the sends in the outreach log, and push the log back to Drive.
+
+    Safe by construction: it only sends to people still ELIGIBLE in today's
+    freshly-built queue, so it can never reach someone who already returned,
+    already got this message, or first visited before the go-live floor. A lock
+    serializes sends so two quick clicks can't double-tag. `req["ids"]` limits the
+    send to those climber ids; omit it to send the whole eligible queue."""
+    with _send_lock:
+        client = load_client(client_slug)
+        if not (_truthy(os.getenv("NUDGE_LIVE_ENABLED")) or getattr(client, "live_enabled", False)):
+            return {"ok": False, "reason": "not_enabled",
+                    "message": "Sending isn’t switched on for this account yet."}
+        try:
+            settings = load_settings(client, require=True)
+        except Exception:
+            return {"ok": False, "reason": "no_creds",
+                    "message": "Email sending isn’t set up on this server yet. "
+                               "Add the Mailchimp keys on the host, then try again."}
+
+        from nudge_tool.mailchimp_client import MailchimpClient, MailchimpError
+        from requests.exceptions import RequestException
+
+        # Refresh the same data the dashboard reads (Beta CSVs + outreach log).
+        _ensure_beta_data(client)
+        ds = ingest.load(client)
+        survey_result = survey.apply(ds, client)
+        log = outreach.load(client)
+        outreach.tighten_survey_sent(ds, log)
+
+        # Never tag a suppressed/unsubscribed email; if we can't read that list, abort.
+        try:
+            unsub = MailchimpClient(settings).suppressed_emails()
+        except (RuntimeError, MailchimpError, RequestException):
+            return {"ok": False, "reason": "no_unsub",
+                    "message": "Couldn’t reach Mailchimp to check unsubscribes, so "
+                               "nothing was sent. Try again in a moment."}
+
+        asof = date.today()
+        suppressed_out: list = []
+        queue = engine.build_queue(ds, client, asof, log=log, unsubscribed=unsub,
+                                   suppressed_out=suppressed_out, dedup_email=True,
+                                   own_email_guard=True)
+        targets = livesend.derive_sends(queue)
+
+        ids = req.get("ids")
+        if ids is not None:
+            idset = {str(i) for i in ids}
+            targets = [t for t in targets if t.climber_id in idset]
+
+        mc = MailchimpClient(settings)
+        sent: list = []
+        failed: list = []
+        for t in targets:
+            try:
+                mc.tag_member(t.email, t.first_name, t.tag)
+                sent.append(t)
+            except (MailchimpError, RequestException) as e:
+                failed.append({"name": t.name, "email": t.email, "error": str(e)})
+        if sent:
+            outreach.append(client, livesend.log_rows(sent, asof))
+            try:
+                _push_outreach_log(client)
+            except Exception:
+                pass  # local log recorded it; Mailchimp "enters once" stops a dup email
+        return {
+            "ok": True,
+            "sent": [{"name": t.name, "email": t.email, "tag": t.tag} for t in sent],
+            "failed": failed,
+        }
+
+
 def render(client_slug: str, asof: date) -> str:
     """Run the engine fresh and return the self-contained dashboard HTML string.
 
@@ -142,6 +246,8 @@ def render(client_slug: str, asof: date) -> str:
     payload = engine.build_payload(ds, queue, client, asof, "dry-run",
                                    generated_at, survey_result, suppressed_out,
                                    sent_rows=outreach.load_rows(client))
+
+    payload["send_enabled"] = _send_enabled(client)
 
     template = DASHBOARD_TEMPLATE.read_text(encoding="utf-8")
     data_str = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
@@ -197,7 +303,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self._authed():
             self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="SHIFT live demo"')
+            self.send_header("WWW-Authenticate", 'Basic realm="SHIFT live"')
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
@@ -218,6 +324,37 @@ class Handler(BaseHTTPRequestHandler):
             print("  ERROR rendering:\n" + tb)
             self._send(500, "text/html; charset=utf-8",
                        _error_page(tb).encode("utf-8"))
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if not self._authed():
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="SHIFT live"')
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if parsed.path != "/send":
+            self._send(404, "application/json", b'{"ok":false,"message":"Not found."}')
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw = self.rfile.read(length) if length else b""
+            req = json.loads(raw.decode("utf-8")) if raw else {}
+            if not isinstance(req, dict):
+                req = {}
+        except Exception:
+            req = {}
+        slug = self.server.default_client
+        try:
+            result = send_now(slug, req)
+        except Exception:
+            tb = traceback.format_exc()
+            print("  ERROR in /send:\n" + tb)
+            result = {"ok": False,
+                      "message": "Something went wrong while sending; nothing may have gone out. "
+                                 "Check the report email."}
+        body = json.dumps(result, ensure_ascii=False).encode("utf-8")
+        self._send(200, "application/json; charset=utf-8", body)
 
     def _send(self, code: int, ctype: str, body: bytes):
         self.send_response(code)

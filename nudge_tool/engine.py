@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 from . import ingest, templates
@@ -547,10 +547,30 @@ def summarize_suppression(suppressed_out: list | None) -> dict:
     }
 
 
+# The Inbox lists individual survey responses. To keep it navigable once the
+# pilot has run for months, it only shows responses from the last N days; older
+# ones drop off the list (the all-time aggregates above the list are unaffected).
+INBOX_RESPONSE_WINDOW_DAYS = 14
+
+
+def _within_inbox_window(answered_at: str) -> bool:
+    """True if a response is recent enough to show in the Inbox list. Blank/odd
+    dates are kept (shown), so we never silently hide a response we can't date."""
+    d = (answered_at or "").strip()[:10]
+    if len(d) != 10 or d[4] != "-":
+        return True
+    cutoff = (date.today() - timedelta(days=INBOX_RESPONSE_WINDOW_DAYS)).isoformat()
+    return d >= cutoff
+
+
 def _survey_block(client: ClientConfig, survey_result) -> dict:
     """The survey slice of the payload. Aggregates feed Insights; the per-response
     list feeds the Inbox two-pane. Empty (responses: []) whenever the survey loop
-    is off, so the dashboard's Inbox/Insights stay honestly dark until real data."""
+    is off, so the dashboard's Inbox/Insights stay honestly dark until real data.
+
+    The per-response list is windowed to the last INBOX_RESPONSE_WINDOW_DAYS days
+    so the Inbox stays readable over a long pilot; the aggregate counts remain
+    all-time."""
     responses = getattr(survey_result, "responses", []) or []
     return {
         "enabled": bool(client.survey.get("enabled")),
@@ -558,6 +578,7 @@ def _survey_block(client: ClientConfig, survey_result) -> dict:
         "unmatched": getattr(survey_result, "unmatched", 0),
         "safety": getattr(survey_result, "safety_count", 0),
         "by_blocker": getattr(survey_result, "by_blocker", {}) or {},
+        "inbox_window_days": INBOX_RESPONSE_WINDOW_DAYS,
         "responses": [
             {
                 "email": r.email, "name": r.name, "climber_id": r.climber_id,
@@ -567,6 +588,7 @@ def _survey_block(client: ClientConfig, survey_result) -> dict:
                 "blocker": r.blocker, "intent": r.intent, "safety": r.safety,
             }
             for r in responses
+            if _within_inbox_window(getattr(r, "answered_at", ""))
         ],
     }
 

@@ -6,7 +6,10 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python live_server.py
     envVars:
-      - key: GSHEETS_SA_JSON  # paste the service-account key JSON (Viewer on the Form sheet)
+      - key: GSHEETS_SA_JSON  # paste the service-account key JSON. Viewer on the
+                              # Form sheet is enough for the dashboard; the in-app
+                              # Send buttons also write the outreach log back to
+                              # Drive, so the SA must be Editor on the Drive folder.
         sync: false
       - key: LIVE_USER        # login gate for the PII page
         sync: false
@@ -29,6 +32,19 @@ services:
       - key: BETA_DRIVE_TTL    # min seconds between Drive pulls (cache)
         value: "60"
       - key: OUTREACH_DRIVE_ID # Drive file id of outreach_log.csv -> powers the Recovery Queue "Export" of who was sent what
+        sync: false
+      # In-app manual Send buttons (per-person + "send all"). The web service tags
+      # climbers in Mailchimp on click, exactly like the daily cron, then writes
+      # the outreach log back to Drive. All four below are required for the buttons
+      # to actually send; without them the buttons report "not switched on" and the
+      # daily auto-send is unaffected.
+      - key: NUDGE_LIVE_ENABLED  # the in-app send switch (same meaning as on the cron)
+        value: "true"
+      - key: MAILCHIMP_API_KEY   # the SEND account's creds (same as the nudge-send cron)
+        sync: false
+      - key: MAILCHIMP_SERVER
+        sync: false
+      - key: MAILCHIMP_AUDIENCE_ID
         sync: false
     healthCheckPath: /healthz
 
