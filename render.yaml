@@ -86,7 +86,7 @@ services:
   - type: cron
     name: shift-nudge-send
     runtime: python
-    schedule: "30 7 * * *"     # 3:30 AM ET (EDT). After DST ends -> "30 8 * * *".
+    schedule: "0 15 * * *"     # 11 AM ET (EDT). 15:00 UTC = 11 AM EDT. After DST ends -> "0 16 * * *". Time set to land ~4h before SHIFT's 3pm attendance rush (per Capacity heatmap).
     buildCommand: pip install -r requirements.txt
     startCommand: python send_nudges.py --drive --notify --yes --i-have-shift-signoff
     envVars:
