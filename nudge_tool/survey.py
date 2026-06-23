@@ -22,6 +22,7 @@ import io
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -143,6 +144,27 @@ def _read_rows(client: ClientConfig) -> list[dict]:
 
 _SHEETS_RO = "https://www.googleapis.com/auth/spreadsheets.readonly"
 
+# Sheets/Drive APIs throw transient HTTP 500/503 ("Internal error encountered")
+# and rate-limit 429s that succeed on a simple retry. Without this a single
+# Google-side blip failed the whole nudge send (it reads this sheet before
+# tagging anyone). Back off 1s, 2s, 4s, 8s, then give up.
+_RETRY_STATUSES = {429, 500, 502, 503, 504}
+_RETRY_DELAYS = (1, 2, 4, 8)
+
+
+def _execute_retrying(request):
+    """Run a googleapiclient request, retrying transient 5xx/429 with backoff."""
+    from googleapiclient.errors import HttpError
+    for delay in _RETRY_DELAYS:
+        try:
+            return request.execute()
+        except HttpError as e:
+            status = getattr(getattr(e, "resp", None), "status", None)
+            if int(status or 0) not in _RETRY_STATUSES:
+                raise
+            time.sleep(delay)
+    return request.execute()  # last attempt: let a final failure propagate
+
 
 def _read_gsheet_sa(sheet_id: str, rng: str) -> list[dict]:
     """Read the response sheet with a service-account key (cloud/headless).
@@ -158,9 +180,8 @@ def _read_gsheet_sa(sheet_id: str, rng: str) -> list[dict]:
     from . import drive_io
     creds = drive_io._creds(_SHEETS_RO)
     svc = build("sheets", "v4", credentials=creds, cache_discovery=False)
-    values = (svc.spreadsheets().values()
-              .get(spreadsheetId=sheet_id, range=rng).execute()
-              .get("values", []))
+    req = svc.spreadsheets().values().get(spreadsheetId=sheet_id, range=rng)
+    values = _execute_retrying(req).get("values", [])
     if not values:
         return []
     header = values[0]
