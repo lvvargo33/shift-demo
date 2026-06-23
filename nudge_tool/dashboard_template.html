@@ -634,7 +634,7 @@ function byEntry(ftvs) {
 }
 function byVisits(ftvs) {
   const buckets = [
-    { k: '0 (no check-in)', lo: 0, hi: 0 }, { k: '1 visit', lo: 1, hi: 1 },
+    { k: '1 visit', lo: 1, hi: 1 },
     { k: '2 visits', lo: 2, hi: 2 }, { k: '3 visits', lo: 3, hi: 3 },
     { k: '4–5 visits', lo: 4, hi: 5 }, { k: '6+ visits', lo: 6, hi: 999 } ];
   return buckets.map(b => {
@@ -1055,9 +1055,8 @@ function renderFunnel() {
   h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('funnel') + 'Where first-timers drop off (' + escapeHtml(periodLabel()) + ')</div>' +
     '<div class="card-description">Each stage is a subset of the one above it, so the bar widths are honest.</div></div>' +
     '<div class="card-content with-top">';
-  h += funnelStageRow('First-time visitors', a.n, 100, 'The cohort', null);
-  h += funnelStageRow('Checked in at least once', a.v1, a.v1Pct, 'Showed up after their first purchase', a.n);
-  h += funnelStageRow('Came back (2+ visits)', a.ret, a.retPct, 'The habit starts here, the strongest conversion signal', a.v1);
+  h += funnelStageRow('First-time visitors', a.n, 100, 'Checked in at least once (purchases with no check-in are not counted)', null);
+  h += funnelStageRow('Came back (2+ visits)', a.ret, a.retPct, 'The habit starts here, the strongest conversion signal', a.n);
   h += funnelStageRow('Became a member', a.conv, a.convPct, 'Signed up for a membership', a.ret);
   h += '</div></div>';
 
@@ -1074,7 +1073,7 @@ function renderFunnel() {
   }
 
   h += '<div class="card"><div class="card-content with-top" style="font-size:12.5px;color:var(--fg-subtle);line-height:1.7;">' +
-    'Counts are distinct climbers. A first-time visitor = their earliest day-pass, trial, punch, class, event, or membership purchase (staff excluded). ' +
+    'Counts are distinct climbers. A first-time visitor = their earliest day-pass, trial, punch, class, event, or membership purchase (staff excluded) who then checked in at least once. Purchases that never resulted in a check-in are not counted. ' +
     '"Became a member" = appears in the membership records. As of <strong>' + escapeHtml(DATA.as_of) + '</strong>.' +
     '</div></div>';
   $('view-funnel').innerHTML = h;

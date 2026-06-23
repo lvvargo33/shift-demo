@@ -433,7 +433,9 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
     by period (all-time / year / month) entirely client-side. Definitions mirror
     SHIFT_Analysis/scripts/01_data_prep.py (see DASHBOARD_REVAMP_SPEC):
       - cohort  = climbers with an FTV-qualifying first purchase, NOT staff, on
-                  or after reporting.post_opening_date (PRESALE founders excluded).
+                  or after reporting.post_opening_date (PRESALE founders excluded),
+                  who ALSO checked in at least once (a purchase with zero check-ins
+                  is not counted as a first-time visitor).
       - convert = reporting_converted (a real Memberships row).
       - period  = bucketed by FTV first-visit month.
     Returns enabled:false when no reporting config is present (older clients)."""
@@ -456,6 +458,13 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
         if c.ftv_category in excluded_cats:
             continue
         if opening and fd < opening:
+            continue
+        # Only count first-timers who actually showed up. A qualifying purchase
+        # with zero check-ins (bought online / a pass but never came in) is not a
+        # "visitor", so it is excluded from the dashboard tiles, funnel, and
+        # insights. Keeps every reported number tied to real foot traffic. The
+        # Recovery Queue is unaffected (it has its own visit-based rules).
+        if c.visit_count < 1:
             continue
         dtc = None
         if c.reporting_converted and c.membership_created and c.membership_created >= fd:
