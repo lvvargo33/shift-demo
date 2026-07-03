@@ -1491,43 +1491,46 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
   if (engagementOn()) {
     const eng = DATA.engagement;
     const av = !!eng.activity_available;
+    const pilotDay0 = eng.visit_floor || eng.pilot_start;  // go-live date (first eligible first visit)
     let dayNote = '';
-    if (eng.pilot_start) {
-      const ms = new Date(DATA.as_of) - new Date(eng.pilot_start);
+    if (pilotDay0) {
+      const ms = new Date(DATA.as_of) - new Date(pilotDay0);
       const day = Math.floor(ms / 86400000) + 1;
       dayNote = day <= 90 ? ' Day ' + day + ' of the 90-day pilot.' : ' The 90-day pilot window has ended.';
     }
     const engNote = dayNote + ' Covers everyone emailed since ' +
-      (eng.pilot_start ? longDate(eng.pilot_start) : 'the pilot started') + '; not affected by the period picker.';
+      (eng.pilot_start ? longDate(eng.pilot_start) : 'the pilot started') + '.';
     const foot = t => '<div style="color:var(--fg-subtle);font-size:11.5px;margin-top:10px;">' + escapeHtml(t) + '</div>';
     const fetching = 'Opens and clicks are still being fetched from the email system; check back in a few minutes.';
     const openSub = 'From the email system. Runs a little high: some mail apps open emails automatically.';
     // Pilot scorecard: every first-timer whose FIRST VISIT fell inside the
     // pilot window (emailed or not), from the same reporting cohort as the
-    // funnel. Goal numbers come from the pilot scorecard agreed 2026-06-18
-    // (baseline = summer 2025: 23% returned within 30 days, ~5.6% eventually
-    // joined; moderate goals: 30% return, 7% join by six months).
-    if (hasReport && eng.pilot_start) {
-      const pcohort = (DATA.reporting.ftvs || []).filter(f => f.d >= eng.pilot_start);
+    // funnel. Windowed on the go-live visit floor (first visits on/after
+    // 6/19), NOT the first send date, so day-one first-timers count. Goal
+    // numbers = the pilot scorecard agreed 2026-06-18 vs the same-window
+    // summer-2025 baseline: 30-33% return within 30 days (baseline 23%),
+    // 4-5% membership conversion within 90 days (baseline 2.9%).
+    if (hasReport && pilotDay0) {
+      const pcohort = (DATA.reporting.ftvs || []).filter(f => f.d >= pilotDay0);
       const pN = pcohort.length;
       if (pN > 0) {
         const pRet = pcohort.filter(f => f.ret).length;
         const pConv = pcohort.filter(f => f.conv).length;
         let inner = engBarM('First-timers since the pilot started', pN, pN, true,
-          'Everyone whose first visit landed during the pilot, emailed or not.');
+          'Everyone whose first visit landed during the pilot, emailed or not. Guests whose pass was bought by someone else aren’t counted.');
         inner += engBarM('Came back for a 2nd visit', pRet, pN, false,
-          'The pilot’s main goal: 30% (last summer: 23%). Reads low early; the newest first-timers haven’t had time to come back yet.');
+          'The pilot’s main goal: 30 to 33% back within 30 days (last summer: 23%). Reads low early; the newest first-timers haven’t had time to come back yet.');
         inner += engBarM('Became members', pConv, pN, false,
-          'The long-term goal: 7% by six months (last summer: about 5.6%). Day-pass buyers average about 3 months to join, so expect this to stay small for now.');
-        slides.push({ title: 'Pilot scorecard',
-          desc: 'The big picture: every first-timer since the pilot began and what they did next.' + engNote.replace('Covers everyone emailed since', 'Covers first visits since'),
+          'The pilot goal: 4 to 5% within 90 days of the first visit (last summer: 2.9%). Day-pass buyers average about 3 months to join, so this reads low until late in the pilot.');
+        slides.push({ title: 'Pilot scorecard', pilot: true,
+          desc: 'The big picture: every first-timer since the pilot began and what they did next.' + engNote.replace(/Covers everyone emailed since [^.]+/, 'Covers first visits since ' + longDate(pilotDay0)),
           html: inner });
       }
     }
     const s = eng.surveys || {};
     if ((s.sent || 0) > 0) {
       let inner = engBarM('Survey emails sent', s.sent, s.sent, true,
-        'Every first-timer gets the survey 1 to 2 days after their visit.');
+        'Every first-timer gets the survey 1 to 2 days after their visit, including guests who checked in with their own email. That’s why this runs higher than the scorecard’s paid first-timer count.');
       if (av) {
         inner += engBarM('Opened the email', s.opened, s.sent, false, openSub);
         inner += engBarM('Clicked the survey link', s.clicked_survey, s.sent, false,
@@ -1535,7 +1538,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       }
       inner += engBarM('Answered the survey', s.responded, s.sent, false, 'Submitted the form.');
       if (!av) inner += foot(fetching);
-      slides.push({ title: 'Survey engagement', desc: 'How first-timers engage with the feedback survey.' + engNote, html: inner });
+      slides.push({ title: 'Survey engagement', pilot: true, desc: 'How first-timers engage with the feedback survey.' + engNote, html: inner });
     }
     const o = eng.offers || {};
     if ((o.sent || 0) > 0) {
@@ -1551,7 +1554,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       inner += engBarM('Came back after the offer', o.returned, o.sent, false,
         'Checked in again any day after the offer went out, with or without the code. From check-in data.');
       if (!av) inner += foot(fetching);
-      slides.push({ title: 'Offer email results', desc: 'The 50%-off come-back offer and what happened next.' + engNote, html: inner });
+      slides.push({ title: 'Offer email results', pilot: true, desc: 'The 50%-off come-back offer and what happened next.' + engNote, html: inner });
     }
   }
   return slides;
@@ -1572,13 +1575,15 @@ function renderInsights() {
     $('view-insights').innerHTML = h; return;
   }
 
-  // fixed controls (period + counts/%) stay pinned above the carousel
-  h += '<div class="insights-controls">' + (hasReport ? periodSelectHtml() : '') + metricToggleHtml() + '</div>';
-
   // carousel: one chart at a time, arrows + dots to cycle
   const slides = buildInsightSlides(hasReport, hasSurvey, sv, responses);
   if (INSIGHTS_SLIDE >= slides.length) INSIGHTS_SLIDE = 0;
   const cur = slides[INSIGHTS_SLIDE] || { title: '', desc: '', html: '' };
+
+  // fixed controls (period + counts/%) stay pinned above the carousel. The
+  // pilot slides always cover the whole pilot, so the period picker is hidden
+  // on them (it would change nothing and only invite confusion).
+  h += '<div class="insights-controls">' + (hasReport && !cur.pilot ? periodSelectHtml() : '') + metricToggleHtml() + '</div>';
   h += '<div class="carousel">' +
     '<div class="carousel-head"><div class="card-title">' + icon('sparkles') + escapeHtml(cur.title) + '</div>' +
       '<div class="card-description">' + escapeHtml(cur.desc) + '</div></div>' +

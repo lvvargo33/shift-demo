@@ -658,7 +658,8 @@ def _has_event(events: list | None, kind: str, since: str,
 
 
 def build_engagement(ds: Dataset, sent_rows: list | None,
-                     activity_by_email: dict | None = None) -> dict:
+                     activity_by_email: dict | None = None,
+                     client: ClientConfig | None = None) -> dict:
     """The two pilot-to-date Insights funnels:
       offers : sent -> opened -> clicked buy link -> came back -> redeemed code
       surveys: sent -> opened -> clicked survey link -> responded
@@ -724,10 +725,18 @@ def build_engagement(ds: Dataset, sent_rows: list | None,
                 s["clicked_survey"] += 1
 
     all_sent = [rec["sent"] for rec in list(offers.values()) + list(surveys.values())]
+    # The go-live floor: the earliest first_visit_on_or_after across the active
+    # sending triggers. First EMAILS go out 1+ days later, so the Pilot
+    # scorecard uses this (not the first send date) as the cohort window start,
+    # or first-visit-day-one first-timers would be silently dropped.
+    floors = [t.requires.get("first_visit_on_or_after")
+              for t in (client.triggers if client else [])
+              if t.active and t.requires.get("first_visit_on_or_after")]
     return {
         "enabled": True,
         "activity_available": activity_by_email is not None,
         "pilot_start": min(all_sent) if all_sent else None,
+        "visit_floor": min(floors) if floors else None,
         "offers": o,
         "surveys": s,
     }
@@ -753,7 +762,7 @@ def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
         "suppression": summarize_suppression(suppressed_out),
         "survey": survey_block,
         "sent_log": build_sent_log(sent_rows, ds),
-        "engagement": build_engagement(ds, sent_rows, activity_by_email),
+        "engagement": build_engagement(ds, sent_rows, activity_by_email, client),
         "metrics": build_metrics(ds, queue, client, asof),
         "funnel": build_funnel(ds),
         "reporting": build_reporting(ds, client, asof),
