@@ -82,6 +82,23 @@ def categorize_product(name: str, rules: list[dict], default: str) -> str:
     return default
 
 
+def _daypass_line_total(items: str, daypass_skus: list[str]) -> float:
+    """Sum of (qty x unit price) across the day-pass line items in one
+    transaction's items string. 0.0 when no day-pass line is present."""
+    total = 0.0
+    for part in (items or "").split(";"):
+        m = _LINE_RE.match(part)
+        if not m:
+            continue
+        name = m.group(2).lower()
+        if any(sku in name for sku in daypass_skus):
+            try:
+                total += int(m.group(1)) * float(m.group(3))
+            except ValueError:
+                continue
+    return total
+
+
 def _ftv_category_for_tx(items: str, rules: list[dict], default: str,
                          qualifying: set[str]) -> str | None:
     """Category of the first FTV-qualifying line item in this transaction's
@@ -105,6 +122,10 @@ class Climber:
     trial_date: str | None = None      # earliest SUCCEEDED trial purchase
     visit_days: set[str] = field(default_factory=set)
     daypass_dates: list[str] = field(default_factory=list)  # day-pass/punch buy dates
+    # Day-pass buys discounted by >= half the day-pass line price. Beta's export
+    # never names the coupon used, so this is the footprint of the 50%-off
+    # SECONDVISIT offer code (feeds the Insights "Offer email results" slide).
+    discounted_daypass_dates: list[str] = field(default_factory=list)
     is_member: bool = False            # appears in Memberships.csv
     is_converted: bool = False         # bought a conversion_sku OR is_member
     conversion_date: str | None = None # earliest conversion purchase date
@@ -201,6 +222,17 @@ def load(client: ClientConfig) -> Dataset:
                     c.trial_date = d
             if daypass_skus and _matches(items, daypass_skus) and d:
                 c.daypass_dates.append(d)
+                # Promo-redemption footprint: the whole-transaction discount
+                # covers at least half the day-pass line total. (Coupon names
+                # never appear in the export, so amount is the only signal.)
+                try:
+                    disc = float(row.get("discount_total") or 0)
+                except ValueError:
+                    disc = 0.0
+                if disc > 0:
+                    dp_total = _daypass_line_total(items, daypass_skus)
+                    if dp_total > 0 and disc >= 0.5 * dp_total:
+                        c.discounted_daypass_dates.append(d)
             if client.conversion_skus and _matches(items, client.conversion_skus):
                 c.is_converted = True
                 if c.conversion_date is None or (d and d < c.conversion_date):

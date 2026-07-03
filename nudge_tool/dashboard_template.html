@@ -1408,6 +1408,30 @@ function countBarM(label, n, total, maxN) {
     '<div class="bar-count">' + n.toLocaleString() + '</div></div>' +
     '<div class="bar-track"><div class="bar-fill" style="width:' + Math.max(w, 2) + '%;"></div></div></div>';
 }
+// engagement funnel bar: count mode = N with the bar scaled to the funnel top
+// (the "sent" row), % mode = share of sent. Used by the two pilot slides.
+function engBarM(label, n, base, isTop) {
+  const pct = base > 0 ? 100 * n / base : 0;
+  if (metricIsPct()) {
+    return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
+      '<div class="bar-count">' + pct.toFixed(1) + '%</div></div>' +
+      '<div class="bar-track"><div class="bar-fill' + (isTop ? '' : ' bar-green') + '" style="width:' + Math.max(Math.round(pct), 2) + '%;"></div></div>' +
+      (isTop ? '' : '<div class="bar-sub">' + n.toLocaleString() + ' of ' + base.toLocaleString() + ' people</div>') + '</div>';
+  }
+  const w = base > 0 ? Math.round(100 * n / base) : 0;
+  return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
+    '<div class="bar-count">' + n.toLocaleString() + '</div></div>' +
+    '<div class="bar-track"><div class="bar-fill" style="width:' + Math.max(w, 2) + '%;"></div></div>' +
+    (isTop ? '' : '<div class="bar-sub">' + pct.toFixed(1) + '% of everyone sent one</div>') + '</div>';
+}
+function longDate(iso) {
+  const p = (iso || '').split('-');
+  return p.length === 3 ? MONTHS[+p[1] - 1] + ' ' + (+p[2]) + ', ' + p[0] : iso;
+}
+function engagementOn() {
+  const e = DATA.engagement || {};
+  return !!e.enabled && (((e.offers || {}).sent || 0) > 0 || ((e.surveys || {}).sent || 0) > 0);
+}
 function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
   const slides = [];
   if (hasReport) {
@@ -1459,6 +1483,40 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       : noData('No intent answers yet.');
     slides.push({ title: 'How likely to become regulars', desc: 'Self-reported intent. High-intent first-timers get the round-two invite.', html: inner });
   }
+  // Pilot engagement funnels (offer + survey emails). These read the send log,
+  // so they cover the whole pilot and ignore the period picker above.
+  if (engagementOn()) {
+    const eng = DATA.engagement;
+    const av = !!eng.activity_available;
+    const engNote = 'Everyone emailed since the pilot started' +
+      (eng.pilot_start ? ' (' + longDate(eng.pilot_start) + ')' : '') + '. Not affected by the period picker.';
+    const foot = t => '<div style="color:var(--fg-subtle);font-size:11.5px;margin-top:10px;">' + escapeHtml(t) + '</div>';
+    const fetching = 'Opens and clicks are still being fetched from the email system; check back in a few minutes.';
+    const o = eng.offers || {};
+    if ((o.sent || 0) > 0) {
+      let inner = engBarM('Sent the come-back offer', o.sent, o.sent, true);
+      if (av) {
+        inner += engBarM('Opened the email', o.opened, o.sent, false);
+        inner += engBarM('Clicked the buy-a-pass link', o.clicked_buy, o.sent, false);
+      }
+      inner += engBarM('Came back after the offer', o.returned, o.sent, false);
+      inner += engBarM('Redeemed the code (50% off a day pass)', o.redeemed, o.sent, false);
+      inner += foot('Redemptions only count when the discount is rung up in the register.' +
+        (av ? ' Opens run a little high: some mail apps open emails automatically.' : ' ' + fetching));
+      slides.push({ title: 'Offer email results', desc: 'The 50%-off come-back offer and what happened next. ' + engNote, html: inner });
+    }
+    const s = eng.surveys || {};
+    if ((s.sent || 0) > 0) {
+      let inner = engBarM('Survey emails sent', s.sent, s.sent, true);
+      if (av) {
+        inner += engBarM('Opened the email', s.opened, s.sent, false);
+        inner += engBarM('Clicked the survey link', s.clicked_survey, s.sent, false);
+      }
+      inner += engBarM('Answered the survey', s.responded, s.sent, false);
+      if (!av) inner += foot(fetching);
+      slides.push({ title: 'Survey engagement', desc: 'How first-timers engage with the feedback survey. ' + engNote, html: inner });
+    }
+  }
   return slides;
 }
 function renderInsights() {
@@ -1470,7 +1528,7 @@ function renderInsights() {
   let h = pageHeader('Insights',
     'What ' + DATA.client + '’s first-visit data is telling us. Pick a period, then step through each chart.');
 
-  if (!hasReport && !hasSurvey) {
+  if (!hasReport && !hasSurvey && !engagementOn()) {
     h += '<div class="card"><div class="empty-state"><div class="empty-state-icon">📊</div>' +
       '<div class="empty-state-title">No data yet</div>' +
       '<div class="empty-state-msg">Insights populate from your visit data and the survey.</div></div></div>';

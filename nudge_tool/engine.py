@@ -628,10 +628,116 @@ def build_sent_log(sent_rows: list | None, ds: Dataset) -> list[dict]:
     return rows
 
 
+# --- Insights engagement funnels (offer + survey emails), pilot-to-date -----
+# Beta's transaction export never records WHICH promo code was used, so a
+# redemption is inferred: an offer-email recipient who later bought a day pass
+# at >= 50% off (ingest flags those purchases). Opens and clicks come from the
+# Mailchimp activity feed when the caller supplies it; the clicked URL tells
+# the offer's buy link apart from the survey form link.
+_BUY_LINK_MARKERS = ("purchase-a-pass", "sendmoregetbeta")
+_SURVEY_LINK_MARKERS = ("docs.google.com/forms", "forms.gle")
+
+
+def _has_event(events: list | None, kind: str, since: str,
+               url_markers: tuple = ()) -> bool:
+    """True if the contact's activity feed has an event of `kind` dated on or
+    after `since` (YYYY-MM-DD). With url_markers, the clicked URL must contain
+    one of them (click events only)."""
+    for a in events or []:
+        if a.get("activity_type") != kind:
+            continue
+        when = str(a.get("created_at_timestamp") or a.get("timestamp") or "")[:10]
+        if when and when < since:
+            continue
+        if url_markers:
+            url = (a.get("link_clicked") or "").lower()
+            if not any(m in url for m in url_markers):
+                continue
+        return True
+    return False
+
+
+def build_engagement(ds: Dataset, sent_rows: list | None,
+                     activity_by_email: dict | None = None) -> dict:
+    """The two pilot-to-date Insights funnels:
+      offers : sent -> opened -> clicked buy link -> came back -> redeemed code
+      surveys: sent -> opened -> clicked survey link -> responded
+    One person counts once per funnel (earliest real send; test rows excluded).
+    Everything after "sent" only counts when it happened AFTER that person's
+    send date, so a visit or purchase from before the email never inflates it.
+    activity_by_email=None means opens/clicks were not fetched (cron/static
+    builds); the dashboard then hides those bars instead of showing a false 0."""
+    by_email = {}
+    for c in ds.climbers.values():
+        e = (c.email or "").strip().lower()
+        if e and e not in by_email:
+            by_email[e] = c
+
+    offers: dict[str, dict] = {}
+    surveys: dict[str, dict] = {}
+    for r in sent_rows or []:
+        if (r.get("mode") or "").strip() == "test":
+            continue
+        email = (r.get("email") or "").strip().lower()
+        sent = (r.get("sent_date") or "").strip()[:10]
+        if not email or not sent:
+            continue
+        bucket = surveys if "survey" in (r.get("tag") or "") else offers
+        cur = bucket.get(email)
+        if cur is None or sent < cur["sent"]:
+            bucket[email] = {"sent": sent,
+                             "cid": (r.get("climber_id") or "").strip()}
+    if not offers and not surveys:
+        return {"enabled": False}
+
+    def climber_for(email: str, cid: str):
+        return ds.climbers.get(cid) or by_email.get(email)
+
+    o = {"sent": len(offers), "opened": 0, "clicked_buy": 0,
+         "returned": 0, "redeemed": 0}
+    for email, rec in offers.items():
+        c = climber_for(email, rec["cid"])
+        since = rec["sent"]
+        if c:
+            if any(v > since for v in c.visit_days):
+                o["returned"] += 1
+            if any(v > since for v in c.discounted_daypass_dates):
+                o["redeemed"] += 1
+        if activity_by_email is not None:
+            ev = activity_by_email.get(email)
+            if _has_event(ev, "open", since):
+                o["opened"] += 1
+            if _has_event(ev, "click", since, _BUY_LINK_MARKERS):
+                o["clicked_buy"] += 1
+
+    s = {"sent": len(surveys), "opened": 0, "clicked_survey": 0, "responded": 0}
+    for email, rec in surveys.items():
+        c = climber_for(email, rec["cid"])
+        since = rec["sent"]
+        if c and c.survey_answered:
+            s["responded"] += 1
+        if activity_by_email is not None:
+            ev = activity_by_email.get(email)
+            if _has_event(ev, "open", since):
+                s["opened"] += 1
+            if _has_event(ev, "click", since, _SURVEY_LINK_MARKERS):
+                s["clicked_survey"] += 1
+
+    all_sent = [rec["sent"] for rec in list(offers.values()) + list(surveys.values())]
+    return {
+        "enabled": True,
+        "activity_available": activity_by_email is not None,
+        "pilot_start": min(all_sent) if all_sent else None,
+        "offers": o,
+        "surveys": s,
+    }
+
+
 def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
                   asof: date, mode: str, generated_at: str,
                   survey_result=None, suppressed_out: list | None = None,
-                  sent_rows: list | None = None) -> dict:
+                  sent_rows: list | None = None,
+                  activity_by_email: dict | None = None) -> dict:
     survey_block = _survey_block(client, survey_result)
     return {
         "client": client.client_name,
@@ -647,6 +753,7 @@ def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
         "suppression": summarize_suppression(suppressed_out),
         "survey": survey_block,
         "sent_log": build_sent_log(sent_rows, ds),
+        "engagement": build_engagement(ds, sent_rows, activity_by_email),
         "metrics": build_metrics(ds, queue, client, asof),
         "funnel": build_funnel(ds),
         "reporting": build_reporting(ds, client, asof),

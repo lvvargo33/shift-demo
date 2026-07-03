@@ -8,6 +8,7 @@ are always safe and back the connection self-test.
 API shape used:
   GET  /                                   -> account / ping
   GET  /lists/{audience_id}                -> audience stats
+  GET  /lists/{id}/members/{subhash}/activity-feed -> recent sends/opens/clicks
   PUT  /lists/{id}/members/{subhash}       -> upsert (create or update) a member
   POST /lists/{id}/members/{subhash}/tags  -> add/remove tags on a member
 where subhash = md5(lowercased email).
@@ -79,6 +80,24 @@ class MailchimpClient:
         return self._request(
             "GET", f"/lists/{self.s.audience_id}/members/{subscriber_hash(email)}"
         )
+
+    def member_activity(self, email: str) -> list[dict]:
+        """Recent activity events for one contact (sends/opens/clicks, newest
+        first; journey emails included). Click events carry the URL clicked in
+        `link_clicked`, which is how the Insights engagement slides tell a
+        buy-link click from a survey-link click. A contact Mailchimp doesn't
+        know (404) -> [] rather than an error. Read-only."""
+        try:
+            body = self._request(
+                "GET",
+                f"/lists/{self.s.audience_id}/members/{subscriber_hash(email)}/activity-feed",
+                params={"count": 50},
+            )
+        except MailchimpError as e:
+            if e.status == 404:
+                return []
+            raise
+        return body.get("activity", []) or []
 
     def list_emails_by_status(self, status: str, page: int = 1000) -> set[str]:
         """Lowercased emails of every member in one status (unsubscribed /

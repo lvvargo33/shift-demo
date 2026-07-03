@@ -149,6 +149,56 @@ def _push_outreach_log(client) -> None:
     drive_io.push(str(client.outreach_log), file_id=fid, svc=drive_io._service(drive_io._RW))
 
 
+# --- Mailchimp engagement activity (Insights offer/survey slides) -----------
+# Opens/clicks for everyone in the outreach log, fetched in a background thread
+# (one small read per contact) so page renders never block on Mailchimp. The
+# render uses the latest completed snapshot; None until the first fetch lands,
+# and the slides then hide the open/click bars instead of showing a false 0.
+_ACTIVITY_REFRESH_SECS = int(os.getenv("MC_ACTIVITY_TTL", "900") or "900")
+_activity_map: dict | None = None
+_activity_lock = threading.Lock()
+
+
+def _refresh_activity_once(client_slug: str) -> None:
+    global _activity_map
+    client = load_client(client_slug)
+    try:
+        settings = load_settings(client, require=True)
+    except Exception:
+        return  # no Mailchimp creds on this host -> the bars just stay hidden
+    try:
+        _ensure_beta_data(client)  # freshest outreach log (TTL-throttled)
+    except Exception:
+        pass
+    from nudge_tool.mailchimp_client import MailchimpClient, MailchimpError
+    from requests.exceptions import RequestException
+    emails = sorted({
+        (r.get("email") or "").strip().lower()
+        for r in outreach.load_rows(client)
+        if (r.get("mode") or "").strip() != "test" and (r.get("email") or "").strip()
+    })
+    mc = MailchimpClient(settings)
+    fetched: dict = {}
+    for e in emails:
+        try:
+            fetched[e] = mc.member_activity(e)
+        except (MailchimpError, RequestException, RuntimeError):
+            prev = (_activity_map or {}).get(e)
+            if prev is not None:
+                fetched[e] = prev  # keep the last good read for this contact
+    with _activity_lock:
+        _activity_map = fetched
+
+
+def _activity_refresher(client_slug: str) -> None:
+    while True:
+        try:
+            _refresh_activity_once(client_slug)
+        except Exception as e:
+            print(f"  activity refresh failed (will retry): {e}")
+        time.sleep(_ACTIVITY_REFRESH_SECS)
+
+
 _send_lock = threading.Lock()
 
 
@@ -243,9 +293,12 @@ def render(client_slug: str, asof: date) -> str:
                                unsubscribed=set(), suppressed_out=suppressed_out,
                                dedup_email=True, own_email_guard=True)
     generated_at = datetime.now().isoformat(timespec="seconds")
+    with _activity_lock:
+        activity = _activity_map
     payload = engine.build_payload(ds, queue, client, asof, "dry-run",
                                    generated_at, survey_result, suppressed_out,
-                                   sent_rows=outreach.load_rows(client))
+                                   sent_rows=outreach.load_rows(client),
+                                   activity_by_email=activity)
 
     payload["send_enabled"] = _send_enabled(client)
 
@@ -380,6 +433,8 @@ def main() -> None:
 
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     httpd.default_client = args.client
+    threading.Thread(target=_activity_refresher, args=(args.client,),
+                     daemon=True).start()
     url = f"http://{args.host}:{args.port}/"
     print("Live dashboard server (additive, read-only)")
     print(f"  client : {args.client}")
