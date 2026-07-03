@@ -1502,6 +1502,28 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
     const foot = t => '<div style="color:var(--fg-subtle);font-size:11.5px;margin-top:10px;">' + escapeHtml(t) + '</div>';
     const fetching = 'Opens and clicks are still being fetched from the email system; check back in a few minutes.';
     const openSub = 'From the email system. Runs a little high: some mail apps open emails automatically.';
+    // Pilot scorecard: every first-timer whose FIRST VISIT fell inside the
+    // pilot window (emailed or not), from the same reporting cohort as the
+    // funnel. Goal numbers come from the pilot scorecard agreed 2026-06-18
+    // (baseline = summer 2025: 23% returned within 30 days, ~5.6% eventually
+    // joined; moderate goals: 30% return, 7% join by six months).
+    if (hasReport && eng.pilot_start) {
+      const pcohort = (DATA.reporting.ftvs || []).filter(f => f.d >= eng.pilot_start);
+      const pN = pcohort.length;
+      if (pN > 0) {
+        const pRet = pcohort.filter(f => f.ret).length;
+        const pConv = pcohort.filter(f => f.conv).length;
+        let inner = engBarM('First-timers since the pilot started', pN, pN, true,
+          'Everyone whose first visit landed during the pilot, emailed or not.');
+        inner += engBarM('Came back for a 2nd visit', pRet, pN, false,
+          'The pilot’s main goal: 30% (last summer: 23%). Reads low early; the newest first-timers haven’t had time to come back yet.');
+        inner += engBarM('Became members', pConv, pN, false,
+          'The long-term goal: 7% by six months (last summer: about 5.6%). Day-pass buyers average about 3 months to join, so expect this to stay small for now.');
+        slides.push({ title: 'Pilot scorecard',
+          desc: 'The big picture: every first-timer since the pilot began and what they did next.' + engNote.replace('Covers everyone emailed since', 'Covers first visits since'),
+          html: inner });
+      }
+    }
     const s = eng.surveys || {};
     if ((s.sent || 0) > 0) {
       let inner = engBarM('Survey emails sent', s.sent, s.sent, true,
