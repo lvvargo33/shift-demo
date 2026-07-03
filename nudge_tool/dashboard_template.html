@@ -336,6 +336,14 @@ button, input, textarea, select { font-family: inherit; }
 .modal-head svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 2; }
 .modal-body { padding: 4px 22px 18px; font-size: 13.5px; color: var(--fg-muted); line-height: 1.6; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 0 22px 20px; }
+/* wide variant for the pilot-slide explainers: near-fullscreen, scrollable */
+.modal.modal-wide { max-width: 680px; }
+.modal-wide .modal-body { max-height: 72vh; overflow-y: auto; }
+.modal-wide .modal-body h4 { font-size: 13px; font-weight: 700; color: var(--fg); margin: 14px 0 4px; text-transform: uppercase; letter-spacing: 0.4px; }
+.modal-wide .modal-body p { margin: 0 0 8px; }
+.eng-info-wrap { text-align: center; margin-top: 12px; }
+.eng-info-btn { background: none; border: none; color: var(--fg-subtle); font-size: 12px; text-decoration: underline; cursor: pointer; padding: 4px 8px; }
+.eng-info-btn:hover { color: var(--fg); }
 
 /* --- inbox: unread dot + alert pin --- */
 .inbox-item.unread { border-left: 3px solid var(--primary); }
@@ -654,7 +662,7 @@ function byTiming(ftvs) {
 }
 
 /* ============================ MODAL + SEND ============================ */
-function closeModal() { $('modal-backdrop').classList.remove('open'); $('modal-card').innerHTML = ''; }
+function closeModal() { $('modal-backdrop').classList.remove('open'); $('modal-card').classList.remove('modal-wide'); $('modal-card').innerHTML = ''; }
 function openModal(html) { $('modal-card').innerHTML = html; $('modal-backdrop').classList.add('open'); }
 
 /* POST the chosen climber ids to the server, which tags them in Mailchimp (the
@@ -1431,6 +1439,65 @@ function longDate(iso) {
   const p = (iso || '').split('-');
   return p.length === 3 ? MONTHS[+p[1] - 1] + ' ' + (+p[2]) + ', ' + p[0] : iso;
 }
+// Full-screen plain-language explainers for the three pilot slides: who is
+// counted, what each bar means, where the data comes from, and why. Written
+// for a reader who knows nothing about the setup.
+const ENG_INFO = {
+  scorecard: {
+    title: 'About the Pilot scorecard',
+    body:
+      '<h4>Who is counted</h4>' +
+      '<p>Everyone who bought their own first pass (a day pass or intro pass) and actually came in to climb, starting June 19, 2026, the day the email pilot switched on. Each person is counted once.</p>' +
+      '<p>Not counted: guests who came in on a pass someone else bought, online buyers who never showed up, staff, and people who signed up as members on day one (an email nudge can’t take credit for them).</p>' +
+      '<h4>Why only paid first-timers</h4>' +
+      '<p>To judge the pilot, we compare this summer against the same weeks last summer (2025). Purchases leave a clean record, so buyers can be measured the same way in both years. Guests can’t: many check in under the buyer’s email, and a guest who later buys their own pass shows up in the records as a brand-new visitor, not a returner. Counting guests would make the two summers impossible to compare fairly.</p>' +
+      '<p>Guests still matter, and they still get the survey and offer emails when we have their address. They’re just not part of this yardstick.</p>' +
+      '<h4>The goals</h4>' +
+      '<p>Set before the pilot, against last summer’s numbers for the same weeks: came back within 30 days, goal 30 to 33% (last summer: 23%). Became a member within 90 days, goal 4 to 5% (last summer: 2.9%).</p>' +
+      '<p>Early in the pilot both numbers read low, because the newest first-timers haven’t had time to come back or join yet. The fair read on returns comes about a month after each person’s first visit, and on memberships about three months after.</p>' +
+      '<h4>Where the data comes from</h4>' +
+      '<p>Purchases from the register system and check-ins from the front-desk sign-in, refreshed daily.</p>',
+  },
+  survey: {
+    title: 'About Survey engagement',
+    body:
+      '<h4>Who gets the survey</h4>' +
+      '<p>Every first-time visitor with their own email on file gets it 1 to 2 days after their visit, including guests who were brought along by a friend. That’s why the “sent” number here is bigger than the scorecard’s paid first-timer count: this is a wider group.</p>' +
+      '<p>Who doesn’t get it: guests who checked in under the pass-buyer’s email (we have no address for them) and anyone who has unsubscribed.</p>' +
+      '<h4>What the bars mean</h4>' +
+      '<p><strong>Opened</strong>: the email was viewed. This reads a little high, because some mail apps open emails automatically in the background. <strong>Clicked the survey link</strong>: they tapped through to the feedback form. <strong>Answered</strong>: they submitted it.</p>' +
+      '<h4>Why the survey exists</h4>' +
+      '<p>Two jobs: hear how the first visit went while it’s fresh, and route each person to the right follow-up. Someone who names a specific hang-up (price, crowding, difficulty) gets a come-back email written to that exact concern.</p>' +
+      '<h4>Where the data comes from</h4>' +
+      '<p>The email system reports sends, opens, and clicks; answers come from the survey form. Updates through the day.</p>',
+  },
+  offer: {
+    title: 'About Offer email results',
+    body:
+      '<h4>Who gets the offer</h4>' +
+      '<p>Paid first-timers who had NOT come back about 5 to 7 days after their first visit. People who return quickly on their own never get it: they didn’t need a discount. Survey answerers get a message written to their feedback; everyone else gets the standard note with the 50%-off code.</p>' +
+      '<h4>What “redeemed” means</h4>' +
+      '<p>They bought a day pass at half price after getting the email, according to the register. Important: the front desk has to ring the 50% off as a discount for it to show up here. A half-price charge typed in by hand is invisible to this count.</p>' +
+      '<h4>Why “came back” can be higher than “redeemed”</h4>' +
+      '<p>Some people come back and pay full price, or the discount wasn’t rung up. A come-back without the code still counts as a win: the goal is the second visit, not the discount.</p>' +
+      '<h4>Don’t compare this to the scorecard’s come-back rate</h4>' +
+      '<p>This group is only the slower-to-return people; the quick returners were filtered out before the email went out. So the come-back percentage here will always look lower than the overall number on the scorecard. That’s expected, not a sign the emails are failing.</p>' +
+      '<h4>Where the data comes from</h4>' +
+      '<p>The email system (sends, opens, clicks), the register (redemptions), and the check-in system (come-backs).</p>',
+  },
+};
+function showEngInfo(kind) {
+  const info = ENG_INFO[kind];
+  if (!info) return;
+  $('modal-card').classList.add('modal-wide');
+  openModal('<div class="modal-head">' + icon('sparkles') + escapeHtml(info.title) + '</div>' +
+    '<div class="modal-body">' + info.body + '</div>' +
+    '<div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Got it</button></div>');
+}
+function engInfoBtn(kind) {
+  return '<div class="eng-info-wrap"><button class="eng-info-btn" onclick="showEngInfo(\'' + kind + '\')">' +
+    'Click here for more info: who’s counted, what the bars mean, and why</button></div>';
+}
 function engagementOn() {
   const e = DATA.engagement || {};
   return !!e.enabled && (((e.offers || {}).sent || 0) > 0 || ((e.surveys || {}).sent || 0) > 0);
@@ -1522,6 +1589,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
           'The pilot’s main goal: 30 to 33% back within 30 days (last summer: 23%). Reads low early; the newest first-timers haven’t had time to come back yet.');
         inner += engBarM('Became members', pConv, pN, false,
           'The pilot goal: 4 to 5% within 90 days of the first visit (last summer: 2.9%). Day-pass buyers average about 3 months to join, so this reads low until late in the pilot.');
+        inner += engInfoBtn('scorecard');
         slides.push({ title: 'Pilot scorecard', pilot: true,
           desc: 'The big picture: every first-timer since the pilot began and what they did next.' + engNote.replace(/Covers everyone emailed since [^.]+/, 'Covers first visits since ' + longDate(pilotDay0)),
           html: inner });
@@ -1543,6 +1611,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       }
       inner += engBarM('Answered the survey', s.responded, s.sent, false, 'Submitted the form.');
       if (!av) inner += foot(fetching);
+      inner += engInfoBtn('survey');
       slides.push({ title: 'Survey engagement', pilot: true, desc: 'How first-timers engage with the feedback survey.' + engNote, html: inner });
     }
     const o = eng.offers || {};
@@ -1559,6 +1628,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       inner += engBarM('Came back after the offer', o.returned, o.sent, false,
         'Checked in again any day after the offer went out, with or without the code. From check-in data.');
       if (!av) inner += foot(fetching);
+      inner += engInfoBtn('offer');
       slides.push({ title: 'Offer email results', pilot: true, desc: 'The 50%-off come-back offer and what happened next.' + engNote, html: inner });
     }
   }
