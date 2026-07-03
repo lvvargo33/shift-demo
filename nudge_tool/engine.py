@@ -711,10 +711,28 @@ def build_engagement(ds: Dataset, sent_rows: list | None,
             if _has_event(ev, "click", since, _BUY_LINK_MARKERS):
                 o["clicked_buy"] += 1
 
-    s = {"sent": len(surveys), "opened": 0, "clicked_survey": 0, "responded": 0}
+    # Survey recipients split: paid first-timers (the scorecard cohort) vs
+    # guests/others. Surveys anchor on first CHECK-IN, the scorecard on a
+    # qualifying PURCHASE, so the survey count always runs higher; shipping
+    # the split lets the dashboard say so with real numbers instead of
+    # leaving readers to reconcile 103 vs 51 on their own.
+    rep = (client.reporting or {}) if client else {}
+    excluded_cats = set(rep.get("exclude_from_cohort", []))
+    opening = rep.get("post_opening_date")
+
+    def _is_paid_ftv(c) -> bool:
+        return bool(c and c.ftv_time and not c.is_staff
+                    and c.ftv_category not in excluded_cats
+                    and (not opening or c.ftv_date >= opening)
+                    and c.visit_count >= 1)
+
+    s = {"sent": len(surveys), "sent_paid_ftv": 0,
+         "opened": 0, "clicked_survey": 0, "responded": 0}
     for email, rec in surveys.items():
         c = climber_for(email, rec["cid"])
         since = rec["sent"]
+        if _is_paid_ftv(c):
+            s["sent_paid_ftv"] += 1
         if c and c.survey_answered:
             s["responded"] += 1
         if activity_by_email is not None:

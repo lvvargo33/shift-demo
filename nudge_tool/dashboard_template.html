@@ -1516,8 +1516,8 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       if (pN > 0) {
         const pRet = pcohort.filter(f => f.ret).length;
         const pConv = pcohort.filter(f => f.conv).length;
-        let inner = engBarM('First-timers since the pilot started', pN, pN, true,
-          'Everyone whose first visit landed during the pilot, emailed or not. Guests whose pass was bought by someone else aren’t counted.');
+        let inner = engBarM('Paid first-timers since the pilot started', pN, pN, true,
+          'Everyone who bought their own first pass and checked in during the pilot, emailed or not. Guests on someone else’s pass aren’t counted here (the survey still reaches them).');
         inner += engBarM('Came back for a 2nd visit', pRet, pN, false,
           'The pilot’s main goal: 30 to 33% back within 30 days (last summer: 23%). Reads low early; the newest first-timers haven’t had time to come back yet.');
         inner += engBarM('Became members', pConv, pN, false,
@@ -1529,8 +1529,13 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
     }
     const s = eng.surveys || {};
     if ((s.sent || 0) > 0) {
-      let inner = engBarM('Survey emails sent', s.sent, s.sent, true,
-        'Every first-timer gets the survey 1 to 2 days after their visit, including guests who checked in with their own email. That’s why this runs higher than the scorecard’s paid first-timer count.');
+      const paidN = s.sent_paid_ftv || 0;
+      const paidSplit = paidN > 0
+        ? 'Of the ' + s.sent.toLocaleString() + ', ' + paidN.toLocaleString() +
+          ' went to paid first-timers (the scorecard group); the rest went to guests and others who checked in with their own email.'
+        : 'Includes guests and others who checked in with their own email, so this runs higher than the scorecard’s paid first-timer count.';
+      let inner = engBarM('Survey emails sent (all new visitors)', s.sent, s.sent, true,
+        'Everyone gets the survey 1 to 2 days after their first visit. ' + paidSplit);
       if (av) {
         inner += engBarM('Opened the email', s.opened, s.sent, false, openSub);
         inner += engBarM('Clicked the survey link', s.clicked_survey, s.sent, false,
