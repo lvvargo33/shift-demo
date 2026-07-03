@@ -1408,21 +1408,24 @@ function countBarM(label, n, total, maxN) {
     '<div class="bar-count">' + n.toLocaleString() + '</div></div>' +
     '<div class="bar-track"><div class="bar-fill" style="width:' + Math.max(w, 2) + '%;"></div></div></div>';
 }
-// engagement funnel bar: count mode = N with the bar scaled to the funnel top
-// (the "sent" row), % mode = share of sent. Used by the two pilot slides.
-function engBarM(label, n, base, isTop) {
+// engagement funnel bar: bar scaled to the funnel top (the "sent" row). The
+// count shows both the number and its % of sent (the Counts/% toggle flips
+// which leads); the grey sub line is a plain-language source/meaning note.
+// A zero value draws NO fill at all, so an empty stage never shows a sliver.
+function engBarM(label, n, base, isTop, sub) {
   const pct = base > 0 ? 100 * n / base : 0;
-  if (metricIsPct()) {
-    return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
-      '<div class="bar-count">' + pct.toFixed(1) + '%</div></div>' +
-      '<div class="bar-track"><div class="bar-fill' + (isTop ? '' : ' bar-green') + '" style="width:' + Math.max(Math.round(pct), 2) + '%;"></div></div>' +
-      (isTop ? '' : '<div class="bar-sub">' + n.toLocaleString() + ' of ' + base.toLocaleString() + ' people</div>') + '</div>';
-  }
-  const w = base > 0 ? Math.round(100 * n / base) : 0;
+  let countHtml;
+  if (isTop) countHtml = n.toLocaleString();
+  else if (metricIsPct()) countHtml = pct.toFixed(1) + '% (' + n.toLocaleString() + ')';
+  else countHtml = n.toLocaleString() + ' (' + pct.toFixed(1) + '%)';
+  const w = Math.round(pct);
+  const fill = n > 0
+    ? '<div class="bar-fill' + (!isTop && metricIsPct() ? ' bar-green' : '') + '" style="width:' + Math.max(w, 2) + '%;"></div>'
+    : '';
   return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
-    '<div class="bar-count">' + n.toLocaleString() + '</div></div>' +
-    '<div class="bar-track"><div class="bar-fill" style="width:' + Math.max(w, 2) + '%;"></div></div>' +
-    (isTop ? '' : '<div class="bar-sub">' + pct.toFixed(1) + '% of everyone sent one</div>') + '</div>';
+    '<div class="bar-count">' + countHtml + '</div></div>' +
+    '<div class="bar-track">' + fill + '</div>' +
+    (sub ? '<div class="bar-sub">' + escapeHtml(sub) + '</div>' : '') + '</div>';
 }
 function longDate(iso) {
   const p = (iso || '').split('-');
@@ -1483,38 +1486,50 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       : noData('No intent answers yet.');
     slides.push({ title: 'How likely to become regulars', desc: 'Self-reported intent. High-intent first-timers get the round-two invite.', html: inner });
   }
-  // Pilot engagement funnels (offer + survey emails). These read the send log,
+  // Pilot engagement funnels (survey + offer emails). These read the send log,
   // so they cover the whole pilot and ignore the period picker above.
   if (engagementOn()) {
     const eng = DATA.engagement;
     const av = !!eng.activity_available;
-    const engNote = 'Everyone emailed since the pilot started' +
-      (eng.pilot_start ? ' (' + longDate(eng.pilot_start) + ')' : '') + '. Not affected by the period picker.';
+    let dayNote = '';
+    if (eng.pilot_start) {
+      const ms = new Date(DATA.as_of) - new Date(eng.pilot_start);
+      const day = Math.floor(ms / 86400000) + 1;
+      dayNote = day <= 90 ? ' Day ' + day + ' of the 90-day pilot.' : ' The 90-day pilot window has ended.';
+    }
+    const engNote = dayNote + ' Covers everyone emailed since ' +
+      (eng.pilot_start ? longDate(eng.pilot_start) : 'the pilot started') + '; not affected by the period picker.';
     const foot = t => '<div style="color:var(--fg-subtle);font-size:11.5px;margin-top:10px;">' + escapeHtml(t) + '</div>';
     const fetching = 'Opens and clicks are still being fetched from the email system; check back in a few minutes.';
-    const o = eng.offers || {};
-    if ((o.sent || 0) > 0) {
-      let inner = engBarM('Sent the come-back offer', o.sent, o.sent, true);
-      if (av) {
-        inner += engBarM('Opened the email', o.opened, o.sent, false);
-        inner += engBarM('Clicked the buy-a-pass link', o.clicked_buy, o.sent, false);
-      }
-      inner += engBarM('Came back after the offer', o.returned, o.sent, false);
-      inner += engBarM('Redeemed the code (50% off a day pass)', o.redeemed, o.sent, false);
-      inner += foot('Redemptions only count when the discount is rung up in the register.' +
-        (av ? ' Opens run a little high: some mail apps open emails automatically.' : ' ' + fetching));
-      slides.push({ title: 'Offer email results', desc: 'The 50%-off come-back offer and what happened next. ' + engNote, html: inner });
-    }
+    const openSub = 'From the email system. Runs a little high: some mail apps open emails automatically.';
     const s = eng.surveys || {};
     if ((s.sent || 0) > 0) {
-      let inner = engBarM('Survey emails sent', s.sent, s.sent, true);
+      let inner = engBarM('Survey emails sent', s.sent, s.sent, true,
+        'Every first-timer gets the survey 1 to 2 days after their visit.');
       if (av) {
-        inner += engBarM('Opened the email', s.opened, s.sent, false);
-        inner += engBarM('Clicked the survey link', s.clicked_survey, s.sent, false);
+        inner += engBarM('Opened the email', s.opened, s.sent, false, openSub);
+        inner += engBarM('Clicked the survey link', s.clicked_survey, s.sent, false,
+          'Clicked through to the feedback form.');
       }
-      inner += engBarM('Answered the survey', s.responded, s.sent, false);
+      inner += engBarM('Answered the survey', s.responded, s.sent, false, 'Submitted the form.');
       if (!av) inner += foot(fetching);
-      slides.push({ title: 'Survey engagement', desc: 'How first-timers engage with the feedback survey. ' + engNote, html: inner });
+      slides.push({ title: 'Survey engagement', desc: 'How first-timers engage with the feedback survey.' + engNote, html: inner });
+    }
+    const o = eng.offers || {};
+    if ((o.sent || 0) > 0) {
+      let inner = engBarM('Sent the come-back offer', o.sent, o.sent, true,
+        'Only goes to first-timers who had not come back about a week after their visit. Fast returners never need it.');
+      if (av) {
+        inner += engBarM('Opened the email', o.opened, o.sent, false, openSub);
+        inner += engBarM('Clicked the buy-a-pass link', o.clicked_buy, o.sent, false,
+          'Clicked through to Shift’s pass-purchase page. Tracked by the email system.');
+      }
+      inner += engBarM('Redeemed the code (50% off a day pass)', o.redeemed, o.sent, false,
+        'Bought a half-off day pass after the offer, from register data. The desk must ring it up as a discount to count.');
+      inner += engBarM('Came back after the offer', o.returned, o.sent, false,
+        'Checked in again any day after the offer went out, with or without the code. From check-in data.');
+      if (!av) inner += foot(fetching);
+      slides.push({ title: 'Offer email results', desc: 'The 50%-off come-back offer and what happened next.' + engNote, html: inner });
     }
   }
   return slides;
