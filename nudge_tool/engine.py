@@ -16,6 +16,7 @@ Precedence per run (section 14.7):
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
@@ -160,7 +161,10 @@ def _suppressed(c: Climber, t: Trigger, asof: date,
     if unsubscribed and email and email in unsubscribed:
         return "unsubscribed"
     if log is not None and email:
-        dates = log.sent_dates(email, t.tag)
+        # All log lookups key on the trigger NAME (stable), never the tag:
+        # tags change (send_it_* rename, A/B variant tags) and once-only must
+        # survive that.
+        dates = log.sent_dates(email, t.name)
         if dates:
             if t.once_only:
                 return "already_sent"
@@ -170,7 +174,7 @@ def _suppressed(c: Climber, t: Trigger, asof: date,
         # group cap: if any sibling trigger in the same campaign group has gone
         # out to this inbox, suppress this one (one message per group per person).
         for sib in (group_siblings or ()):
-            if sib != t.tag and log.sent_dates(email, sib):
+            if sib != t.name and log.sent_dates(email, sib):
                 return "group_sent"
     return None
 
@@ -211,13 +215,34 @@ def _dedup_by_email(items: list[QueueItem],
 
 # --- queue construction ------------------------------------------------------
 
+def _ab_variant(email: str, trigger_name: str) -> str:
+    """Deterministic A/B bucket for a recipient+trigger, "A" or "B" (ported
+    from the ABC tool). Hashing (email + trigger name) gives a stable ~50/50
+    split with NO stored state: the same climber always lands in the same
+    bucket for a given trigger, yet can be A on one trigger and B on another.
+    sha256 (not Python's per-process-salted hash) keeps the bucket
+    reproducible across runs and machines."""
+    h = hashlib.sha256(
+        f"{(email or '').strip().lower()}:{trigger_name}".encode()).hexdigest()
+    return "A" if int(h, 16) % 2 == 0 else "B"
+
+
+def _resolve_tag(t: Trigger, email: str) -> str:
+    """The Mailchimp tag to apply for this trigger+recipient. A trigger with
+    ab_tags (a subject-line test: two journeys, one per variant tag) gets the
+    recipient's deterministic variant tag; otherwise the base tag."""
+    if not t.ab_tags:
+        return t.tag
+    return t.ab_tags.get(_ab_variant(email, t.name)) or t.tag
+
+
 def _make_item(c: Climber, t: Trigger, days: int, anchor_date: str,
                order: int, client: ClientConfig) -> QueueItem:
     fn = ingest.first_name(c.name)
     subject, body = templates.render(client.templates, t.template_id, fn, client.links)
     return QueueItem(
         climber_id=c.climber_id, name=c.name, email=c.email,
-        trigger_name=t.name, tag=t.tag, template_id=t.template_id,
+        trigger_name=t.name, tag=_resolve_tag(t, c.email), template_id=t.template_id,
         anchor=t.anchor, anchor_date=anchor_date, days_since=days,
         visit_count=c.visit_count, blocker=c.survey_blocker,
         survey_answered=c.survey_answered, intent=c.survey_intent,
@@ -274,11 +299,12 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
     recorded in suppressed_out as 'shared_email'."""
     active = _active(client)
     order_of = {t.name: i for i, t in enumerate(active)}
-    # campaign-group membership: group name -> all tags in that group.
+    # campaign-group membership: group name -> all trigger NAMES in that group
+    # (names, not tags: log suppression is keyed on the stable trigger name).
     group_tags: dict[str, list[str]] = {}
     for t in active:
         if t.group:
-            group_tags.setdefault(t.group, []).append(t.tag)
+            group_tags.setdefault(t.group, []).append(t.name)
     # own-email guard: emails used by more than one distinct climber.
     shared_emails: set[str] = set()
     if own_email_guard:

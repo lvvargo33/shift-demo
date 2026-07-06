@@ -48,6 +48,12 @@ class Trigger:
                                     # the same person (e.g. the "second_visit" offer
                                     # set, so a climber gets exactly one offer email
                                     # whether it's the personalized or generic one).
+    ab_tags: dict = field(default_factory=dict)
+                                    # subject-line A/B test: {"A": tag, "B": tag}.
+                                    # Each variant tag triggers its own Mailchimp
+                                    # journey (same email, different subject); the
+                                    # engine picks the recipient's deterministic
+                                    # variant. Empty = no test, apply `tag`.
 
 
 def trigger_from_dict(d: dict) -> Trigger:
@@ -70,6 +76,7 @@ def trigger_from_dict(d: dict) -> Trigger:
         cooldown_days=int(d.get("cooldown_days", 0)),
         active=bool(d.get("active", True)),
         group=d.get("group", ""),
+        ab_tags=dict(d.get("ab_tags", {})),
     )
 
 

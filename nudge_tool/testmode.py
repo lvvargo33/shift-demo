@@ -124,12 +124,12 @@ def filter_already_sent(targets: list[TestTarget], log: outreach.OutreachLog,
     """Apply once-only / cooldown on the DUMMY emails (precedence rule 4) so a
     repeat --test run suppresses instead of re-tagging. Returns (to_send,
     suppressed) where suppressed items are (target, reason)."""
-    by_tag = {t.tag: t for t in client.triggers}
+    by_name = {t.name: t for t in client.triggers}
     to_send: list[TestTarget] = []
     suppressed: list[tuple[TestTarget, str]] = []
     for t in targets:
-        trig = by_tag.get(t.tag)
-        dates = log.sent_dates(t.dummy_email, t.tag)
+        trig = by_name.get(t.trigger_name)
+        dates = log.sent_dates(t.dummy_email, t.trigger_name)
         if dates and trig and trig.once_only:
             suppressed.append((t, "already_sent"))
         elif dates and trig and getattr(trig, "cooldown_days", 0) and \

@@ -33,19 +33,23 @@ def _norm_email(s: str) -> str:
 
 @dataclass
 class OutreachLog:
-    """Indexed view of the outreach CSV. Keys are (email_lower, tag)."""
-    by_email_tag: dict = field(default_factory=dict)   # (email, tag) -> [sent_date,...]
+    """Indexed view of the outreach CSV. Keys are (email_lower, trigger_name).
 
-    def sent_dates(self, email: str, tag: str) -> list[str]:
-        return self.by_email_tag.get((_norm_email(email), tag), [])
+    Keyed on the trigger NAME, not the Mailchimp tag: names are stable while
+    tags change (the S21 send_it_* namespacing, the A/B variant tags), and
+    once-only/cooldown must hold across a tag rename or an A/B split."""
+    by_email_trigger: dict = field(default_factory=dict)  # (email, trigger_name) -> [sent_date,...]
 
-    def last_sent(self, email: str, tag: str) -> str | None:
-        dates = self.sent_dates(email, tag)
+    def sent_dates(self, email: str, trigger_name: str) -> list[str]:
+        return self.by_email_trigger.get((_norm_email(email), trigger_name), [])
+
+    def last_sent(self, email: str, trigger_name: str) -> str | None:
+        dates = self.sent_dates(email, trigger_name)
         return max(dates) if dates else None
 
     @property
     def total_rows(self) -> int:
-        return sum(len(v) for v in self.by_email_tag.values())
+        return sum(len(v) for v in self.by_email_trigger.values())
 
 
 def load(client: ClientConfig) -> OutreachLog:
@@ -58,11 +62,14 @@ def load(client: ClientConfig) -> OutreachLog:
     with open(path, encoding="utf-8", newline="") as f:
         for row in csv.DictReader(f):
             email = _norm_email(row.get("email", ""))
-            tag = (row.get("tag", "") or "").strip()
+            # trigger_name is the stable key; fall back to the tag for any
+            # ancient row written before trigger_name existed.
+            name = (row.get("trigger_name", "") or "").strip() \
+                or (row.get("tag", "") or "").strip()
             sent = (row.get("sent_date", "") or "").strip()[:10]
-            if not (email and tag and sent):
+            if not (email and name and sent):
                 continue
-            log.by_email_tag.setdefault((email, tag), []).append(sent)
+            log.by_email_trigger.setdefault((email, name), []).append(sent)
     return log
 
 
