@@ -99,6 +99,21 @@ class MailchimpClient:
             raise
         return body.get("activity", []) or []
 
+    def campaign_type(self, campaign_id: str) -> str:
+        """The campaign's type: journey/automation emails are 'automation-email',
+        one-off blasts are 'regular'. Lets the engagement engine credit an open
+        to a journey email and ignore a newsletter that happened to go out the
+        same day. Unknown campaign (404) -> "". Read-only."""
+        try:
+            body = self._request(
+                "GET", f"/campaigns/{campaign_id}", params={"fields": "id,type"}
+            )
+        except MailchimpError as e:
+            if e.status == 404:
+                return ""
+            raise
+        return body.get("type", "") or ""
+
     def list_emails_by_status(self, status: str, page: int = 1000) -> set[str]:
         """Lowercased emails of every member in one status (unsubscribed /
         cleaned / archived ...). Paginated; pulls only the email + status fields

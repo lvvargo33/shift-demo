@@ -156,11 +156,13 @@ def _push_outreach_log(client) -> None:
 # and the slides then hide the open/click bars instead of showing a false 0.
 _ACTIVITY_REFRESH_SECS = int(os.getenv("MC_ACTIVITY_TTL", "900") or "900")
 _activity_map: dict | None = None
+_journey_ids: set | None = None       # campaign_ids that are journey/automation emails
+_campaign_type_cache: dict = {}       # campaign_id -> Mailchimp campaign type
 _activity_lock = threading.Lock()
 
 
 def _refresh_activity_once(client_slug: str) -> None:
-    global _activity_map
+    global _activity_map, _journey_ids
     client = load_client(client_slug)
     try:
         settings = load_settings(client, require=True)
@@ -186,8 +188,22 @@ def _refresh_activity_once(client_slug: str) -> None:
             prev = (_activity_map or {}).get(e)
             if prev is not None:
                 fetched[e] = prev  # keep the last good read for this contact
+    # Classify every campaign seen in the feeds once (cached across refreshes)
+    # so the engine can pin opens to journey emails and ignore newsletter
+    # blasts that went out the same day as a nudge.
+    cids = {a.get("campaign_id")
+            for ev in fetched.values() for a in ev or []
+            if a.get("campaign_id")}
+    for cid in sorted(cids - set(_campaign_type_cache)):
+        try:
+            _campaign_type_cache[cid] = mc.campaign_type(cid)
+        except (MailchimpError, RequestException, RuntimeError):
+            pass  # unknown this round; retried next refresh
+    journeys = {cid for cid, t in _campaign_type_cache.items()
+                if t == "automation-email"}
     with _activity_lock:
         _activity_map = fetched
+        _journey_ids = journeys
 
 
 def _activity_refresher(client_slug: str) -> None:
@@ -295,10 +311,12 @@ def render(client_slug: str, asof: date) -> str:
     generated_at = datetime.now().isoformat(timespec="seconds")
     with _activity_lock:
         activity = _activity_map
+        journeys = _journey_ids
     payload = engine.build_payload(ds, queue, client, asof, "dry-run",
                                    generated_at, survey_result, suppressed_out,
                                    sent_rows=outreach.load_rows(client),
-                                   activity_by_email=activity)
+                                   activity_by_email=activity,
+                                   journey_campaign_ids=journeys)
 
     payload["send_enabled"] = _send_enabled(client)
 

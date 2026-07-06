@@ -636,13 +636,56 @@ def build_sent_log(sent_rows: list | None, ds: Dataset) -> list[dict]:
 # the offer's buy link apart from the survey form link.
 _BUY_LINK_MARKERS = ("purchase-a-pass", "sendmoregetbeta")
 _SURVEY_LINK_MARKERS = ("docs.google.com/forms", "forms.gle")
+# A journey email sends minutes after the tag lands, so the email actually
+# sent to a person is the activity-feed "sent" event on (or within a day or
+# two of) their outreach-log send date. Keeping the window tight is what
+# stops a newsletter sent weeks later from matching.
+_SENT_MATCH_HORIZON_DAYS = 2
+
+
+def _sent_campaign_ids(events: list | None, since: str,
+                       journey_ids: set | None = None) -> set:
+    """campaign_ids of the email(s) Mailchimp actually sent this contact on
+    their send date (activity-feed `sent` events dated `since` ..
+    `since` + horizon). Used to pin an open to the SPECIFIC email instead of
+    counting any open after the send date.
+
+    journey_ids (when supplied) = campaign_ids known to be journey/automation
+    emails; sent events for anything else (a newsletter blast that went out
+    the same day) are ignored. When several days in the window have a sent
+    event, only the earliest day's email(s) count: the journey fires minutes
+    after the tag, so a later send is a different email."""
+    if not since:
+        return set()
+    try:
+        lo = date.fromisoformat(since)
+    except ValueError:
+        return set()
+    hi = lo + timedelta(days=_SENT_MATCH_HORIZON_DAYS)
+    by_day: dict[date, set] = {}
+    for a in events or []:
+        if a.get("activity_type") != "sent":
+            continue
+        cid = a.get("campaign_id")
+        if not cid or (journey_ids is not None and cid not in journey_ids):
+            continue
+        when = str(a.get("created_at_timestamp") or a.get("timestamp") or "")[:10]
+        try:
+            d = date.fromisoformat(when)
+        except ValueError:
+            continue
+        if lo <= d <= hi:
+            by_day.setdefault(d, set()).add(cid)
+    return by_day[min(by_day)] if by_day else set()
 
 
 def _has_event(events: list | None, kind: str, since: str,
-               url_markers: tuple = ()) -> bool:
+               url_markers: tuple = (), campaign_ids: set | None = None) -> bool:
     """True if the contact's activity feed has an event of `kind` dated on or
     after `since` (YYYY-MM-DD). With url_markers, the clicked URL must contain
-    one of them (click events only)."""
+    one of them (click events only). With campaign_ids, the event must belong
+    to one of those campaigns (how opens are pinned to the specific email; an
+    empty set matches nothing)."""
     for a in events or []:
         if a.get("activity_type") != kind:
             continue
@@ -653,13 +696,16 @@ def _has_event(events: list | None, kind: str, since: str,
             url = (a.get("link_clicked") or "").lower()
             if not any(m in url for m in url_markers):
                 continue
+        if campaign_ids is not None and a.get("campaign_id") not in campaign_ids:
+            continue
         return True
     return False
 
 
 def build_engagement(ds: Dataset, sent_rows: list | None,
                      activity_by_email: dict | None = None,
-                     client: ClientConfig | None = None) -> dict:
+                     client: ClientConfig | None = None,
+                     journey_campaign_ids: set | None = None) -> dict:
     """The two pilot-to-date Insights funnels:
       offers : sent -> opened -> clicked buy link -> came back -> redeemed code
       surveys: sent -> opened -> clicked survey link -> responded
@@ -706,7 +752,9 @@ def build_engagement(ds: Dataset, sent_rows: list | None,
                 o["redeemed"] += 1
         if activity_by_email is not None:
             ev = activity_by_email.get(email)
-            if _has_event(ev, "open", since):
+            if _has_event(ev, "open", since,
+                          campaign_ids=_sent_campaign_ids(
+                              ev, since, journey_campaign_ids)):
                 o["opened"] += 1
             if _has_event(ev, "click", since, _BUY_LINK_MARKERS):
                 o["clicked_buy"] += 1
@@ -737,7 +785,9 @@ def build_engagement(ds: Dataset, sent_rows: list | None,
             s["responded"] += 1
         if activity_by_email is not None:
             ev = activity_by_email.get(email)
-            if _has_event(ev, "open", since):
+            if _has_event(ev, "open", since,
+                          campaign_ids=_sent_campaign_ids(
+                              ev, since, journey_campaign_ids)):
                 s["opened"] += 1
             if _has_event(ev, "click", since, _SURVEY_LINK_MARKERS):
                 s["clicked_survey"] += 1
@@ -764,7 +814,8 @@ def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
                   asof: date, mode: str, generated_at: str,
                   survey_result=None, suppressed_out: list | None = None,
                   sent_rows: list | None = None,
-                  activity_by_email: dict | None = None) -> dict:
+                  activity_by_email: dict | None = None,
+                  journey_campaign_ids: set | None = None) -> dict:
     survey_block = _survey_block(client, survey_result)
     return {
         "client": client.client_name,
@@ -780,7 +831,8 @@ def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
         "suppression": summarize_suppression(suppressed_out),
         "survey": survey_block,
         "sent_log": build_sent_log(sent_rows, ds),
-        "engagement": build_engagement(ds, sent_rows, activity_by_email, client),
+        "engagement": build_engagement(ds, sent_rows, activity_by_email, client,
+                                       journey_campaign_ids),
         "metrics": build_metrics(ds, queue, client, asof),
         "funnel": build_funnel(ds),
         "reporting": build_reporting(ds, client, asof),
