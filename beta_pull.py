@@ -47,6 +47,7 @@ import smtplib
 import ssl
 import sys
 import tempfile
+import time
 import traceback
 import urllib.error
 import urllib.parse
@@ -196,11 +197,26 @@ def send_email(subject: str, body: str) -> None:
     msg["Subject"] = subject
     msg.set_content(body)
     ctx = ssl.create_default_context()
-    with smtplib.SMTP(host, port, timeout=30) as s:
-        s.starttls(context=ctx)
-        s.login(user, pw)
-        s.send_message(msg)
-    print(f"  email sent to {to}")
+    # Gmail intermittently answers "421 Temporary System Problem" (or drops the
+    # connection). Those are transient: retry with a pause. Permanent rejections
+    # (5xx, e.g. bad app password) raise immediately.
+    for attempt in (1, 2, 3):
+        try:
+            with smtplib.SMTP(host, port, timeout=30) as s:
+                s.starttls(context=ctx)
+                s.login(user, pw)
+                s.send_message(msg)
+            print(f"  email sent to {to}")
+            return
+        except (smtplib.SMTPServerDisconnected, smtplib.SMTPResponseException,
+                OSError) as e:
+            code = getattr(e, "smtp_code", None)
+            transient = code is None or 400 <= code < 500
+            if attempt == 3 or not transient:
+                raise
+            wait = 45 * attempt
+            print(f"  send attempt {attempt} failed ({e}); retrying in {wait}s")
+            time.sleep(wait)
 
 
 def run_pull(a) -> None:
@@ -294,8 +310,11 @@ def main() -> None:
         try:
             send_email(subject, banner + report)
         except Exception:
+            # Do NOT flip a successful run to FAILURE over a lost report email:
+            # the data refreshed; exit 0 keeps the cron monitor quiet. If the
+            # run itself failed, status is already FAILURE and the cron's own
+            # exit-1 alert becomes the backup notification channel.
             print("  EMAIL SEND FAILED:\n" + traceback.format_exc())
-            status = "FAILURE"
 
     sys.exit(0 if status == "SUCCESS" else 1)
 
