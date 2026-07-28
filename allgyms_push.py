@@ -114,7 +114,7 @@ DATA_HEADER = (["Gym", "Automation / email version"] + METRIC_HEADERS
                + ["Level", "Section", "Tag", "Updated", "GymOrder"])
 D0, D1 = 3, 500  # data row span referenced by every formula
 DATA_NCOLS = 22
-COMBINED = "All gyms"  # gym value of the cross-gym per-automation total rows
+COMBINED = "All gyms total"  # gym label of the cross-gym per-automation rows
 GYM_ORDER = {COMBINED: 0, "SHIFT": 1, "ABC": 2}
 # count-metric column indexes in a Data row (0-based), for combined-row sums
 _COUNT_IDX = [2, 3, 4, 6, 7, 8, 10, 11, 12, 14]
@@ -138,6 +138,63 @@ FOOTNOTES = [
     "Brevo's delivered receipt. A blank Delivered means that system had no "
     "delivery info for those emails, and that row's Open % is out of sends.",
 ]
+
+# Plain-English hover glossary (Luke 2026-07-28): shown as a cell note on each
+# section's Automation / Email version header, because notes glued to data
+# cells would describe the wrong row once the gym filter shifts the rows.
+DESCRIPTIONS = {
+    "FTV survey (day 1-2)":
+        "Feedback survey email. Goes to every first-timer 1 to 2 days after "
+        "their first visit.",
+    "Reengage 50% offer (day 5-7)":
+        "Come-back offer carrying the 50% off code. Goes 5 to 7 days after "
+        "the first visit to people who have not returned and did not answer "
+        "the survey.",
+    "Round two (high intent)":
+        "Follow-up offer for survey responders who said they are likely to "
+        "come back.",
+    "Blocker: pricing":
+        "Offer email tailored to survey responders whose main issue was price.",
+    "Blocker: crowding":
+        "Offer email tailored to survey responders whose main issue was "
+        "crowding.",
+    "Blocker: too hard":
+        "Offer email tailored to survey responders who found climbing too "
+        "hard.",
+    "Blocker: intimidating":
+        "Offer email tailored to survey responders who felt intimidated.",
+    "Blocker: front desk":
+        "Offer email tailored to survey responders who had a front desk "
+        "problem.",
+    "Blocker: confusing":
+        "Offer email tailored to survey responders who found the visit "
+        "confusing.",
+    "Blocker: routes":
+        "Offer email tailored to survey responders who did not enjoy the "
+        "routes.",
+}
+VARIANT_DESCRIPTIONS = {
+    "Subject A + link to the survey":
+        "Survey email, subject line A, answered through a link to the form.",
+    "Subject B + link to the survey":
+        "Survey email, subject line B, answered through a link to the form.",
+    "Subject A + rating buttons in the email":
+        "Survey email, subject line A, question 1 answered by tapping a "
+        "rating button inside the email.",
+    "Subject B + rating buttons in the email":
+        "Survey email, subject line B, question 1 answered by tapping a "
+        "rating button inside the email.",
+    "Offer subject A": "The come-back offer email with subject line A.",
+    "Offer subject B": "The come-back offer email with subject line B.",
+    "Subject A": "Arm A of this email's subject line test.",
+    "Subject B": "Arm B of this email's subject line test.",
+}
+DASH_HOWTO = (
+    "How to read this table: pink rows are SHIFT, orange rows are ABC. Bold "
+    "gray rows labeled 'All gyms total' add the gyms together and only appear "
+    "when the Show dropdown is on All gyms. A 'no sends yet' row is a live "
+    "automation that has not sent its first email. Hover each section's "
+    "Automation header for what each email is.")
 
 GYM_FILLS = {  # gym -> (base fill, alternating fill)
     "SHIFT": ("#f9e3ee", "#f3d3e6"),
@@ -288,15 +345,26 @@ def collect(client) -> tuple[list[dict], list[dict]]:
             b["converted"] += converted
         trig_of_tag[s["tag"]] = s["trig"] or s["tag"]
 
+    # zero-rows (Luke 2026-07-28): every ACTIVE automation and every test arm
+    # shows on the sheet even before its first send, with 0 values. Inactive
+    # triggers (trial win-back, day pass to trial) stay off the sheet.
+    for t in client.triggers:
+        if t.active:
+            by_trig[t.name]
+    for tag in TEST_ARMS:
+        by_tag[tag]
+
     def metrics(b: dict) -> dict:
         m = {k: b[k] for k in ("sends", "delivered", "opens", "clicks", "taps",
                                "responses", "redeems", "purchases",
                                "returned", "converted")}
-        m["open_pct"] = _pct(b["opens"], b["delivered"])
-        m["resp_pct"] = _pct(b["responses"], b["sends"])
-        m["return_pct"] = _pct(b["returned"], b["sends"])
-        m["conv_pct"] = _pct(b["converted"], b["sends"])
-        m["note"] = (f"small sample (under {SMALL_N}), directional only"
+        zero = b["sends"] == 0
+        m["open_pct"] = 0 if zero else _pct(b["opens"], b["delivered"])
+        m["resp_pct"] = 0 if zero else _pct(b["responses"], b["sends"])
+        m["return_pct"] = 0 if zero else _pct(b["returned"], b["sends"])
+        m["conv_pct"] = 0 if zero else _pct(b["converted"], b["sends"])
+        m["note"] = ("no sends yet" if zero else
+                     f"small sample (under {SMALL_N}), directional only"
                      if b["sends"] < SMALL_N else "")
         return m
 
@@ -376,11 +444,17 @@ def _combined_rows(per_gym: list[list], stamp: str) -> list[list]:
         deliv = t[3] if any(isinstance(r[3], int) for r in rows_g) else ""
         open_den = sum((r[3] if isinstance(r[3], int) else r[2])
                        for r in rows_g)
+        zero = t[2] == 0
+
+        def p(a, b):
+            return 0 if zero else _pct(a, b)
+
         out.append([
-            COMBINED, name, t[2], deliv, t[4], _pct(t[4], open_den), t[6], t[7],
-            t[8], _pct(t[8], t[2]), t[10], t[11], t[12], _pct(t[12], t[2]),
-            t[14], _pct(t[14], t[2]),
-            (f"small sample (under {SMALL_N}), directional only"
+            COMBINED, name, t[2], deliv, t[4], p(t[4], open_den), t[6], t[7],
+            t[8], p(t[8], t[2]), t[10], t[11], t[12], p(t[12], t[2]),
+            t[14], p(t[14], t[2]),
+            ("no sends yet" if zero else
+             f"small sample (under {SMALL_N}), directional only"
              if t[2] < SMALL_N else ""),
             "automation", section, "", stamp, 0])
     return out
@@ -393,7 +467,9 @@ def _merge_data(svc, own_rows: list[dict], stamp: str) -> list[list]:
         spreadsheetId=ALLGYMS_SHEET_ID,
         range=f"Data!A{D0}:V{D1}").execute().get("values", [])
     kept = [_normalize_row(row) for row in got
-            if row and row[0] and row[0] not in (GYM, COMBINED)]
+            if row and row[0]
+            and row[0] not in (GYM, COMBINED, "All gyms")]  # "All gyms" =
+    # the pre-2026-07-28 label of the combined rows; drop any leftovers
     per_gym = kept + [_data_row(r, stamp) for r in own_rows]
     merged = per_gym + _combined_rows(per_gym, stamp)
     merged.sort(key=lambda r: (r[17], r[18], r[1], r[21]))
@@ -469,7 +545,19 @@ def _build_stats_tab(tab: str, merged: list[list], stamp: str,
 
     grid: list[list] = []
     meta = {"bands": [], "headers": [], "data_ranges": [], "notes": [],
-            "totals": None, "ncols": ncols}
+            "totals": None, "ncols": ncols, "header_notes": []}
+    gloss = VARIANT_DESCRIPTIONS if variant_tab else DESCRIPTIONS
+
+    def _glossary(sec: str) -> str:
+        seen, lines = set(), []
+        for r in lvl_rows:
+            name = r[1]
+            if r[18] != sec or name in seen or r[0] == COMBINED:
+                continue
+            seen.add(name)
+            if gloss.get(name):
+                lines.append(f"{name}: {gloss[name]}")
+        return "\n\n".join(lines)
     title = ("Send It - All Gyms: every A/B arm, one row per email version"
              if variant_tab else
              "Send It - All Gyms: every automation, every gym")
@@ -481,6 +569,7 @@ def _build_stats_tab(tab: str, merged: list[list], stamp: str,
     if not variant_tab:
         grid.append(head)
         meta["headers"].append(len(grid))
+        meta["header_notes"].append((len(grid), 0, DASH_HOWTO))
         meta["totals"] = len(grid) + 1
         grid.append([None, '="Everything combined ("&$B$2&")"']
                     + _totals_formulas())
@@ -490,6 +579,7 @@ def _build_stats_tab(tab: str, merged: list[list], stamp: str,
         meta["bands"].append(len(grid))
         grid.append(head)
         meta["headers"].append(len(grid))
+        meta["header_notes"].append((len(grid), 1, _glossary(sec)))
         start = len(grid) + 1
         alloc = max(counts.get(sec, 0), 1)
         for i in range(alloc):
@@ -512,11 +602,11 @@ def _fmt_requests(sheet_id: int, meta: dict, existing_cf: int) -> list:
     last_data = meta["data_ranges"][-1][1]
     reqs = [{"deleteConditionalFormatRule": {"sheetId": sheet_id, "index": 0}}
             for _ in range(existing_cf)]
-    # wipe ALL cell formatting first: layouts shift between runs and stale
-    # band/text formats otherwise survive on rows that moved (values().clear
-    # clears values only). Data validation is a separate field and survives.
+    # wipe ALL cell formatting + hover notes first: layouts shift between runs
+    # and stale band/text formats or notes otherwise survive on rows that
+    # moved (values().clear clears values only). Data validation survives.
     reqs.append({"repeatCell": {"range": {"sheetId": sheet_id}, "cell": {},
-                 "fields": "userEnteredFormat"}})
+                 "fields": "userEnteredFormat,note"}})
     reqs.append({"updateSheetProperties": {
         "properties": {"sheetId": sheet_id,
                        "gridProperties": {"frozenRowCount": 2}},
@@ -770,6 +860,12 @@ def push(slug: str = "shift") -> None:
             spreadsheetId=ALLGYMS_SHEET_ID, range=f"{tab}!A1",
             valueInputOption="USER_ENTERED", body={"values": grid}).execute()
         fmt_reqs += _fmt_requests(sheet_ids[tab], m, cf_counts.get(tab, 0))
+        for r, cidx, text in m["header_notes"]:
+            if text:
+                fmt_reqs.append({"updateCells": {
+                    "rows": [{"values": [{"note": text}]}], "fields": "note",
+                    "start": {"sheetId": sheet_ids[tab], "rowIndex": r - 1,
+                              "columnIndex": cidx}}})
         print(f"  allgyms: rebuilt '{tab}' "
               f"({len(m['bands'])} sections, filter = {picks[tab]})")
 
