@@ -422,10 +422,10 @@ def _section_formula(level: str, section: str, variant_cols: bool) -> str:
         src = f"Data!$A${D0}:$Q${D1}"
     conds = ('Data!$R$%d:$R$%d="%s",Data!$S$%d:$S$%d="%s",%s'
              % (D0, D1, level, D0, D1, section, _gym_cond()))
-    by_name = f"FILTER(Data!$B${D0}:$B${D1},{conds})"
-    by_order = f"FILTER(Data!$V${D0}:$V${D1},{conds})"
-    return ('=IFERROR(SORT(FILTER(%s,%s),%s,TRUE,%s,TRUE),"no rows yet")'
-            % (src, conds, by_name, by_order))
+    # No SORT wrapper: the writer pre-sorts Data into display order (name asc,
+    # "All gyms" row first) and FILTER preserves it. SORT also breaks on
+    # single-row results (a 1x1 sort-column arg parses as a column index).
+    return '=IFERROR(FILTER(%s,%s),"no rows yet")' % (src, conds)
 
 
 def _totals_formulas() -> list:
@@ -512,6 +512,11 @@ def _fmt_requests(sheet_id: int, meta: dict, existing_cf: int) -> list:
     last_data = meta["data_ranges"][-1][1]
     reqs = [{"deleteConditionalFormatRule": {"sheetId": sheet_id, "index": 0}}
             for _ in range(existing_cf)]
+    # wipe ALL cell formatting first: layouts shift between runs and stale
+    # band/text formats otherwise survive on rows that moved (values().clear
+    # clears values only). Data validation is a separate field and survives.
+    reqs.append({"repeatCell": {"range": {"sheetId": sheet_id}, "cell": {},
+                 "fields": "userEnteredFormat"}})
     reqs.append({"updateSheetProperties": {
         "properties": {"sheetId": sheet_id,
                        "gridProperties": {"frozenRowCount": 2}},
@@ -673,6 +678,8 @@ def _maintain_history(svc, auto_rows: list[dict], stamp: str) -> None:
 def _history_fmt_requests(sheet_id: int, existing_cf: int) -> list:
     reqs = [{"deleteConditionalFormatRule": {"sheetId": sheet_id, "index": 0}}
             for _ in range(existing_cf)]
+    reqs.append({"repeatCell": {"range": {"sheetId": sheet_id}, "cell": {},
+                 "fields": "userEnteredFormat"}})
     reqs.append({"updateSheetProperties": {
         "properties": {"sheetId": sheet_id,
                        "gridProperties": {"frozenRowCount": 1}},
@@ -769,9 +776,11 @@ def push(slug: str = "shift") -> None:
     _maintain_history(svc, auto_rows, stamp)
     fmt_reqs += _history_fmt_requests(sheet_ids["History"],
                                       cf_counts.get("History", 0))
-    # Data tab: freeze + light header styling
+    # Data tab: format reset + freeze + light header styling
     did = sheet_ids["Data"]
     fmt_reqs += [
+        {"repeatCell": {"range": {"sheetId": did}, "cell": {},
+                        "fields": "userEnteredFormat"}},
         {"updateSheetProperties": {
             "properties": {"sheetId": did,
                            "gridProperties": {"frozenRowCount": 2}},
