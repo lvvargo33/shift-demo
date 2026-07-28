@@ -134,18 +134,18 @@ FOOTNOTES = [
     "after the offer email (Beta never records which coupon was used). ABC "
     "counts the 'email discount' product (or an under-$8.25 day pass) on RGP "
     "invoices.",
-    "Delivered: ABC's email system (Brevo) doesn't report per-person "
-    "delivery, so ABC rows leave Delivered blank and ABC's Open % is out of "
-    "sends. Combined rows count Delivered only from gyms that report it.",
+    "Delivered: SHIFT counts Mailchimp's send confirmation, ABC counts "
+    "Brevo's delivered receipt. A blank Delivered means that system had no "
+    "delivery info for those emails, and that row's Open % is out of sends.",
 ]
 
 GYM_FILLS = {  # gym -> (base fill, alternating fill)
     "SHIFT": ("#f9e3ee", "#f3d3e6"),
     "ABC": ("#fdeadd", "#fbdfc8"),
 }
-BAND_BG, BAND_FG = "#455a64", "#ffffff"
+BAND_BG, BAND_FG = "#b0bec5", "#000000"  # all text black (Luke, 2026-07-28)
 HEADER_BG = "#eceff1"
-NOTE_FG = "#666666"
+NOTE_FG = "#000000"
 
 
 # --------------------------------------------------------------------------
