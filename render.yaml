@@ -2,7 +2,9 @@ services:
   - type: web
     name: shift-live-dash
     runtime: python
-    plan: starter            # ~$7/mo, always on (no cold starts). 'free' sleeps.
+    plan: standard           # ~$25/mo, 2 GB. Upgraded from starter 2026-07-28 after
+                             # two OOM restarts (512 MB ceiling; activity cache grew
+                             # with the outreach log). Luke approved same day.
     buildCommand: pip install -r requirements.txt
     startCommand: python live_server.py
     envVars:
