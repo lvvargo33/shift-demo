@@ -280,6 +280,17 @@
         "B": "FTV_survey_subject_b"
       },
       "_ab_tags_note": "Subject-line A/B test (2026-07-06). Chris repointed the survey journey to trigger on FTV_survey_subject_a (renamed 'FTV Survey (subject a, preview a)') and built a B copy on FTV_survey_subject_b. The engine buckets each recipient deterministically and applies the variant tag; send_it_survey_request no longer triggers any journey (it stopped sending 2026-07-04, which is how we found out).",
+      "ab_body_tags": {
+        "A": {
+          "A": "FTV_survey_subject_a",
+          "B": "FTV_survey_subject_a_embed"
+        },
+        "B": {
+          "A": "FTV_survey_subject_b",
+          "B": "FTV_survey_subject_b_embed"
+        }
+      },
+      "_ab_body_tags_note": "2x2 grid (2026-07-28): outer key = subject bucket (same hash as ab_tags, so nobody flips subject arms mid-test), inner key = an independent body bucket (':body' salt). Inner A = current link email (the two existing journeys), inner B = the embed email (Q1 as five /s rating buttons; journeys 'Send It - FTV Survey (subject a/b, embed)', both live-tested 2026-07-28). Wins over ab_tags while present. To END the embed test, delete this key and sends revert to the plain subject split.",
       "_tag_note": "Mailchimp tag the journey listens for. Uses the send_it_ prefix because SHIFT's Mailchimp already had a pre-existing 'survey_request' tag that collided with our journey trigger (2026-06-17). Namespacing avoids that. The Mailchimp Journey 'Send It - Survey' triggers on this exact tag.",
       "template_id": "survey_v1",
       "description": "EMAIL 1 (two-email flow): the 4-question feedback survey, sent to EVERY first-timer 1-2 days after their first visit, ALL pass types, even if they have already come back (we still want their first-visit feedback). NOT in the 'second_visit' group, so it always goes; the day-5-7 offer (email 2) is separate.",
