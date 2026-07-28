@@ -229,8 +229,17 @@ def _ab_variant(email: str, trigger_name: str) -> str:
 
 def _resolve_tag(t: Trigger, email: str) -> str:
     """The Mailchimp tag to apply for this trigger+recipient. A trigger with
-    ab_tags (a subject-line test: two journeys, one per variant tag) gets the
-    recipient's deterministic variant tag; otherwise the base tag."""
+    ab_body_tags (a 2x2 subject-x-body grid, four journeys) gets the tag at
+    [subject bucket][body bucket], where the body bucket hashes with a ":body"
+    salt so the two splits are independent. A trigger with only ab_tags (a
+    subject-line test: two journeys) gets the subject variant tag. Otherwise
+    the base tag."""
+    if t.ab_body_tags:
+        subj = _ab_variant(email, t.name)
+        body = _ab_variant(email, t.name + ":body")
+        tag = (t.ab_body_tags.get(subj) or {}).get(body)
+        if tag:
+            return tag
     if not t.ab_tags:
         return t.tag
     return t.ab_tags.get(_ab_variant(email, t.name)) or t.tag

@@ -220,6 +220,12 @@
       "no issues": ""
     },
     "_blocker_map_note": "Q3 answer text (lowercased substring) -> the blocker value the nudge_* triggers require. 'none'/blank -> no blocker.",
+    "q1_tap": {
+      "tap_range": "Taps!A1",
+      "q1_entry": "1409709417",
+      "email_entry": "897456611"
+    },
+    "_q1_tap_note": "Embed-variant survey email (2x2 test, 2026-07-28): Q1 renders as five rating buttons that hit GET /s on the live server. The server appends [timestamp, email, q1, variant tag] to the Taps tab of THIS response sheet (gsheet_id above; tap_range) and 302s into the Google Form with Q1 + Email prefilled via these entry ids (from the form's FB_PUBLIC_LOAD_DATA_). If the form is ever rebuilt, refresh both entry ids.",
     "intent_map": {
       "likely": "high",
       "not sure": "medium",

@@ -346,6 +346,66 @@ def _error_page(msg: str) -> str:
     )
 
 
+# --- survey Q1 tap-through (/s) ---------------------------------------------
+# The embed-variant survey email (2x2 test, 2026-07-28) renders Q1 as five
+# rating buttons. Each button hits GET /s?q=<1-5>&e=<recipient>&t=<variant tag>
+# UNAUTHENTICATED (recipients don't have the dashboard's Basic Auth), which
+# (a) logs the tap to the response sheet's Taps tab in a background thread, so
+# tap-and-bail still captures the Q1 answer, and (b) 302-redirects into the
+# Google Form with Q1 + Email prefilled so a Submit still lands the full
+# response. A logging failure never blocks the redirect.
+_TAP_RW_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+_TAP_TAG_OK = __import__("re").compile(r"^[A-Za-z0-9_.-]{0,64}$")
+
+
+def _tap_cfg(slug: str) -> dict:
+    """{'sheet_id','tap_range','q1_entry','email_entry','form_url'} or {} if
+    the client has no q1_tap config."""
+    try:
+        client = load_client(slug)
+    except Exception:
+        return {}
+    tap = dict((client.survey or {}).get("q1_tap") or {})
+    if not tap:
+        return {}
+    tap.setdefault("sheet_id", (client.survey or {}).get("gsheet_id", ""))
+    tap["form_url"] = (client.links or {}).get("survey_link", "")
+    return tap
+
+
+def _log_tap(tap: dict, email: str, q: str, tag: str) -> None:
+    """Append one tap row. Runs on a daemon thread; errors print, never raise."""
+    try:
+        from googleapiclient.discovery import build
+        from nudge_tool import drive_io
+        creds = drive_io._creds(_TAP_RW_SCOPE)
+        svc = build("sheets", "v4", credentials=creds, cache_discovery=False)
+        row = [datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"), email, q, tag]
+        svc.spreadsheets().values().append(
+            spreadsheetId=tap["sheet_id"], range=tap.get("tap_range", "Taps!A1"),
+            valueInputOption="RAW", insertDataOption="INSERT_ROWS",
+            body={"values": [row]},
+        ).execute(num_retries=3)
+        print(f"  /s tap logged: {email} q1={q} tag={tag}")
+    except Exception as exc:
+        print(f"  /s tap LOG FAILED (redirect already served): {exc}")
+
+
+def _tap_redirect(tap: dict, email: str, q: str) -> str:
+    """The prefilled-form URL to bounce the tapper into."""
+    from urllib.parse import quote
+    base = tap.get("form_url", "")
+    if not base:
+        return ""
+    parts = [f"entry.{tap['q1_entry']}={quote(q, safe='')}"] if q else []
+    if email and tap.get("email_entry"):
+        parts.append(f"entry.{tap['email_entry']}={quote(email, safe='')}")
+    if not parts:
+        return base
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}usp=pp_url&" + "&".join(parts)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quieter console
         print("  " + (fmt % args))
@@ -370,6 +430,33 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/healthz":  # unauthenticated so uptime checks work
             self._send(200, "text/plain; charset=utf-8", b"ok")
+            return
+
+        if parsed.path == "/s":  # unauthenticated: survey Q1 tap-through
+            slug = params.get("c", [self.server.default_client])[0]
+            tap = _tap_cfg(slug)
+            q = (params.get("q", [""])[0] or "").strip()
+            # Mailchimp's *|URL:EMAIL|* merge tag URL-encodes; a raw *|EMAIL|*
+            # would arrive with '+' decoded to ' '. Emails never contain
+            # spaces, so restoring '+' here is safe either way.
+            email = (params.get("e", [""])[0] or "").strip().replace(" ", "+")[:254]
+            tag = (params.get("t", [""])[0] or "").strip()
+            if q not in {"1", "2", "3", "4", "5"}:
+                q = ""
+            if not _TAP_TAG_OK.match(tag):
+                tag = ""
+            if tap and q and email:
+                threading.Thread(target=_log_tap, args=(tap, email, q, tag),
+                                 daemon=True).start()
+            url = _tap_redirect(tap, email, q) if tap else ""
+            if url:
+                self.send_response(302)
+                self.send_header("Location", url)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            else:
+                self._send(404, "text/plain; charset=utf-8", b"unknown survey")
             return
 
         if not self._authed():

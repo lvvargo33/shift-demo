@@ -54,6 +54,15 @@ class Trigger:
                                     # journey (same email, different subject); the
                                     # engine picks the recipient's deterministic
                                     # variant. Empty = no test, apply `tag`.
+    ab_body_tags: dict = field(default_factory=dict)
+                                    # 2x2 grid (subject x body): outer key = the
+                                    # subject bucket ("A"/"B", same hash as
+                                    # ab_tags), inner key = an independent body
+                                    # bucket ("A"/"B", hashed with a ":body"
+                                    # salt). {"A": {"A": tag, "B": tag}, "B":
+                                    # {...}}. When present it wins over ab_tags;
+                                    # each of the 4 tags triggers its own
+                                    # Mailchimp journey.
 
 
 def trigger_from_dict(d: dict) -> Trigger:
@@ -77,6 +86,7 @@ def trigger_from_dict(d: dict) -> Trigger:
         active=bool(d.get("active", True)),
         group=d.get("group", ""),
         ab_tags=dict(d.get("ab_tags", {})),
+        ab_body_tags={k: dict(v) for k, v in d.get("ab_body_tags", {}).items()},
     )
 
 
