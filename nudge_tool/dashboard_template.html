@@ -393,6 +393,10 @@ button, input, textarea, select { font-family: inherit; }
       Survey Responses
       <span class="nav-badge" id="inbox-badge" style="display:none;">0</span>
     </button>
+    <button class="nav-btn" id="nav-surveys" data-view="surveys">
+      <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      All Surveys
+    </button>
   </div>
 </nav>
 
@@ -403,6 +407,7 @@ button, input, textarea, select { font-family: inherit; }
     <div id="view-detail" class="view"></div>
     <div id="view-funnel" class="view"></div>
     <div id="view-inbox" class="view"></div>
+    <div id="view-surveys" class="view"></div>
     <div id="view-insights" class="view"></div>
   </div>
 </main>
@@ -769,6 +774,7 @@ function renderDashboard() {
     statTile('New visitors (last 7 days)', m.new_visitors_7d, 'First check-in within a week') +
     statTile('Needs follow-up today', m.eligible_now, 'In the recovery queue', m.eligible_now > 0) +
     statTile('Day-pass regulars', m.daypass_regulars, '2+ day passes in 30 days') +
+    surveyTilesHtml() +
   '</div>';
 
   // period-scoped first-timer + conversion numbers
@@ -1279,6 +1285,89 @@ function inboxQ(label, ans) {
     '<div class="q-ans' + (empty ? ' muted' : '') + '">' + (empty ? '(no answer)' : escapeHtml(ans)) + '</div></div>';
 }
 
+/* ============================ ALL SURVEYS (tiles + full table) ============================ */
+// The Inbox above is a working tray (windowed, read/unread). This view is the
+// permanent record: EVERY completed survey, all-time, with what the person did
+// afterwards. Feeds Chris's "view all completed surveys" ask (7/27).
+function surveyAllRows() { const sv = DATA.survey || {}; return sv.all_responses || sv.responses || []; }
+// Most common named issue across every response. Ties break to the most
+// recently answered; "none"/blank answers never count as an issue.
+function topIssue(rows) {
+  const counts = {}, latest = {};
+  rows.forEach(r => {
+    if (!r.blocker) return;
+    counts[r.blocker] = (counts[r.blocker] || 0) + 1;
+    const d = r.answered_at || '';
+    if (!latest[r.blocker] || d > latest[r.blocker]) latest[r.blocker] = d;
+  });
+  const keys = Object.keys(counts);
+  if (!keys.length) return null;
+  const max = Math.max.apply(null, keys.map(k => counts[k]));
+  const tied = keys.filter(k => counts[k] === max)
+    .sort((a, b) => (latest[b] || '').localeCompare(latest[a] || ''));
+  return { blocker: tied[0], n: max, tiedWith: tied.slice(1) };
+}
+function surveyTilesHtml() {
+  if (!surveyOn()) return '';
+  const rows = surveyAllRows();
+  const n = rows.length;
+  const sent = ((DATA.engagement || {}).surveys || {}).sent || 0;
+  const sub1 = n === 0 ? 'No responses yet'
+    : (sent > 0 ? (100 * n / sent).toFixed(1) + '% of ' + sent.toLocaleString() + ' survey emails sent'
+                : 'From the feedback survey');
+  let h = statTile('Survey responses', n, sub1);
+  const t = topIssue(rows);
+  if (!t) {
+    h += statTile('Top survey issue', n ? 'None reported' : '&ndash;',
+      n ? 'No one has named an issue yet' : 'No responses yet');
+  } else {
+    h += statTile('Top survey issue', escapeHtml(blockerLabel(t.blocker)),
+      t.n + ' of ' + n + ' responses' +
+      (t.tiedWith.length ? ', tied with ' + escapeHtml(blockerLabel(t.tiedWith[0])) : ''));
+  }
+  return h;
+}
+function cellAns(v) {
+  return (v && String(v).trim()) ? escapeHtml(v)
+    : '<span style="color:var(--fg-hint);font-style:italic;">(no answer)</span>';
+}
+function cameBackBadge(cb) {
+  if (cb === 'member') return '<span class="badge badge-success">MEMBER</span>';
+  if (cb === 'yes') return 'Yes';
+  if (cb === 'no') return 'No';
+  return '<span style="color:var(--fg-hint);">Unknown</span>';
+}
+function renderSurveys() {
+  let h = pageHeader('All Survey Responses',
+    'Every completed survey since the pilot started, newest first. “Came back?” shows what each person actually did after answering, from check-in data.');
+  const rows = surveyAllRows();
+  if (!rows.length) {
+    h += '<div class="card"><div class="empty-state"><div class="empty-state-icon">📭</div>' +
+      '<div class="empty-state-title">No responses yet</div>' +
+      '<div class="empty-state-msg">Every survey a first-timer completes will appear here, newest first.</div></div></div>';
+    $('view-surveys').innerHTML = h; return;
+  }
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('mail') +
+      rows.length + (rows.length === 1 ? ' response' : ' responses') + '</div>' +
+    '<div class="card-description">Recent surveys also land in Survey Responses (the inbox), where you can mark them read and watch for safety flags. “Unknown” means the email didn’t match a climber in your data.</div></div>' +
+    '<div class="card-content with-top" style="overflow-x:auto;">';
+  h += '<table class="conv-table"><thead><tr><th>Date</th><th>Email</th><th>Overall</th><th>Regular?</th><th>Main issue</th><th>In their own words</th><th class="num">Came back?</th></tr></thead><tbody>';
+  rows.forEach(r => {
+    h += '<tr>' +
+      '<td style="white-space:nowrap;">' + escapeHtml(r.answered_at || '?') + '</td>' +
+      '<td>' + escapeHtml(r.email || '') +
+        (r.matched ? '' : '<div style="font-size:10.5px;color:var(--fg-subtle);">no climber match</div>') + '</td>' +
+      '<td>' + cellAns(r.q1_overall) + '</td>' +
+      '<td>' + cellAns(r.q2_intent) + '</td>' +
+      '<td>' + cellAns(r.q3_blocker_raw) + '</td>' +
+      '<td style="min-width:180px;">' + cellAns(r.q4_text) + '</td>' +
+      '<td class="num">' + cameBackBadge(r.came_back) + '</td>' +
+    '</tr>';
+  });
+  h += '</tbody></table></div></div>';
+  $('view-surveys').innerHTML = h;
+}
+
 /* ============================ INSIGHTS (reporting + survey) ============================ */
 function bar(label, n, max) {
   const pct = max > 0 ? Math.round(100 * n / max) : 0;
@@ -1538,11 +1627,19 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
     slides.push({ title: 'When members join', desc: 'Days from a first visit to signing up. Tells you when a follow-up still has a chance.', html: inner });
   }
   if (hasSurvey) {
-    const be = Object.entries(sv.by_blocker || {}).sort((a, b) => b[1] - a[1]);
+    // include zero bars for every issue the form CAN name, so "nobody said
+    // crowding" is visible rather than missing; small-n note while volume is low
+    const counts = Object.assign({}, sv.by_blocker || {});
+    (sv.blocker_options || []).forEach(o => { if (!(o in counts)) counts[o] = 0; });
+    const be = Object.entries(counts).sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
     const totB = be.reduce((s, e) => s + e[1], 0);
-    let inner = be.length
-      ? be.map(([b, n]) => countBarM(blockerLabel(b), n, totB, Math.max.apply(null, be.map(e => e[1])))).join('')
+    let inner = totB > 0
+      ? be.map(([b, n]) => countBarM(blockerLabel(b), n, totB, Math.max.apply(null, be.map(e => e[1])) || 1)).join('')
       : noData('No blockers reported yet.');
+    if (responses.length && responses.length < 10) {
+      inner += '<div style="color:var(--fg-subtle);font-size:11.5px;margin-top:10px;">Early read: only ' +
+        responses.length + (responses.length === 1 ? ' survey' : ' surveys') + ' answered so far.</div>';
+    }
     slides.push({ title: 'Why first-timers hesitate', desc: 'The blocker each respondent named. This is what each recovery message answers.', html: inner });
 
     const intents = { high: 0, medium: 0, low: 0 };
@@ -1636,7 +1733,9 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
 }
 function renderInsights() {
   const sv = DATA.survey || {};
-  const responses = sv.responses || [];
+  // all-time list (fallback: the inbox-windowed one), so survey slides don't
+  // vanish once every response is older than the inbox window
+  const responses = sv.all_responses || sv.responses || [];
   const hasReport = reportingOn();
   const hasSurvey = surveyOn() && responses.length > 0;
 
@@ -1677,7 +1776,7 @@ function renderInsights() {
 }
 
 function setupSurveyNav() {
-  const inbox = $('nav-inbox'), insights = $('nav-insights');
+  const inbox = $('nav-inbox'), insights = $('nav-insights'), surveys = $('nav-surveys');
   const label = $('survey-nav-label');
   // Insights is always available now (it includes behavior reporting, not just survey).
   insights.onclick = () => showView('insights');
@@ -1687,10 +1786,14 @@ function setupSurveyNav() {
     inbox.onclick = () => showView('inbox');
     renderInbox();
     refreshInboxBadge();
+    surveys.onclick = () => showView('surveys');
+    renderSurveys();
   } else {
     label.textContent = 'Coming with the survey loop';
     inbox.style.opacity = '0.5'; inbox.style.cursor = 'not-allowed';
     inbox.onclick = () => toast('Survey responses appear once the survey loop is on');
+    surveys.style.opacity = '0.5'; surveys.style.cursor = 'not-allowed';
+    surveys.onclick = () => toast('Survey responses appear once the survey loop is on');
   }
 }
 
@@ -1727,9 +1830,9 @@ setupSurveyNav();
   let id = '';
   try { id = sessionStorage.getItem('shiftActiveView') || ''; } catch (e) {}
   if (!id) id = (location.hash || '').replace('#', '');
-  const valid = ['dashboard', 'queue', 'funnel', 'inbox', 'insights'];
+  const valid = ['dashboard', 'queue', 'funnel', 'inbox', 'surveys', 'insights'];
   if (!valid.includes(id) || id === 'dashboard') return;
-  if (id === 'inbox' && !surveyOn()) return;
+  if ((id === 'inbox' || id === 'surveys') && !surveyOn()) return;
   showView(id);
 })();
 </script>

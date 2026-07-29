@@ -607,15 +607,46 @@ def _within_inbox_window(answered_at: str) -> bool:
     return d >= cutoff
 
 
-def _survey_block(client: ClientConfig, survey_result) -> dict:
+def _came_back(r, ds) -> str:
+    """What a survey responder DID after answering: 'member' if they converted,
+    'yes' if they visited 2+ days, 'no' if they never came back, '' when we
+    can't tell (unmatched email, or no dataset supplied). Feeds the All Surveys
+    table's "Came back?" column, connecting stated feedback to behavior."""
+    if ds is None or not getattr(r, "matched", False):
+        return ""
+    c = ds.climbers.get(getattr(r, "climber_id", "") or "")
+    if c is None:
+        return ""
+    if c.is_converted:
+        return "member"
+    return "yes" if c.visit_count >= 2 else "no"
+
+
+def _survey_block(client: ClientConfig, survey_result, ds=None) -> dict:
     """The survey slice of the payload. Aggregates feed Insights; the per-response
     list feeds the Inbox two-pane. Empty (responses: []) whenever the survey loop
     is off, so the dashboard's Inbox/Insights stay honestly dark until real data.
 
     The per-response list is windowed to the last INBOX_RESPONSE_WINDOW_DAYS days
     so the Inbox stays readable over a long pilot; the aggregate counts remain
-    all-time."""
+    all-time. `all_responses` is the UNwindowed list (newest first, each row
+    carrying came_back) feeding the All Surveys view and the dashboard's survey
+    tiles; `blocker_options` lists every issue the form can name so charts can
+    show zero bars."""
     responses = getattr(survey_result, "responses", []) or []
+
+    def row(r):
+        return {
+            "email": r.email, "name": r.name, "climber_id": r.climber_id,
+            "answered_at": r.answered_at, "matched": r.matched,
+            "q1_overall": r.q1_overall, "q2_intent": r.q2_intent,
+            "q3_blocker_raw": r.q3_blocker_raw, "q4_text": r.q4_text,
+            "blocker": r.blocker, "intent": r.intent, "safety": r.safety,
+        }
+
+    all_rows = [dict(row(r), came_back=_came_back(r, ds)) for r in responses]
+    all_rows.sort(key=lambda x: x["answered_at"] or "", reverse=True)
+    blocker_options = sorted({v for v in (client.survey.get("blocker_map") or {}).values() if v})
     return {
         "enabled": bool(client.survey.get("enabled")),
         "matched": getattr(survey_result, "matched", 0),
@@ -624,16 +655,11 @@ def _survey_block(client: ClientConfig, survey_result) -> dict:
         "by_blocker": getattr(survey_result, "by_blocker", {}) or {},
         "inbox_window_days": INBOX_RESPONSE_WINDOW_DAYS,
         "responses": [
-            {
-                "email": r.email, "name": r.name, "climber_id": r.climber_id,
-                "answered_at": r.answered_at, "matched": r.matched,
-                "q1_overall": r.q1_overall, "q2_intent": r.q2_intent,
-                "q3_blocker_raw": r.q3_blocker_raw, "q4_text": r.q4_text,
-                "blocker": r.blocker, "intent": r.intent, "safety": r.safety,
-            }
-            for r in responses
+            row(r) for r in responses
             if _within_inbox_window(getattr(r, "answered_at", ""))
         ],
+        "all_responses": all_rows,
+        "blocker_options": blocker_options,
     }
 
 
@@ -851,7 +877,7 @@ def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
                   sent_rows: list | None = None,
                   activity_by_email: dict | None = None,
                   journey_campaign_ids: set | None = None) -> dict:
-    survey_block = _survey_block(client, survey_result)
+    survey_block = _survey_block(client, survey_result, ds)
     return {
         "client": client.client_name,
         "generated_at": generated_at,
