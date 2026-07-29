@@ -218,13 +218,20 @@ def main() -> None:
 
     # Refresh the shared "Send It - All Gyms" stats sheet after the send run.
     # Guarded: a stats failure must never fail (or re-run) the send itself.
+    # Output is captured into the report so its notes (e.g. Experiments
+    # auto-fill skips, S40) reach the emailed report too.
     if status == "SUCCESS":
+        buf2 = io.StringIO()
         try:
-            import allgyms_push
-            allgyms_push.push(a.client or os.getenv("NUDGE_CLIENT", "shift"))
+            with contextlib.redirect_stdout(buf2):
+                import allgyms_push
+                allgyms_push.push(a.client or os.getenv("NUDGE_CLIENT",
+                                                        "shift"))
         except Exception:
-            print("  allgyms stats push FAILED (send run unaffected):\n"
-                  + traceback.format_exc())
+            buf2.write("  allgyms stats push FAILED (send run unaffected):\n"
+                       + traceback.format_exc())
+        print(buf2.getvalue())
+        report += "\n=== ALL GYMS STATS PUSH ===\n" + buf2.getvalue()
 
     if a.notify:
         import beta_pull

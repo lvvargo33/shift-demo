@@ -39,6 +39,7 @@ from __future__ import annotations
 import csv
 import os
 import sys
+import traceback
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -98,6 +99,36 @@ TEST_ARMS = {
     "FTV_reengage_subject_b": ("Offer email subject test", "Offer subject B"),
 }
 EMBED_TAGS = {"FTV_survey_subject_a_embed", "FTV_survey_subject_b_embed"}
+
+# S40: plain-language short names used inside Send It Test dropdown values
+_EXP_SHORT = {"survey_request": "survey", "first_visit_reengage": "offer"}
+
+
+def experiment_tests(client) -> dict:
+    """This gym's live A/B tests for the Experiments tab (S40):
+    dropdown name -> (arm A tag list, arm B tag list). Names MUST match the
+    'Send It Test' column on the Lists tab, which setup_pm_tabs.py seeds from
+    this same function, so the two can only drift if a test is added without
+    re-running the seed (the cron then notes the unknown name and skips)."""
+    tests: dict = {}
+    for t in client.triggers:
+        if not t.active:
+            continue
+        ab = getattr(t, "ab_tags", None) or {}
+        body = getattr(t, "ab_body_tags", None) or {}
+        short = _EXP_SHORT.get(t.name, t.name.replace("_", " "))
+        if ab:
+            if body:  # 2x2: a subject arm spans both of its body variants
+                a = [body["A"]["A"], body["A"]["B"]]
+                b = [body["B"]["A"], body["B"]["B"]]
+            else:
+                a, b = [ab["A"]], [ab["B"]]
+            tests[f"{GYM} - {short} subject (A vs B)"] = (a, b)
+        if body:  # body test: an arm spans both subjects
+            tests[f"{GYM} - {short} embed (current vs embed)"] = (
+                [body["A"]["A"], body["B"]["A"]],
+                [body["A"]["B"], body["B"]["B"]])
+    return tests
 
 METRIC_HEADERS = [
     "Sends", "Delivered", "Opens", "Open %", "Link clicks", "Q1 taps",
@@ -812,6 +843,118 @@ def _history_fmt_requests(sheet_id: int, existing_cf: int) -> list:
     return reqs
 
 
+# --------------------------------------------------------------------------
+# Experiments tab auto-fill (S40, gym-agnostic; keep identical in both repos)
+# --------------------------------------------------------------------------
+# The Experiments tab is HUMAN-OWNED (the port of Chris's Experiment Tracker;
+# rebuilt tabs are Data/Dashboard/Variants/History ONLY, never this one).
+# The cron writes ONLY Sample Size A/B + Result A/B on rows whose Send It
+# Test dropdown names one of THIS gym's live tests (experiment_tests()).
+# Untagged rows, other gyms' rows, and every other column are never touched.
+# A test no longer in config = numbers freeze as the final record (silent
+# skip). Fail-soft: any broken row prints a note that rides into the report
+# email; nothing here can fail the stats push.
+
+EXP_TAB = "Experiments"
+EXP_METRIC_FIELDS = {
+    "Open Rate": "opens",
+    "Click Rate": "clicks",
+    "Survey Completion Rate": "responses",
+    "Second Visit Rate": "returned",
+    "Membership Conversion Rate": "converted",
+}
+EXP_MANUAL_METRIC = "Retention Rate"  # not computable from Send It data
+
+
+def _a1col(c: int) -> str:
+    s = ""
+    c += 1
+    while c:
+        c, r = divmod(c - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _update_experiments(svc, tests: dict, var_rows: list[dict]) -> None:
+    counts = {r["tag"]: r["m"] for r in var_rows}
+
+    def arm(tags: list) -> dict:
+        return {k: sum(int(counts.get(t, {}).get(k) or 0) for t in tags)
+                for k in ("sends", "opens", "clicks", "responses",
+                          "returned", "converted")}
+
+    try:
+        got = svc.spreadsheets().values().batchGet(
+            spreadsheetId=ALLGYMS_SHEET_ID,
+            ranges=[f"{EXP_TAB}!A1:Z1", f"{EXP_TAB}!A2:Z1000",
+                    "Lists!A1:Z1000"]).execute()["valueRanges"]
+    except Exception as exc:
+        print(f"  allgyms: experiments auto-fill skipped ({exc})")
+        return
+    header = (got[0].get("values") or [[]])[0]
+    rows = got[1].get("values") or []
+    lists = got[2].get("values") or []
+
+    need = ("Send It Test", "Success Metric", "Sample Size A",
+            "Sample Size B", "Result A", "Result B")
+    cols = {n: header.index(n) for n in need if n in header}
+    if len(cols) < len(need):
+        missing = ", ".join(n for n in need if n not in cols)
+        print(f"  allgyms: experiments auto-fill skipped "
+              f"(missing header(s): {missing})")
+        return
+
+    # every name ever on the Lists dropdown = a real test (maybe retired);
+    # my-gym names outside it are typos worth a note
+    known: set = set()
+    if lists and "Send It Test" in lists[0]:
+        li = lists[0].index("Send It Test")
+        known = {r[li].strip() for r in lists[1:]
+                 if len(r) > li and r[li].strip()}
+
+    def cell(row: list, name: str) -> str:
+        c = cols[name]
+        return row[c].strip() if len(row) > c and row[c] else ""
+
+    prefix = f"{GYM} - "
+    data, notes, filled = [], [], 0
+    for i, row in enumerate(rows):
+        rn = i + 2
+        test = cell(row, "Send It Test")
+        if not test or not test.startswith(prefix):
+            continue  # blank = fully manual row; otherwise another gym's
+        if test not in tests:
+            if test not in known:
+                notes.append(f"row {rn}: unknown Send It Test "
+                             f"'{test}', skipped")
+            continue  # known but no longer active: numbers stay frozen
+        metric = cell(row, "Success Metric")
+        a, b = (arm(t) for t in tests[test])
+        cells = {cols["Sample Size A"]: a["sends"],
+                 cols["Sample Size B"]: b["sends"]}
+        if metric in EXP_METRIC_FIELDS:
+            f = EXP_METRIC_FIELDS[metric]
+            cells[cols["Result A"]] = _pct(a[f], a["sends"])
+            cells[cols["Result B"]] = _pct(b[f], b["sends"])
+        elif metric != EXP_MANUAL_METRIC:
+            notes.append(f"row {rn}: Success Metric "
+                         f"'{metric or '(blank)'}' not auto-fillable, skipped")
+            continue
+        # Retention Rate: sample sizes still fill, Results stay manual
+        for c, v in sorted(cells.items()):
+            data.append({"range": f"{EXP_TAB}!{_a1col(c)}{rn}",
+                         "values": [[v]]})
+        filled += 1
+    if data:
+        svc.spreadsheets().values().batchUpdate(
+            spreadsheetId=ALLGYMS_SHEET_ID,
+            body={"valueInputOption": "RAW", "data": data}).execute()
+    for n in notes:
+        print(f"  allgyms: experiments {n}")
+    print(f"  allgyms: experiments auto-fill: {filled} row(s) updated, "
+          f"{len(notes)} skipped with notes")
+
+
 def push(slug: str = "shift") -> None:
     client = config.load_client(slug)
     auto_rows, var_rows = collect(client)
@@ -902,6 +1045,12 @@ def push(slug: str = "shift") -> None:
         spreadsheetId=ALLGYMS_SHEET_ID,
         body={"requests": fmt_reqs}).execute()
     print(f"  allgyms: formatting applied, History maintained ({stamp})")
+
+    try:
+        _update_experiments(svc, experiment_tests(client), var_rows)
+    except Exception:
+        print("  allgyms: experiments auto-fill FAILED (stats push "
+              "unaffected):\n" + traceback.format_exc())
 
 
 if __name__ == "__main__":
