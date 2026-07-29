@@ -14,6 +14,7 @@
   "links": {
     "survey_link": "https://docs.google.com/forms/d/e/1FAIpQLSeJgRNTSwMaWuwBKUuoaa1ueHGpgciw7tII1i46DrqAstJ3Ag/viewform",
     "membership_lite_link": "https://www.shiftclimbing.com/purchase-a-membership",
+    "purchase_pass_link": "https://www.shiftclimbing.com/purchase-a-pass",
     "contact_email": "info@shiftclimbing.com",
     "daypass_code": "SECONDVISIT"
   },
@@ -48,6 +49,8 @@
     "window_days": 30
   },
   "_daypass_repeat_note": "A 'day-pass regular' = bought >= min_count day passes within window_days. Feeds the daypass_to_trial nudge (requires.daypass_repeat).",
+  "min_days_between_sends": 2,
+  "_min_days_between_sends_note": "S38 spacing guard (2026-07-29). Anyone whose last logged send (any trigger) is fewer than this many days old is skipped this run; they stay eligible and re-check next run. Protects the reminder -> return -> membership-offer chain from stacking emails. The existing flow already has natural 2+ day gaps, so this changes nothing for current triggers. 0 = off.",
   "reporting": {
     "_note": "Definitions for the REPORTING layer only (Dashboard tiles, Funnel, Insights). Mirrors the SHIFT FTV analysis workbook (SHIFT_Analysis/scripts/01_data_prep.py) so the dashboard's numbers match the analysis. These do NOT affect the Recovery Queue eligibility engine, which keeps its own trial/conversion_skus logic above. Everything here is tunable without code.",
     "post_opening_date": "2025-03-01",
@@ -439,6 +442,38 @@
       "once_only": true,
       "active": true,
       "group": "second_visit"
+    },
+    {
+      "name": "ftv_reminder",
+      "tag": "send_it_ftv_reminder",
+      "template_id": "reminder_v1",
+      "description": "S38 (Chris ask #2, 2026-07-29): ONE reminder carrying the same SECONDVISIT 50% code, day 9-10 after first visit, for people who already GOT a day 5-7 offer email (any second_visit-group trigger: generic reengage, a blocker nudge, or round_two; all carry the same code) and still have not returned. The S33 park is LIFTED: no holdout, no A/B, send to all eligible (Chris accepts the unsub risk per Luke 2026-07-29). Day 9-10 lands between ABC's day-7 and day-14 natural return spikes with runway before day 14. once_only + the 2-day window = one reminder ever, per person.",
+      "anchor": "first_visit",
+      "days_since_min": 9,
+      "days_since_max": 10,
+      "requires": {
+        "no_return": true,
+        "prior_group_send": "second_visit",
+        "first_visit_on_or_after": "2026-06-19"
+      },
+      "once_only": true,
+      "active": true,
+      "_group_note": "Deliberately NOT in group 'second_visit': it is the one-time follow-up TO that group, and group membership would suppress it for exactly the people it targets (prior_group_send requires they already got a group send)."
+    },
+    {
+      "name": "membership_offer",
+      "tag": "send_it_membership_offer",
+      "template_id": "membership_offer_v1",
+      "description": "S38 (Chris ask #2, 2026-07-29): membership pitch (Lite $38 / Full $69) 2-3 days after a climber's REAL 2nd visit, only when that 2nd visit is within 30 days of the first (the 19-32% conversion cohort; after 30 days it drops to 6%). SHIFT converters make visit 2 at median day 6 and conversion likelihood peaks days 7-14, so +2-3 days lands in the peak decision window. Members are already excluded by the engine's converted-stop; trial buyers who return during their trial ARE included (the pitch fits trial deciders).",
+      "anchor": "second_visit",
+      "days_since_min": 2,
+      "days_since_max": 3,
+      "requires": {
+        "second_visit_within_days_of_first": 30,
+        "first_visit_on_or_after": "2026-06-19"
+      },
+      "once_only": true,
+      "active": true
     },
     {
       "name": "comeback_soft",

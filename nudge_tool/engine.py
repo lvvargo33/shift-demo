@@ -74,13 +74,20 @@ def _anchor_date(c: Climber, anchor: str) -> str | None:
         "survey_sent": c.survey_sent_date,
         "last_visit": c.last_visit_date,
         "last_daypass": c.last_daypass_date,
+        "second_visit": c.second_visit_date,
     }.get(anchor)
 
 
 # --- requirement evaluation --------------------------------------------------
 
-def _requires_ok(c: Climber, req: dict, asof: date, client: ClientConfig) -> bool:
-    """Every requirement must hold. Unknown keys FAIL CLOSED (never over-message)."""
+def _requires_ok(c: Climber, req: dict, asof: date, client: ClientConfig,
+                 log=None, group_names: dict | None = None) -> bool:
+    """Every requirement must hold. Unknown keys FAIL CLOSED (never over-message).
+
+    log / group_names (S38) back the prior_group_send key: group_names maps a
+    campaign-group name -> every trigger NAME in that group (active or not, so
+    a send from a since-retired trigger still counts). Without a log the key
+    fails closed: a run that can't see send history never sends a follow-up."""
     for key, val in req.items():
         if key == "no_return":
             if val and c.visit_count > 1:
@@ -114,6 +121,28 @@ def _requires_ok(c: Climber, req: dict, asof: date, client: ClientConfig) -> boo
             # never messages the host's or parent's inbox.
             if c.ftv_category not in set(val):
                 return False
+        elif key == "prior_group_send":
+            # S38 (ftv_reminder): only follow up someone who already GOT an
+            # offer email, i.e. has a logged send from any trigger in campaign
+            # group `val`. No log, unknown group, blank email -> fail closed.
+            email = (c.email or "").strip().lower()
+            names = (group_names or {}).get(val, [])
+            if log is None or not email or not names:
+                return False
+            if not any(log.sent_dates(email, n) for n in names):
+                return False
+        elif key == "second_visit_within_days_of_first":
+            # S38 (membership_offer): the 2nd visit must fall within `val`
+            # days of the 1st. Missing either date -> fail closed.
+            first, second = c.first_visit_date, c.second_visit_date
+            if not first or not second:
+                return False
+            try:
+                gap = (date.fromisoformat(second) - date.fromisoformat(first)).days
+            except ValueError:
+                return False
+            if gap > int(val):
+                return False
         elif key == "first_visit_on_or_after":
             # Forward-only floor. Only message climbers whose FIRST visit is on or
             # after this date. Empty/blank value = no floor. Set it to the go-live
@@ -126,8 +155,8 @@ def _requires_ok(c: Climber, req: dict, asof: date, client: ClientConfig) -> boo
     return True
 
 
-def _match(c: Climber, t: Trigger, asof: date,
-           client: ClientConfig) -> tuple[int, str] | None:
+def _match(c: Climber, t: Trigger, asof: date, client: ClientConfig,
+           log=None, group_names: dict | None = None) -> tuple[int, str] | None:
     """Return (days_since, anchor_date) if c qualifies for trigger t, else None."""
     ad = _anchor_date(c, t.anchor)
     if not ad:
@@ -135,7 +164,7 @@ def _match(c: Climber, t: Trigger, asof: date,
     days = ingest.days_between(ad, asof)
     if days < t.days_since_min or days > t.days_since_max:
         return None
-    if not _requires_ok(c, t.requires, asof, client):
+    if not _requires_ok(c, t.requires, asof, client, log, group_names):
         return None
     return days, ad
 
@@ -314,6 +343,13 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
     for t in active:
         if t.group:
             group_tags.setdefault(t.group, []).append(t.name)
+    # prior_group_send lookup spans ALL configured triggers, active or not: a
+    # send logged by a since-deactivated group member still counts as "they
+    # got the offer".
+    all_group_names: dict[str, list[str]] = {}
+    for t in client.triggers:
+        if t.group:
+            all_group_names.setdefault(t.group, []).append(t.name)
     # own-email guard: emails used by more than one distinct climber.
     shared_emails: set[str] = set()
     if own_email_guard:
@@ -336,7 +372,7 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
         # gather every trigger this person matches.
         matches: list[tuple[int, Trigger, int, str]] = []
         for t in active:
-            m = _match(c, t, asof, client)
+            m = _match(c, t, asof, client, log, all_group_names)
             if m is None:
                 continue
             siblings = group_tags.get(t.group) if t.group else None
@@ -358,6 +394,18 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
             if suppressed_out is not None:
                 suppressed_out.append((c, t, "shared_email"))
             continue
+        # S38 spacing guard: if their last logged send (any trigger) is fewer
+        # than min_days_between_sends days old, skip them this run. They stay
+        # eligible and re-check next run; a window that expires meanwhile just
+        # means no send (accepted in the spec). Protects the reminder ->
+        # return -> membership-offer chain from stacking emails.
+        mds = int(getattr(client, "min_days_between_sends", 0) or 0)
+        if mds > 0 and log is not None:
+            last = log.last_sent_any(c.email)
+            if last and ingest.days_between(last, asof) < mds:
+                if suppressed_out is not None:
+                    suppressed_out.append((c, t, "min_spacing"))
+                continue
         items.append(_make_item(c, t, days, ad, idx, client))
 
     # Display order: priority group, then oldest-in-window, then name.
@@ -550,6 +598,7 @@ def build_config_view(client: ClientConfig) -> dict:
         ],
         "safety": {
             "live_enabled": client.live_enabled,
+            "min_days_between_sends": client.min_days_between_sends,
             "locks": [
                 "Refuses --live without --i-have-shift-signoff",
                 "Refuses --live unless live_enabled is true in client.json",

@@ -5,7 +5,9 @@ trial); section 14 (FTV_PILOT_SPEC.md) generalizes the engine to the whole
 message catalog. A trigger now has:
 
   anchor  -- which event the day-window is measured from:
-              first_visit | trial_purchase | survey_sent | last_visit | last_daypass
+              first_visit | trial_purchase | survey_sent | last_visit |
+              last_daypass | second_visit (date of the 2nd distinct check-in
+              day; unresolvable until the climber actually returns)
   days_since_min/max -- the inclusive window around that anchor (in days)
   requires -- a dict of extra conditions ALL of which must hold. Recognized keys:
               no_return       (bool)  visit_count <= 1
@@ -15,6 +17,13 @@ message catalog. A trigger now has:
                                       within daypass_repeat.window_days (config)
               survey_blocker  (str)   survey Q3 answer == value   (needs S2 data)
               survey_intent   (str)   survey intent bucket == value (needs S2 data)
+              prior_group_send (str)  the person already has a logged send from
+                                      ANY trigger in this campaign group (S38:
+                                      the ftv_reminder only follows an offer
+                                      email). Fails closed with no outreach log.
+              second_visit_within_days_of_first (int)  2nd visit happened
+                                      within n days of the 1st (S38: the
+                                      membership offer's 30-day cohort rule)
   once_only / cooldown_days -- repeat protection, enforced via the local
               outreach log (wired in S3); structural here.
 
@@ -27,7 +36,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 # Anchors the engine knows how to resolve to a date on a Climber.
-ANCHORS = {"first_visit", "trial_purchase", "survey_sent", "last_visit", "last_daypass"}
+ANCHORS = {"first_visit", "trial_purchase", "survey_sent", "last_visit",
+           "last_daypass", "second_visit"}
 
 
 @dataclass(frozen=True)

@@ -47,6 +47,18 @@ class OutreachLog:
         dates = self.sent_dates(email, trigger_name)
         return max(dates) if dates else None
 
+    def last_sent_any(self, email: str) -> str | None:
+        """Most recent logged send to this email across ALL triggers. Backs the
+        S38 min_days_between_sends spacing guard."""
+        e = _norm_email(email)
+        best = None
+        for (em, _name), dates in self.by_email_trigger.items():
+            if em == e and dates:
+                d = max(dates)
+                if best is None or d > best:
+                    best = d
+        return best
+
     @property
     def total_rows(self) -> int:
         return sum(len(v) for v in self.by_email_trigger.values())

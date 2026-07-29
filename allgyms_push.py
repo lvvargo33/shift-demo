@@ -68,6 +68,8 @@ FUNNEL_LABELS = {
     "nudge_frontdesk": "Blocker: front desk",
     "nudge_confusing": "Blocker: confusing",
     "nudge_routes": "Blocker: routes",
+    "ftv_reminder": "Offer reminder (day 9-10)",
+    "membership_offer": "Membership offer (2-3d after 2nd visit)",
     "comeback": "Trial win-back",
 }
 DASH_SECTIONS = ["FTV funnel emails", "Blocker nudges", "Surveys"]

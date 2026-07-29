@@ -154,6 +154,15 @@ class Climber:
         return max(self.visit_days) if self.visit_days else None
 
     @property
+    def second_visit_date(self) -> str | None:
+        """Date of the 2nd distinct check-in day (the second_visit anchor).
+        None until the climber has actually returned, so second_visit-anchored
+        triggers fail closed for one-visit climbers."""
+        if len(self.visit_days) < 2:
+            return None
+        return sorted(self.visit_days)[1]
+
+    @property
     def last_daypass_date(self) -> str | None:
         return max(self.daypass_dates) if self.daypass_dates else None
 
