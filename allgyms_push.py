@@ -86,7 +86,21 @@ def _section_of(trigger_name: str) -> str:
 
 # Only tags that are arms of a running/ran A/B test appear on Variants.
 # tag -> (test section band, plain-language arm label)
+#
+# PRE-TEST ROWS (Chris comment on Variants!D5, 2026-08-03): both SHIFT
+# automations went live BEFORE their subject test existed, sending one version
+# under a single un-split tag (survey 103 sends 6/20-7/03, offer 34 sends
+# 6/24-7/03; the arms start 7/06). Those sends land in the Dashboard's
+# per-automation total but had no Variants row, so the arm column read 103 (and
+# 34) short of the Dashboard. Listing the old tags here as their own labelled
+# row makes each test block add up to its Dashboard number. They are NOT arms:
+# the label says so, and experiment_tests() never references them, so the
+# Experiments tab's A-vs-B auto-fill is untouched.
+PRETEST_LABEL = "Before the test started (one version)"
 TEST_ARMS = {
+    "send_it_survey_request": (
+        "Survey email test (2x2: subject x body)", PRETEST_LABEL),
+    "first_visit_reengage": ("Offer email subject test", PRETEST_LABEL),
     "FTV_survey_subject_a": (
         "Survey email test (2x2: subject x body)", "Subject A + link to the survey"),
     "FTV_survey_subject_a_embed": (
@@ -170,6 +184,11 @@ FOOTNOTES = [
     "Delivered: SHIFT counts Mailchimp's send confirmation, ABC counts "
     "Brevo's delivered receipt. A blank Delivered means that system had no "
     "delivery info for those emails, and that row's Open % is out of sends.",
+    "'Before the test started' rows on Variants: SHIFT's survey and offer "
+    "emails went live before their subject tests did, so their earliest sends "
+    "have no A or B version. Those sends sit in their own row so each test "
+    "block still adds up to the Dashboard total for the same email. Leave "
+    "them out when comparing A against B.",
 ]
 
 # Plain-English hover glossary (Luke 2026-07-28): shown as a cell note on each
@@ -219,6 +238,11 @@ VARIANT_DESCRIPTIONS = {
         "rating button inside the email.",
     "Offer subject A": "The come-back offer email with subject line A.",
     "Offer subject B": "The come-back offer email with subject line B.",
+    PRETEST_LABEL:
+        "Sends made before this A/B test existed, when the email had only one "
+        "version. They are counted here so this block adds up to the "
+        "Dashboard total for the same email, but they are not part of the A "
+        "vs B comparison: both arms started on the same day, after these.",
     "Subject A": "Arm A of this email's subject line test.",
     "Subject B": "Arm B of this email's subject line test.",
 }
