@@ -1,3 +1,8 @@
+# Deliberately UNPINNED until there is a known-good set to pin TO. Every run now
+# prints the installed versions to the Render log (nudge_tool/stage.py
+# versions()), so pin from a green run instead of from a guess. Until then a
+# redeploy can silently change any of these: that is a live variable whenever a
+# job starts behaving differently right after a deploy. 2026-08-04.
 requests
 python-dotenv
 google-auth

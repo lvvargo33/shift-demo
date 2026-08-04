@@ -67,6 +67,7 @@ load_dotenv(BASE / ".env", override=False)
 from nudge_tool import engine, ingest, livesend, outreach, survey  # noqa: E402
 from nudge_tool.config import load_client, load_settings  # noqa: E402
 from nudge_tool.mailchimp_client import MailchimpClient, MailchimpError  # noqa: E402
+from nudge_tool.stage import stage, versions  # noqa: E402
 from requests.exceptions import RequestException  # noqa: E402
 
 
@@ -103,6 +104,8 @@ def _push_outreach_log(client) -> None:
 def run_send(a) -> None:
     """The actual work. Prints a human report; raises on any failure."""
     slug = a.client or os.getenv("NUDGE_CLIENT", "shift")
+    stage(f"run start: client={slug} drive={a.drive} yes={a.yes}")
+    stage(f"libs: {versions()}")
     client = load_client(slug)
     live_ok = client.live_enabled or _truthy(os.getenv("NUDGE_LIVE_ENABLED"))
     today = date.fromisoformat(a.as_of) if a.as_of else date.today()
@@ -116,13 +119,17 @@ def run_send(a) -> None:
         print("\n=== DRIVE PULL (Beta CSVs + outreach log) ===")
         import beta_pull
         beta_pull.drive_pull_canonical()
+        stage("drive pull done: Beta CSVs")
         _pull_outreach_log(client)
+        stage("drive pull done: outreach log")
 
     # Build today's queue exactly as the dashboard does.
     ds = ingest.load(client)
+    stage(f"ingest.load done ({len(ds.climbers)} climbers)")
     survey_result = survey.apply(ds, client)
     log = outreach.load(client)
     outreach.tighten_survey_sent(ds, log)
+    stage(f"survey + outreach log done ({log.total_rows} prior sends)")
 
     # Unsubscribed/cleaned must be excluded before any send. If we mean to send
     # but can't read that list, abort rather than risk tagging a suppressed email.
@@ -132,6 +139,7 @@ def run_send(a) -> None:
         settings = load_settings(client, require=True)
         unsubscribed = MailchimpClient(settings).suppressed_emails()
         print(f"  mailchimp: {len(unsubscribed)} unsubscribed/cleaned (excluded)")
+        stage(f"mailchimp unsub list done ({len(unsubscribed)} suppressed)")
     except (RuntimeError, MailchimpError, RequestException) as e:
         if will_send:
             raise RuntimeError(
@@ -146,6 +154,7 @@ def run_send(a) -> None:
                                own_email_guard=True)
     targets = livesend.derive_sends(queue)
     manual = sum(1 for q in queue if q.trigger_name == "MANUAL")
+    stage(f"queue built (queue={len(queue)}, to-send={len(targets)})")
 
     print(f"\n  queue={len(queue)}  to-send(auto-email)={len(targets)}  "
           f"safety/MANUAL={manual} (manager call, never auto-emailed)")
@@ -155,37 +164,46 @@ def run_send(a) -> None:
     # --- decide: send, or one of the safe no-op / preview paths ---
     if not a.i_have_shift_signoff:
         print("\n  NO-OP: --i-have-shift-signoff not passed. Tagged nobody.")
+        stage("no-op: no signoff flag; tagged nobody")
         return
     if not live_ok:
         print("\n  GATED OFF: live sending is not enabled (client live_enabled=false "
               "and NUDGE_LIVE_ENABLED not set).\n  Computed the queue and tagged "
               "NOBODY. Flip NUDGE_LIVE_ENABLED=true to go live (after SHIFT signoff "
               "+ welcome-email handled + Journey + copy).")
+        stage("gated off: live sending not enabled; tagged nobody")
         return
     if not a.yes:
         print(f"\n  PREVIEW only (no --yes): would tag {len(targets)} climber(s). "
               "Tagged nobody.")
+        stage("preview only (no --yes); tagged nobody")
         return
     if not targets:
         print("\n  LIVE: nothing to tag this run.")
+        stage("live: nothing to tag this run")
         return
 
     mc = MailchimpClient(settings)
     print(f"\n  LIVE: tagging {len(targets)} climber(s) ...")
+    stage(f"tagging {len(targets)} climber(s) in Mailchimp ...")
     tagged: list = []
-    for t in targets:
+    for i, t in enumerate(targets, 1):
         try:
             mc.tag_member(t.email, t.first_name, t.tag)
             tagged.append(t)
             print(f"    ok    {t.tag:<16} {t.email}")
         except (MailchimpError, RequestException) as e:
             print(f"    FAIL  {t.tag:<16} {t.email}  ({e})")
+        if i % 10 == 0:
+            stage(f"tagging {i}/{len(targets)}")
     written = outreach.append(client, livesend.log_rows(tagged, asof))
     print(f"\n  tagged {len(tagged)} climber(s), logged {written} row(s).")
+    stage(f"tagging done ({len(tagged)} tagged, {written} row(s) logged)")
 
     if a.drive:
         print("\n=== DRIVE PUSH (outreach log) ===")
         _push_outreach_log(client)
+        stage("drive push done: outreach log")
 
 
 def main() -> None:
@@ -212,9 +230,11 @@ def main() -> None:
         status = "FAILURE"
         buf.write("\n\n*** SEND RUN FAILED ***\n")
         buf.write(traceback.format_exc())
+        stage("run_send FAILED (traceback is in the report email)")
 
     report = buf.getvalue()
     print(report)
+    stage(f"send phase finished: {status}")
 
     # Refresh the shared "Send It - All Gyms" stats sheet after the send run.
     # Guarded: a stats failure must never fail (or re-run) the send itself.
@@ -222,14 +242,17 @@ def main() -> None:
     # auto-fill skips, S40) reach the emailed report too.
     if status == "SUCCESS":
         buf2 = io.StringIO()
+        stage("allgyms stats push: start")
         try:
             with contextlib.redirect_stdout(buf2):
                 import allgyms_push
                 allgyms_push.push(a.client or os.getenv("NUDGE_CLIENT",
                                                         "shift"))
+            stage("allgyms stats push: done")
         except Exception:
             buf2.write("  allgyms stats push FAILED (send run unaffected):\n"
                        + traceback.format_exc())
+            stage("allgyms stats push FAILED (send run unaffected)")
         print(buf2.getvalue())
         report += "\n=== ALL GYMS STATS PUSH ===\n" + buf2.getvalue()
 
@@ -249,10 +272,13 @@ def main() -> None:
                       "==================================================\n\n")
         try:
             beta_pull.send_email(subject, banner + report)
+            stage("report email sent")
         except Exception:
             print("  EMAIL SEND FAILED:\n" + traceback.format_exc())
+            stage("report email FAILED to send")
             status = "FAILURE"
 
+    stage(f"run complete: {status}")
     sys.exit(0 if status == "SUCCESS" else 1)
 
 

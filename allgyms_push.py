@@ -49,6 +49,12 @@ sys.path.insert(0, str(BASE))
 
 from nudge_tool import config, drive_io, engine, ingest, survey
 from nudge_tool.mailchimp_client import MailchimpClient
+from nudge_tool.stage import stage as _stage
+
+
+def stage(label: str) -> None:
+    """Progress marker on stderr, tagged 'stats' (see nudge_tool/stage.py)."""
+    _stage(label, tag="stats")
 
 GYM = "SHIFT"  # the ABC port sets "ABC"
 ALLGYMS_SHEET_ID = os.getenv(
@@ -312,9 +318,12 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     """This gym's stats -> (automation rows, variant rows), one dict each:
     {gym, name, section, tag, level, m: {metric_key: value}}"""
     rows = _pull_outreach(BASE / "_allgyms_outreach_snapshot.csv")
+    stage(f"outreach snapshot pulled ({len(rows)} rows)")
     ds = ingest.load(client)
+    stage(f"ingest.load done ({len(ds.climbers)} climbers)")
     mc = MailchimpClient(config.load_settings(client, require=True))
     tx_by_cid, tx_by_email = _tx_dates(client)
+    stage("transaction dates indexed")
 
     sends: list[dict] = []
     for r in rows:
@@ -325,11 +334,24 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         if email and sent and tag:
             sends.append({"email": email, "sent": sent, "trig": trig, "tag": tag})
 
+    # One Mailchimp activity feed per person ever emailed. This is the longest
+    # and fastest-growing part of the run (it grows with the outreach log every
+    # day), so it reports progress: if the container is killed here, the last
+    # marker says how far it got.
     emails = sorted({s["email"] for s in sends})
-    feeds = {e: mc.member_activity(e) for e in emails}
+    stage(f"activity feeds: fetching {len(emails)} ...")
+    feeds = {}
+    for i, e in enumerate(emails, 1):
+        feeds[e] = mc.member_activity(e)
+        if i % 25 == 0:
+            stage(f"activity feeds {i}/{len(emails)}")
+    stage(f"activity feeds done ({len(emails)} emails, "
+          f"{sum(len(v or []) for v in feeds.values())} events)")
     cids = {a.get("campaign_id") for ev in feeds.values()
             for a in ev or [] if a.get("campaign_id")}
     journey_ids = {c for c in cids if mc.campaign_type(c) == "automation-email"}
+    stage(f"campaign types resolved ({len(cids)} campaigns, "
+          f"{len(journey_ids)} journey emails)")
 
     climber_by_email: dict[str, object] = {}
     for x in ds.climbers.values():
@@ -347,6 +369,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                 resp_by_email[e] = d
     except Exception as exc:
         print(f"  allgyms: survey read failed ({exc}); responses omitted")
+    stage(f"survey responses read ({len(resp_by_email)})")
 
     # Q1 taps (embed arms), first valid tap per email only
     taps_valid: dict[str, str] = {}
@@ -365,6 +388,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                 taps_valid[email] = q
     except Exception as exc:
         print(f"  allgyms: taps read failed ({exc}); taps omitted")
+    stage(f"Q1 taps read ({len(taps_valid)} valid)")
 
     click_markers = engine._SURVEY_LINK_MARKERS + engine._BUY_LINK_MARKERS
     by_trig: dict[str, dict] = defaultdict(lambda: defaultdict(int))
@@ -433,6 +457,8 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         "gym": GYM, "name": TEST_ARMS[k][1], "section": TEST_ARMS[k][0],
         "tag": k, "level": "variant", "m": metrics(by_tag[k]),
     } for k in by_tag if k in TEST_ARMS]
+    stage(f"collect done ({len(auto_rows)} automation rows, "
+          f"{len(var_rows)} variant rows)")
     return auto_rows, var_rows
 
 
@@ -1016,9 +1042,11 @@ def push(slug: str = "shift") -> None:
     except Exception:
         pass
 
+    stage("sheet metadata read")
     merged = _merge_data(svc, auto_rows + var_rows, stamp)
     print(f"  allgyms: Data tab now {len(merged)} rows "
           f"({len(auto_rows)} automations + {len(var_rows)} variants from {GYM})")
+    stage(f"Data tab rewritten ({len(merged)} rows)")
 
     fmt_reqs: list = []
     for tab, variant_tab in (("Dashboard", False), ("Variants", True)):
@@ -1037,8 +1065,10 @@ def push(slug: str = "shift") -> None:
                               "columnIndex": cidx}}})
         print(f"  allgyms: rebuilt '{tab}' "
               f"({len(m['bands'])} sections, filter = {picks[tab]})")
+        stage(f"'{tab}' tab rewritten ({len(grid)} rows)")
 
     _maintain_history(svc, auto_rows, stamp)
+    stage("History tab maintained")
     fmt_reqs += _history_fmt_requests(sheet_ids["History"],
                                       cf_counts.get("History", 0))
     # Data tab: format reset + freeze + light header styling
@@ -1069,12 +1099,15 @@ def push(slug: str = "shift") -> None:
         spreadsheetId=ALLGYMS_SHEET_ID,
         body={"requests": fmt_reqs}).execute()
     print(f"  allgyms: formatting applied, History maintained ({stamp})")
+    stage(f"formatting applied ({len(fmt_reqs)} requests)")
 
     try:
         _update_experiments(svc, experiment_tests(client), var_rows)
+        stage("experiments auto-fill done")
     except Exception:
         print("  allgyms: experiments auto-fill FAILED (stats push "
               "unaffected):\n" + traceback.format_exc())
+        stage("experiments auto-fill FAILED (stats push unaffected)")
 
 
 if __name__ == "__main__":

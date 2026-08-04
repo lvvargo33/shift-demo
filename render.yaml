@@ -104,6 +104,15 @@ services:
   - type: cron
     name: shift-nudge-send
     runtime: python
+    plan: standard           # 2 GB. Raised from the 512 MB default 2026-08-04 after
+                             # this cron was OOM-killed mid-run (Render alert 15:04
+                             # UTC; no report email, because the script buffers all
+                             # output until the end). A cron is billed only for the
+                             # seconds it runs, so a bigger instance for a ~5 min
+                             # daily job costs cents, not the web plan's monthly fee.
+                             # Watch the "peak=" number in the stderr stage markers:
+                             # that is the real headroom. shift-beta-pull is left on
+                             # the default; it finishes in ~30s and has never OOMed.
     schedule: "0 15 * * *"     # 11 AM ET (EDT). 15:00 UTC = 11 AM EDT. After DST ends -> "0 16 * * *". Time set to land ~4h before SHIFT's 3pm attendance rush (per Capacity heatmap).
     buildCommand: pip install -r requirements.txt
     startCommand: python send_nudges.py --drive --notify --yes --i-have-shift-signoff
