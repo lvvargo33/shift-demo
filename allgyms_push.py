@@ -41,7 +41,7 @@ import os
 import sys
 import traceback
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -62,6 +62,31 @@ ALLGYMS_SHEET_ID = os.getenv(
 OUTREACH_DRIVE_ID = os.getenv(
     "OUTREACH_DRIVE_ID", "1SUUYeh_7DabmIl6Ae7bSFLxsjGBUbdbi")
 SMALL_N = 30
+
+# --- engagement cache (2026-08-04) ------------------------------------------
+# The run used to ask Mailchimp for an activity feed for EVERY person ever
+# emailed, every day. That loop was 181s of a 204s run and grew ~5s a day with
+# the outreach log, heading for a 20-minute job by spring.
+#
+# An email that went out weeks ago is settled: the overwhelming majority of
+# opens land within 48 hours. So only sends inside the fresh window are
+# re-measured; older ones keep the delivered/opened/clicked we already measured,
+# frozen in this cache. Everything else on the scoreboard (returned, converted,
+# redeemed, purchased, responded, tapped) is still recomputed from local data
+# every run, because those genuinely keep changing.
+#
+# Cost of the tradeoff, stated plainly: an open that arrives more than
+# ENGAGEMENT_FRESH_DAYS after the send is not counted. Frozen numbers can never
+# drop, only miss a very late gain.
+#
+# WITHOUT ENGAGEMENT_CACHE_DRIVE_ID SET, NOTHING CHANGES: every send is measured
+# live, exactly as before. Cron containers are wiped between runs, so the cache
+# has to live on Drive; the SA cannot create Drive files (personal-Gmail quota,
+# see drive_io), so the file is created by hand once and its id passed in here.
+ENGAGEMENT_CACHE_DRIVE_ID = os.getenv("ENGAGEMENT_CACHE_DRIVE_ID", "").strip()
+ENGAGEMENT_FRESH_DAYS = int(os.getenv("ENGAGEMENT_FRESH_DAYS", "14") or 14)
+CACHE_FIELDS = ["email", "sent_date", "tag", "delivered", "opened", "clicked",
+                "frozen_at"]
 
 # trigger_name -> display label (falls back to the raw name)
 FUNNEL_LABELS = {
@@ -290,6 +315,62 @@ def _pull_outreach(dest: Path) -> list[dict]:
                 if (r.get("mode") or "").strip() != "test"]
 
 
+def _cache_path() -> Path:
+    return BASE / "_allgyms_engagement_cache.csv"
+
+
+def _load_engagement_cache() -> dict[tuple, tuple]:
+    """(email, sent_date, tag) -> (delivered, opened, clicked).
+
+    Fails soft to {} at every step: an unreadable cache costs a slower run that
+    re-measures everything, never a wrong number."""
+    if not ENGAGEMENT_CACHE_DRIVE_ID:
+        return {}
+    try:
+        drive_io.pull(ENGAGEMENT_CACHE_DRIVE_ID, str(_cache_path()))
+    except Exception as exc:
+        print(f"  allgyms: engagement cache pull failed ({exc}); "
+              f"re-measuring every send this run")
+    if not _cache_path().exists():
+        return {}
+    out: dict[tuple, tuple] = {}
+    try:
+        with open(_cache_path(), encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                key = ((r.get("email") or "").strip().lower(),
+                       (r.get("sent_date") or "").strip()[:10],
+                       (r.get("tag") or "").strip())
+                if not all(key):
+                    continue
+                out[key] = (r.get("delivered") == "1", r.get("opened") == "1",
+                            r.get("clicked") == "1")
+    except (OSError, csv.Error) as exc:
+        print(f"  allgyms: engagement cache unreadable ({exc}); "
+              f"re-measuring every send this run")
+        return {}
+    return out
+
+
+def _save_engagement_cache(measured: dict[tuple, tuple], stamp: str) -> None:
+    """Write back one row per send in the CURRENT outreach log, so the cache
+    stays exactly as long as the log and never accumulates orphans. A failure
+    here is harmless: next run just re-measures."""
+    if not ENGAGEMENT_CACHE_DRIVE_ID:
+        return
+    try:
+        with open(_cache_path(), "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=CACHE_FIELDS)
+            w.writeheader()
+            for (email, sent, tag), (d, o, c) in sorted(measured.items()):
+                w.writerow({"email": email, "sent_date": sent, "tag": tag,
+                            "delivered": int(d), "opened": int(o),
+                            "clicked": int(c), "frozen_at": stamp})
+        drive_io.push(str(_cache_path()), file_id=ENGAGEMENT_CACHE_DRIVE_ID)
+    except Exception as exc:
+        print(f"  allgyms: engagement cache push failed ({exc}); "
+              f"next run will re-measure")
+
+
 def _tx_dates(client) -> tuple[dict, dict]:
     """All SUCCEEDED transaction dates, keyed by climber_id and by email."""
     by_cid: dict[str, list] = defaultdict(list)
@@ -334,12 +415,28 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         if email and sent and tag:
             sends.append({"email": email, "sent": sent, "trig": trig, "tag": tag})
 
-    # One Mailchimp activity feed per person ever emailed. This is the longest
-    # and fastest-growing part of the run (it grows with the outreach log every
-    # day), so it reports progress: if the container is killed here, the last
-    # marker says how far it got.
-    emails = sorted({s["email"] for s in sends})
-    stage(f"activity feeds: fetching {len(emails)} ...")
+    # Mailchimp activity feeds. Only for people with a send that still needs
+    # measuring: inside the fresh window, or older but not in the cache yet
+    # (first run after the cache was switched on, and any backfill after that).
+    # Everyone else's numbers come from the frozen cache, so this loop stops
+    # growing with the outreach log. See ENGAGEMENT_CACHE_DRIVE_ID above.
+    cache = _load_engagement_cache()
+    fresh_from = (datetime.now(timezone.utc).date()
+                  - timedelta(days=ENGAGEMENT_FRESH_DAYS)).isoformat()
+
+    def _is_fresh(s: dict) -> bool:
+        """True = measure live this run. Sends inside the window always are;
+        older ones only when the cache has no answer for them yet."""
+        return (s["sent"] >= fresh_from
+                or (s["email"], s["sent"], s["tag"]) not in cache)
+
+    need = [s for s in sends if _is_fresh(s)]
+    emails = sorted({s["email"] for s in need})
+    stage(f"activity feeds: {len(emails)} to fetch "
+          f"({len(need)} of {len(sends)} sends live, "
+          f"{len(sends) - len(need)} from cache, "
+          f"window={ENGAGEMENT_FRESH_DAYS}d from {fresh_from}, "
+          f"cache={'on' if ENGAGEMENT_CACHE_DRIVE_ID else 'OFF'})")
     feeds = {}
     for i, e in enumerate(emails, 1):
         feeds[e] = mc.member_activity(e)
@@ -394,14 +491,22 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     by_trig: dict[str, dict] = defaultdict(lambda: defaultdict(int))
     by_tag: dict[str, dict] = defaultdict(lambda: defaultdict(int))
     trig_of_tag: dict[str, str] = {}
+    measured: dict[tuple, tuple] = {}  # what this run knows -> the next cache
     for s in sends:
         email, sent = s["email"], s["sent"]
-        ev = feeds.get(email) or []
-        sent_ids = engine._sent_campaign_ids(ev, sent, journey_ids)
-        delivered = bool(sent_ids)
-        opened = delivered and engine._has_event(
-            ev, "open", sent, campaign_ids=sent_ids)
-        clicked = engine._has_event(ev, "click", sent, click_markers)
+        key = (email, sent, s["tag"])
+        hit = cache.get(key) if not _is_fresh(s) else None
+        if hit is not None:
+            # settled send: keep the delivered/opened/clicked already measured
+            delivered, opened, clicked = hit
+        else:
+            ev = feeds.get(email) or []
+            sent_ids = engine._sent_campaign_ids(ev, sent, journey_ids)
+            delivered = bool(sent_ids)
+            opened = delivered and engine._has_event(
+                ev, "open", sent, campaign_ids=sent_ids)
+            clicked = engine._has_event(ev, "click", sent, click_markers)
+        measured[key] = (delivered, opened, clicked)
         c = climber_by_email.get(email)
         returned = bool(c and any(v > sent for v in c.visit_days))
         converted = bool(c and getattr(c, "membership_created", "")
@@ -457,8 +562,15 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         "gym": GYM, "name": TEST_ARMS[k][1], "section": TEST_ARMS[k][0],
         "tag": k, "level": "variant", "m": metrics(by_tag[k]),
     } for k in by_tag if k in TEST_ARMS]
+    # Safe to freeze because a Mailchimp failure never reaches this line: an
+    # unknown contact returns [] (a real answer) and any other API error raises
+    # out of the feed loop, failing the whole stats push before anything is
+    # written. Do NOT wrap that loop in a try/except without also gating this
+    # call, or one bad Mailchimp day would freeze zeros forever (see ABC's
+    # feeds_ok flag, where the ESP failure IS swallowed).
+    _save_engagement_cache(measured, _stamp())
     stage(f"collect done ({len(auto_rows)} automation rows, "
-          f"{len(var_rows)} variant rows)")
+          f"{len(var_rows)} variant rows, {len(measured)} sends cached)")
     return auto_rows, var_rows
 
 

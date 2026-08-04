@@ -15,6 +15,9 @@ nudge_tool/clients/shift/outreach_log.csv
 # local dev/test scratch (never commit)
 _*.html
 _*.txt
+# runtime scratch written by allgyms_push: the outreach snapshot and the
+# engagement cache both hold climber emails. Never commit either.
+_allgyms_*.csv
 # session/handoff logs the hooks may drop into folders (not part of the app)
 SESSION_LOG.md
 HANDOFF.md

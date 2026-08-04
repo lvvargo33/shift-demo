@@ -141,6 +141,17 @@ services:
         sync: false
       - key: OUTREACH_DRIVE_ID # canonical outreach_log.csv (pre-create + share with the SA)
         sync: false
+      # Engagement cache (2026-08-04). Drive file id of a CSV holding the frozen
+      # delivered/opened/clicked for sends older than the fresh window, so the
+      # stats push stops re-asking Mailchimp about every person ever emailed
+      # (that loop was 181s of a 204s run and grew ~5s a day). Same setup as
+      # OUTREACH_DRIVE_ID: create an empty file by hand in the Drive folder,
+      # share it with the SA as Editor, paste its id here.
+      # UNSET = the old behaviour, every send measured live. Safe either way.
+      - key: ENGAGEMENT_CACHE_DRIVE_ID
+        sync: false
+      - key: ENGAGEMENT_FRESH_DAYS  # days a send stays re-measured before it freezes
+        value: "14"
       - key: BETA_TX_PATH      # working paths = the client's data paths in the bundle
         value: beta_data/Transactions.csv
       - key: BETA_SES_PATH
