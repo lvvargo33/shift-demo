@@ -131,6 +131,20 @@ def _requires_ok(c: Climber, req: dict, asof: date, client: ClientConfig,
                 return False
             if not any(log.sent_dates(email, n) for n in names):
                 return False
+        elif key == "no_prior_trial":
+            # Trial-swap 2026-08-07: SHIFT's 2-week trial is one per person
+            # EVER (Isaac 7/31), so any trial evidence (purchase tx OR a
+            # trial-pass check-in, see Climber.prior_trial) disqualifies.
+            if val and c.prior_trial:
+                return False
+        elif key == "resident_zip_prefix":
+            # Trial-swap 2026-08-07: val = list of zip prefixes (["49"] = West
+            # Michigan). Zip comes from the Beta profile lookup (residency.py,
+            # attached pre-queue). Unknown/blank zip FAILS CLOSED: never offer
+            # the trial to someone we can't place in the region.
+            z = (c.zip_code or "").strip()
+            if not z or not any(z.startswith(str(p)) for p in val):
+                return False
         elif key == "second_visit_within_days_of_first":
             # S38 (membership_offer): the 2nd visit must fall within `val`
             # days of the 1st. Missing either date -> fail closed.
@@ -366,8 +380,10 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
         if c.safety_flag:
             items.append(_manual_item(c, order=-1))
             continue
-        # rule 2: converted -> stop.
-        if c.is_converted:
+        # rule 2: converted -> stop. A trial bought AFTER the first visit is a
+        # WIN too (Isaac 8/4: he follow-ups trial buyers manually), so it stops
+        # every follow-up email; trial STARTERS (day-1 trial) stay in the flow.
+        if c.is_converted or c.trial_win_date:
             continue
         # gather every trigger this person matches.
         matches: list[tuple[int, Trigger, int, str]] = []

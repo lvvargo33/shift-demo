@@ -24,6 +24,12 @@ message catalog. A trigger now has:
               second_visit_within_days_of_first (int)  2nd visit happened
                                       within n days of the 1st (S38: the
                                       membership offer's 30-day cohort rule)
+              no_prior_trial  (bool)  never bought a 2-week trial, by any
+                                      signal: purchase tx OR trial-pass
+                                      check-in (trial-swap: 1 trial/person ever)
+              resident_zip_prefix (list[str])  Beta-profile zip starts with one
+                                      of these prefixes (["49"] = West MI).
+                                      Unknown zip FAILS CLOSED.
   once_only / cooldown_days -- repeat protection, enforced via the local
               outreach log (wired in S3); structural here.
 

@@ -129,6 +129,12 @@ class Climber:
     is_member: bool = False            # appears in Memberships.csv
     is_converted: bool = False         # bought a conversion_sku OR is_member
     conversion_date: str | None = None # earliest conversion purchase date
+    trial_pass_seen: bool = False      # a sessions row used a trial pass (14-DAY
+                                       # pass_type or a trial-sku pass name):
+                                       # backstop trial signal when the purchase
+                                       # transaction is missing from the export
+    zip_code: str = ""                 # from the Beta climber profile (residency
+                                       # lookup, trial-swap 2026-08-07); ""=unknown
 
     # --- reporting layer (workbook-aligned; not used by the queue engine) ---
     ftv_time: str | None = None        # sortable key of earliest FTV-qualifying tx
@@ -161,6 +167,26 @@ class Climber:
         if len(self.visit_days) < 2:
             return None
         return sorted(self.visit_days)[1]
+
+    @property
+    def prior_trial(self) -> bool:
+        """Ever bought a 2-week trial (any signal: purchase OR a trial-pass
+        check-in). Backs the no_prior_trial requires key: SHIFT's trial is one
+        per person EVER (Isaac 7/31), so any evidence disqualifies."""
+        return bool(self.trial_date or self.trial_pass_seen)
+
+    @property
+    def trial_win_date(self) -> str | None:
+        """Trial purchased strictly AFTER the first visit day = a WIN that stops
+        all follow-up emails (Isaac 8/4, trial-swap spec 8/7). A trial bought on
+        (or before) the first visit day is a trial STARTER, not a win: those
+        climbers stay in the flow and later fall back to the membership email.
+        Deliberately not folded into is_converted, which feeds client-facing
+        membership metrics (funnel 'Became a member', converted tile)."""
+        if (self.trial_date and self.first_visit_date
+                and self.trial_date > self.first_visit_date):
+            return self.trial_date
+        return None
 
     @property
     def last_daypass_date(self) -> str | None:
@@ -273,6 +299,15 @@ def load(client: ClientConfig) -> Dataset:
                 c.name = (row.get("climber") or "").strip()
             if not c.email:
                 c.email = (row.get("email") or "").strip()
+            # Trial backstop (trial-swap 2026-08-07): a check-in on a trial pass
+            # proves a trial even when the purchase tx is missing (comp'd, older
+            # than the export window, ...). pass_type 14-DAY is Beta's trial
+            # duration; the name match catches both trial SKUs.
+            if not c.trial_pass_seen:
+                ptype = (row.get("pass_type") or "").strip().upper()
+                pname = (row.get("pass") or "").strip().lower()
+                if ptype == "14-DAY" or _matches(pname, client.trial_skus):
+                    c.trial_pass_seen = True
 
     # --- Memberships: a second conversion signal ---
     with open(client.memberships_csv, encoding="utf-8") as f:

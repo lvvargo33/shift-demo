@@ -461,10 +461,30 @@
       "_group_note": "Deliberately NOT in group 'second_visit': it is the one-time follow-up TO that group, and group membership would suppress it for exactly the people it targets (prior_group_send requires they already got a group send)."
     },
     {
+      "name": "trial_offer",
+      "tag": "send_it_trial_offer",
+      "template_id": "trial_offer_v1",
+      "description": "PARKED (active:false) until Chris's trial copy + Isaac's OK on the buy link land (trial-swap spec 2026-08-07). 2-week trial offer ($29) 2-3 days after a REAL 2nd visit, same cadence + 30-day cohort rule as membership_offer, but ONLY for returners who never bought a trial (any signal: purchase tx or a trial-pass check-in; 1 trial per person EVER, Isaac 7/31) AND whose Beta-profile zip is West Michigan (49xxx). Sits ABOVE membership_offer so precedence does the fork: this trigger takes the trial-eligible returners, everyone else (prior-trial returners, non-West-MI, unknown zip) falls through to the membership email (Luke 8/7: they came back, they're warm, don't go silent). Residency zip comes from residency.py (Beta profile lookup, cached; unknown fails closed). A trial bought mid-flow = a WIN that stops all emails (engine rule 2), so this trigger is also the safety net's target: it re-fails no_prior_trial at send time.",
+      "anchor": "second_visit",
+      "days_since_min": 2,
+      "days_since_max": 3,
+      "requires": {
+        "no_prior_trial": true,
+        "resident_zip_prefix": [
+          "49"
+        ],
+        "second_visit_within_days_of_first": 30,
+        "first_visit_on_or_after": "2026-06-19"
+      },
+      "once_only": true,
+      "active": false,
+      "_activation_note": "To GO LIVE: 1) replace templates/trial_offer_v1.md placeholder with Chris's copy (+ the verified buy link https://widgets.sendmoregetbeta.com/13353/pass?pmtType=2&showOnly=65600 ONLY after Isaac's explicit OK; he took the trial off his site on purpose), 2) build the Mailchimp journey on tag send_it_trial_offer (NO entry filter, the S20 trap), 3) set active:true. send_nudges.py already fetches zips for candidates when this trigger is active."
+    },
+    {
       "name": "membership_offer",
       "tag": "send_it_membership_offer",
       "template_id": "membership_offer_v1",
-      "description": "S38 (Chris ask #2, 2026-07-29): membership pitch (Lite $38 / Full $69) 2-3 days after a climber's REAL 2nd visit, only when that 2nd visit is within 30 days of the first (the 19-32% conversion cohort; after 30 days it drops to 6%). SHIFT converters make visit 2 at median day 6 and conversion likelihood peaks days 7-14, so +2-3 days lands in the peak decision window. Members are already excluded by the engine's converted-stop; trial buyers who return during their trial ARE included (the pitch fits trial deciders).",
+      "description": "S38 (Chris ask #2, 2026-07-29): membership pitch (Lite $38 / Full $69) 2-3 days after a climber's REAL 2nd visit, only when that 2nd visit is within 30 days of the first (the 19-32% conversion cohort; after 30 days it drops to 6%). SHIFT converters make visit 2 at median day 6 and conversion likelihood peaks days 7-14, so +2-3 days lands in the peak decision window. Members are already excluded by the engine's converted-stop. Trial-swap 2026-08-07: once trial_offer (above) is active, this becomes the FALLBACK for returners it skips (prior-trial, non-West-MI, unknown zip; Luke 8/7). Trial STARTERS (day-1 trial) who return ARE still included (the pitch fits trial deciders); a trial bought AFTER the first visit is a WIN and the engine stops all their emails.",
       "anchor": "second_visit",
       "days_since_min": 2,
       "days_since_max": 3,
