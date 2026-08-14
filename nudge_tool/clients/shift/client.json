@@ -16,10 +16,11 @@
     "membership_lite_link": "https://www.shiftclimbing.com/purchase-a-membership",
     "purchase_pass_link": "https://www.shiftclimbing.com/purchase-a-pass",
     "contact_email": "info@shiftclimbing.com",
-    "daypass_code": "SECONDVISIT"
+    "daypass_code": "SECONDVISIT",
+    "trial_link": "https://widgets.sendmoregetbeta.com/13353/pass?sortDescending=false&showOnly=97170&hideHeader=false&showGymLogo=false&prohibitAuth=false&noWaiverPrompt=false"
   },
   "_daypass_code_note": "SHIFT's REAL 2nd-visit promo code (SECONDVISIT = 50% off), provided by SHIFT 2026-06-17, replacing the old SHIFT50 placeholder. Substituted into reengage_offer_v1.md as {daypass_code}. SIMPLEST path (code-only, no Beta wiring): staff recognize this one shared code at the desk and apply 50% off manually at checkout; tracking = staff tally or count of emails sent. BETA-TRACKED option (if SHIFT wants automatic redemption counts): SHIFT creates a real discount code / '50% Day Pass' product in Beta so redemptions are logged natively; then this value = that Beta code. A shared code can be re-shared publicly; acceptable for a pilot. Per-person unique codes would need a code-generation + mapping build (deferred).",
-  "_links_note": "Link/CTA tokens substituted into templates by templates.render (any {token} matching a key here is replaced; unknown tokens are left as-is). survey_link = the public Google Form (Form -> Send -> link). membership_lite_link = SHIFT's membership purchase page (Membership Lite is one option in the cart there; no direct deep link exists). contact_email = the staff inbox used for the 2-week-trial and discounted-day-pass CTAs, which are staff-judged per climber so they are a 'reply / email us' ask, not a self-serve link (2026-06-04 decision). Update here, not in the .md files.",
+  "_links_note": "Link/CTA tokens substituted into templates by templates.render (any {token} matching a key here is replaced; unknown tokens are left as-is). survey_link = the public Google Form (Form -> Send -> link). membership_lite_link = SHIFT's membership purchase page (Membership Lite is one option in the cart there; no direct deep link exists). contact_email = the staff inbox used for the 2-week-trial and discounted-day-pass CTAs, which are staff-judged per climber so they are a 'reply / email us' ask, not a self-serve link (2026-06-04 decision). Update here, not in the .md files. trial_link = Isaac's own 2-Week Trial link, pasted by Chris into the tone-voice doc 2026-08-12. Beta price key 97170 = product ' 2 Week Trial' $29.00, category FUNNEL, sell_online true (verified against the public prices endpoint 2026-08-13). NOT the 65600 key found on 2026-08-07: that one is the front-desk 'Trial Membership' product. Use Isaac's, both because he chose it and because a FUNNEL-only product makes the purchases attributable to this email.",
   "data": {
     "transactions_csv": "beta_data/Transactions.csv",
     "memberships_csv": "beta_data/Memberships.csv",
@@ -464,11 +465,15 @@
       "name": "trial_offer",
       "tag": "send_it_trial_offer",
       "template_id": "trial_offer_v1",
-      "description": "PARKED (active:false) until Chris's trial copy + Isaac's OK on the buy link land (trial-swap spec 2026-08-07). 2-week trial offer ($29) 2-3 days after a REAL 2nd visit, same cadence + 30-day cohort rule as membership_offer, but ONLY for returners who never bought a trial (any signal: purchase tx or a trial-pass check-in; 1 trial per person EVER, Isaac 7/31) AND whose Beta-profile zip is West Michigan (49xxx). Sits ABOVE membership_offer so precedence does the fork: this trigger takes the trial-eligible returners, everyone else (prior-trial returners, non-West-MI, unknown zip) falls through to the membership email (Luke 8/7: they came back, they're warm, don't go silent). Residency zip comes from residency.py (Beta profile lookup, cached; unknown fails closed). A trial bought mid-flow = a WIN that stops all emails (engine rule 2), so this trigger is also the safety net's target: it re-fails no_prior_trial at send time.",
+      "description": "ARM B of the membership-offer A/B test (Chris asked for the test 2026-08-09, copy + Isaac's link landed 2026-08-12, built 2026-08-13). 2-week trial offer ($29) 2-3 days after a REAL 2nd visit, same cadence + 30-day cohort rule as membership_offer. Eligibility is unchanged from the 2026-08-07 fork spec: never bought a trial (purchase tx OR a trial-pass check-in; 1 trial per person EVER, Isaac 7/31) AND a West Michigan Beta-profile zip (49xxx, unknown fails closed). NEW: ab_bucket splits the ELIGIBLE pool only, so this arm gets half of it and membership_offer_control gets the other half as a like-for-like control. Ineligible returners never enter the test and fall through to membership_offer below (Luke 8/7: they came back, they're warm, don't go silent). A trial bought mid-flow is a WIN that stops all emails (engine rule 2), and no_prior_trial re-checks at send time as the safety net.",
       "anchor": "second_visit",
       "days_since_min": 2,
       "days_since_max": 3,
       "requires": {
+        "ab_bucket": {
+          "test": "membership_offer_ab",
+          "variant": "B"
+        },
         "no_prior_trial": true,
         "resident_zip_prefix": [
           "49"
@@ -477,14 +482,39 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": false,
-      "_activation_note": "To GO LIVE: 1) replace templates/trial_offer_v1.md placeholder with Chris's copy (+ the verified buy link https://widgets.sendmoregetbeta.com/13353/pass?pmtType=2&showOnly=65600 ONLY after Isaac's explicit OK; he took the trial off his site on purpose), 2) build the Mailchimp journey on tag send_it_trial_offer (NO entry filter, the S20 trap), 3) set active:true. send_nudges.py already fetches zips for candidates when this trigger is active."
+      "active": true,
+      "_activation_note": "To GO LIVE: 1) replace templates/trial_offer_v1.md placeholder with Chris's copy (+ the verified buy link https://widgets.sendmoregetbeta.com/13353/pass?pmtType=2&showOnly=65600 ONLY after Isaac's explicit OK; he took the trial off his site on purpose), 2) build the Mailchimp journey on tag send_it_trial_offer (NO entry filter, the S20 trap), 3) set active:true. send_nudges.py already fetches zips for candidates when this trigger is active.",
+      "group": "returner_offer"
+    },
+    {
+      "name": "membership_offer_control",
+      "tag": "send_it_membership_offer_a",
+      "template_id": "membership_offer_v1",
+      "description": "ARM A of the membership-offer A/B test (built 2026-08-13). Byte-for-byte the SAME email as membership_offer below; the only reason it is a separate trigger with its own tag is measurement. It carries the IDENTICAL eligibility screen to trial_offer above, so arm A and arm B are drawn from one pool and differ only in which email they get. Without this, arm A would be every leftover returner (prior-trial climbers, out-of-area, unknown zip) and the comparison would be measuring audiences rather than offers. Needs its own Mailchimp journey on send_it_membership_offer_a, NO entry filter (the S20 trap).",
+      "anchor": "second_visit",
+      "days_since_min": 2,
+      "days_since_max": 3,
+      "requires": {
+        "ab_bucket": {
+          "test": "membership_offer_ab",
+          "variant": "A"
+        },
+        "no_prior_trial": true,
+        "resident_zip_prefix": [
+          "49"
+        ],
+        "second_visit_within_days_of_first": 30,
+        "first_visit_on_or_after": "2026-06-19"
+      },
+      "once_only": true,
+      "active": true,
+      "group": "returner_offer"
     },
     {
       "name": "membership_offer",
       "tag": "send_it_membership_offer",
       "template_id": "membership_offer_v1",
-      "description": "S38 (Chris ask #2, 2026-07-29): membership pitch (Lite $38 / Full $69) 2-3 days after a climber's REAL 2nd visit, only when that 2nd visit is within 30 days of the first (the 19-32% conversion cohort; after 30 days it drops to 6%). SHIFT converters make visit 2 at median day 6 and conversion likelihood peaks days 7-14, so +2-3 days lands in the peak decision window. Members are already excluded by the engine's converted-stop. Trial-swap 2026-08-07: once trial_offer (above) is active, this becomes the FALLBACK for returners it skips (prior-trial, non-West-MI, unknown zip; Luke 8/7). Trial STARTERS (day-1 trial) who return ARE still included (the pitch fits trial deciders); a trial bought AFTER the first visit is a WIN and the engine stops all their emails.",
+      "description": "OUT OF THE TEST (fallback), and the original S38 trigger. Membership pitch (Lite $38 / Full $69) 2-3 days after a REAL 2nd visit within 30 days of the first (the 19-32% conversion cohort; after 30 days it drops to 6%). SHIFT converters make visit 2 at median day 6 and conversion peaks days 7-14, so +2-3 days lands in the peak decision window. Members are already excluded by the engine's converted-stop. Since 2026-08-13 the two triggers above take the trial-ELIGIBLE returners and split them into arms A and B; whoever they skip (already had a trial, outside West Michigan, or unknown zip) lands here and gets the membership email exactly as before. Its own tag is unchanged, so its Mailchimp journey and its history are untouched, and its Variants row reads as the out-of-test group. Trial STARTERS (day-1 trial) who return are in this group; a trial bought AFTER the first visit is a WIN and stops all their emails. All three sit in group 'returner_offer' so nobody can be caught by two of them on consecutive days as their zip lookup fills in.",
       "anchor": "second_visit",
       "days_since_min": 2,
       "days_since_max": 3,
@@ -493,7 +523,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true
+      "active": true,
+      "group": "returner_offer"
     },
     {
       "name": "comeback_soft",
@@ -525,6 +556,6 @@
       "active": false
     }
   ],
-  "_triggers_note": "PROVISIONAL pilot catalog (FTV_PILOT_SPEC.md section 14.6). Order = precedence (first = highest priority; one message per person per run, section 14.7). survey_request + comeback_soft + daypass_to_trial compute from Beta alone today; the survey-anchored nudge_* + nudge_round_two need S2 survey data and match nobody until then. MANUAL (safety) and converted-stop are precedence rules in engine.py, not rows here. Roadmap rows (trial_convert, trial_winback, member_miss_you) are added one block at a time.",
+  "_triggers_note": "PROVISIONAL pilot catalog (FTV_PILOT_SPEC.md section 14.6). Order = precedence (first = highest priority; one message per person per run, section 14.7). survey_request + comeback_soft + daypass_to_trial compute from Beta alone today; the survey-anchored nudge_* + nudge_round_two need S2 survey data and match nobody until then. MANUAL (safety) and converted-stop are precedence rules in engine.py, not rows here. Roadmap rows (trial_convert, trial_winback, member_miss_you) are added one block at a time. A/B TEST 'membership_offer_ab' (2026-08-13): trial_offer (arm B) and membership_offer_control (arm A) hold the two arms of ONE test. The engine's ab_bucket requires-key hashes email+test name, so the split is deterministic and the two triggers can never both match one person. Config order is precedence, so they must stay ABOVE membership_offer.",
   "_cloud_note": "Cloud copy. Beta CSVs are pulled from a private Drive folder at runtime (BETA_DRIVE_* env); none are in git."
 }

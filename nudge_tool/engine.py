@@ -145,6 +145,26 @@ def _requires_ok(c: Climber, req: dict, asof: date, client: ClientConfig,
             z = (c.zip_code or "").strip()
             if not z or not any(z.startswith(str(p)) for p in val):
                 return False
+        elif key == "ab_bucket":
+            # Trial A/B (Chris 2026-08-09, built 2026-08-13). val =
+            # {"test": <name>, "variant": "A"|"B"}. The climber's arm is the
+            # same deterministic hash used for tag-level A/B tests, but salted
+            # with the TEST name rather than the trigger name, so two different
+            # triggers can hold the two arms of one test and never both match
+            # the same person.
+            #
+            # Only the B trigger normally carries this key: precedence then
+            # does the rest. Anyone the B trigger skips (wrong bucket, or any
+            # other requirement failing) falls through to the trigger below it,
+            # which is exactly the "ineligible people still get the old email"
+            # behaviour Luke chose.
+            if not isinstance(val, dict):
+                return False
+            test, want = val.get("test"), val.get("variant")
+            if not test or want not in ("A", "B"):
+                return False
+            if _ab_variant(c.email or "", test) != want:
+                return False
         elif key == "second_visit_within_days_of_first":
             # S38 (membership_offer): the 2nd visit must fall within `val`
             # days of the 1st. Missing either date -> fail closed.

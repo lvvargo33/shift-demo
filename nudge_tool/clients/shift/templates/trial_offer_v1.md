@@ -1,18 +1,18 @@
-Subject: PLACEHOLDER - do not send (waiting on Chris's trial copy)
+Subject: Thinking about climbing more often?
 
-Hey {first_name},
+Hi {first_name},
 
-PLACEHOLDER. This is the parked 2-week trial offer email (trial-swap spec
-2026-08-07). Do NOT activate the trial_offer trigger until:
+It was great seeing you back at Shift!
 
-1. Chris's trial-offer copy replaces this file (his voice fragments live in
-   the SHIFT tone-voice doc: Too expensive nudge, Day pass upsell).
-2. Isaac explicitly OKs putting the buy link in an email. The verified link
-   (renders ONLY the $29 Two-Week Trial):
-   https://widgets.sendmoregetbeta.com/13353/pass?pmtType=2&showOnly=65600
-   He deliberately took the trial off his website, so his OK is required.
+Making it back for a second visit is a big step. If you're planning to keep climbing, we have a great way to keep the momentum going.
 
-Facts for the copy: $29 (not $24), West Michigan residents only, one per
-person ever, in person or via the link above once approved.
+Try our 2-Week Trial for just $29:
+{trial_link}
+
+For just a few dollars more than a day pass, you'll get two weeks to climb, build confidence, and see if Shift is a good fit for you.
+
+If you're not sure whether the 2-Week Trial or a membership is the better fit, just reply to this email or stop by the front desk. We'd be happy to help.
+
+Hope to see you back soon!
 
 - The Shift Team

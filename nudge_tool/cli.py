@@ -126,6 +126,12 @@ def cmd_run(args: argparse.Namespace) -> int:
                   "suppressing nobody on unsub. Use --skip-status to silence.")
 
     asof = engine.resolve_asof(ds, args.as_of)
+    # Same residency pre-pass the cron runs, so a dry run here shows the same
+    # queue the cron would build (2026-08-13). Without it every trial-eligible
+    # returner reads as "no zip" and quietly falls through to the membership
+    # email, which is not what the cron does.
+    from . import residency
+    residency.attach_for_active_triggers(ds, client, asof, log)
     suppressed_out: list = []
     queue = engine.build_queue(ds, client, asof, log=log,
                                unsubscribed=unsubscribed,

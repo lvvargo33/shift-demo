@@ -102,6 +102,8 @@ FUNNEL_LABELS = {
     "nudge_routes": "Blocker: routes",
     "ftv_reminder": "Offer reminder (day 9-10)",
     "membership_offer": "Membership offer (2-3d after 2nd visit)",
+    "membership_offer_control": "Membership offer, test arm A",
+    "trial_offer": "2-week trial offer, test arm B",
     "comeback": "Trial win-back",
 }
 DASH_SECTIONS = ["FTV funnel emails", "Blocker nudges", "Surveys"]
@@ -127,7 +129,14 @@ def _section_of(trigger_name: str) -> str:
 # row makes each test block add up to its Dashboard number. They are NOT arms:
 # the label says so, and experiment_tests() never references them, so the
 # Experiments tab's A-vs-B auto-fill is untouched.
-PRETEST_LABEL = "Before the test started (one version)"
+PRETEST_LABEL = "Before the test started (context only, one version)"
+MEMBERSHIP_TEST_BAND = "Membership offer test (membership vs 2-week trial)"
+OUT_OF_TEST_LABEL = "Not in the test (already had a trial, or out of area)"
+# Rows that sit inside a test block but are NOT arms. The writer sorts these to
+# the bottom of their block and greys them, so a reader comparing A against B
+# is never invited to read them as a third variant. Keep in sync across repos:
+# the shared writer references this tuple by name.
+CONTEXT_LABELS = (PRETEST_LABEL, OUT_OF_TEST_LABEL)
 TEST_ARMS = {
     "send_it_survey_request": (
         "Survey email test (2x2: subject x body)", PRETEST_LABEL),
@@ -142,6 +151,18 @@ TEST_ARMS = {
         "Survey email test (2x2: subject x body)", "Subject B + rating buttons in the email"),
     "FTV_reengage_subject_a": ("Offer email subject test", "Offer subject A"),
     "FTV_reengage_subject_b": ("Offer email subject test", "Offer subject B"),
+    # Membership vs 2-week trial (Chris 2026-08-09, live 2026-08-13). Unlike
+    # the subject tests above, the two arms are two different TRIGGERS, because
+    # only the trial-eligible half of the returners can be randomised (a second
+    # trial cannot be sold to someone who already had one). The third row is
+    # every returner who could not enter the test; it is labelled as context,
+    # not as an arm, so nobody reads it as a third variant.
+    "send_it_membership_offer_a": (
+        MEMBERSHIP_TEST_BAND, "Membership offer (A)"),
+    "send_it_trial_offer": (
+        MEMBERSHIP_TEST_BAND, "2-week trial offer (B)"),
+    "send_it_membership_offer": (
+        MEMBERSHIP_TEST_BAND, OUT_OF_TEST_LABEL),
 }
 EMBED_TAGS = {"FTV_survey_subject_a_embed", "FTV_survey_subject_b_embed"}
 
@@ -173,29 +194,89 @@ def experiment_tests(client) -> dict:
             tests[f"{GYM} - {short} embed (current vs embed)"] = (
                 [body["A"]["A"], body["B"]["A"]],
                 [body["A"]["B"], body["B"]["B"]])
+    # Cross-trigger test (2026-08-13): the membership-vs-trial arms are two
+    # separate triggers, not two tags on one, so the loop above cannot find
+    # them. Listed only while BOTH arms are active; when the test ends, drop
+    # one arm's active flag and the Experiments row freezes at its final
+    # numbers, the same way a retired ab_tags test does.
+    live = {t.name for t in client.triggers if t.active}
+    if {"membership_offer_control", "trial_offer"} <= live:
+        tests[f"{GYM} - membership offer (membership vs 2-week trial)"] = (
+            ["send_it_membership_offer_a"], ["send_it_trial_offer"])
     return tests
 
 METRIC_HEADERS = [
-    "Sends", "Delivered", "Opens", "Open %", "Link clicks", "Q1 taps",
+    "Sends", "Delivered", "Opens", "Open %", "Link clicks", "Clicks per open %",
+    "Q1 taps",
     "Responses", "Response %", "Offer redemptions", "Purchases after send",
     "Returned after send", "Return %", "Converted after send", "Conversion %",
     "Note"]
 METRIC_KEYS = [
-    "sends", "delivered", "opens", "open_pct", "clicks", "taps",
+    "sends", "delivered", "opens", "open_pct", "clicks", "cpo_pct",
+    "taps",
     "responses", "resp_pct", "redeems", "purchases",
     "returned", "return_pct", "converted", "conv_pct", "note"]
 
 # Data tab layout: row 1 = do-not-edit note, row 2 = header, rows 3+ = data.
-# Cols: A Gym, B Name, C..Q metrics+note, R Level, S Section, T Tag,
-# U Updated, V GymOrder (sort key so "All gyms" rows sit above gym rows)
+# Cols: A Gym, B Name, then one column per METRIC_HEADERS entry, then
+# Level, Section, Tag, Updated, GymOrder (sort key so "All gyms" rows sit
+# above gym rows).
 DATA_HEADER = (["Gym", "Automation / email version"] + METRIC_HEADERS
                + ["Level", "Section", "Tag", "Updated", "GymOrder"])
 D0, D1 = 3, 500  # data row span referenced by every formula
-DATA_NCOLS = 22
 COMBINED = "All gyms total"  # gym label of the cross-gym per-automation rows
 GYM_ORDER = {COMBINED: 0, "SHIFT": 1, "ABC": 2}
-# count-metric column indexes in a Data row (0-based), for combined-row sums
-_COUNT_IDX = [2, 3, 4, 6, 7, 8, 10, 11, 12, 14]
+
+# --- column indexes, all DERIVED from METRIC_KEYS ---------------------------
+# Adding "Clicks per open %" (Chris's Variants!H5 comment, 2026-08-06) meant
+# every hardcoded offset in the writer shifted by one. Rather than hand-edit
+# ten separate magic-number lists in two repos and hope, the writer now asks
+# METRIC_KEYS where each column is. Insert a metric anywhere in the two lists
+# above and the Data tab, the FILTER formulas, the percent formatting, the
+# combined-row math and the History tab all move with it.
+_METRIC_C0 = 2  # a Data row starts [Gym, Name] before the metric columns
+
+
+def _mi(key: str) -> int:
+    """0-based index of a metric column in a Data row."""
+    return _METRIC_C0 + METRIC_KEYS.index(key)
+
+
+def _a1col(c: int) -> str:
+    """0-based column index -> A1 letter ("A", "B", ... "AA")."""
+    s = ""
+    c += 1
+    while c:
+        c, r = divmod(c - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _col(key: str) -> str:
+    """A1 column letter of a metric column on the Data tab."""
+    return _a1col(_mi(key))
+
+
+# count metrics (summable); the rest are ratios recomputed from these
+_COUNT_KEYS = ("sends", "delivered", "opens", "clicks", "taps", "responses",
+               "redeems", "purchases", "returned", "converted")
+# ratio metric -> (numerator key, denominator key). Open % swaps its
+# denominator to sends when a gym has no delivery tracking (see _totals_formulas).
+_RATIO_KEYS = {
+    "open_pct": ("opens", "delivered"),
+    "cpo_pct": ("clicks", "opens"),
+    "resp_pct": ("responses", "sends"),
+    "return_pct": ("returned", "sends"),
+    "conv_pct": ("converted", "sends"),
+}
+_COUNT_IDX = [_mi(k) for k in _COUNT_KEYS]
+_PCT_IDX = [_mi(k) for k in _RATIO_KEYS]
+I_SENDS, I_DELIV, I_OPENS = _mi("sends"), _mi("delivered"), _mi("opens")
+I_NOTE = _mi("note")
+I_LEVEL, I_SECTION, I_TAG = I_NOTE + 1, I_NOTE + 2, I_NOTE + 3
+I_UPDATED, I_ORDER = I_NOTE + 4, I_NOTE + 5
+DATA_NCOLS = I_ORDER + 1
+DATA_LASTCOL = _a1col(I_ORDER)
 
 FOOTNOTES = [
     "Why these numbers can differ from Mailchimp's screens: Mailchimp still "
@@ -218,8 +299,16 @@ FOOTNOTES = [
     "'Before the test started' rows on Variants: SHIFT's survey and offer "
     "emails went live before their subject tests did, so their earliest sends "
     "have no A or B version. Those sends sit in their own row so each test "
-    "block still adds up to the Dashboard total for the same email. Leave "
-    "them out when comparing A against B.",
+    "block still adds up to the Dashboard total for the same email. They are "
+    "greyed out and sit at the bottom of their block because they are context, "
+    "not an arm. Leave them out when comparing A against B.",
+    "Clicks per open %: of the people who opened the email, how many clicked "
+    "a link in it. Open % tells you whether the subject line worked; this "
+    "column tells you whether the email itself worked once it was opened. It "
+    "is blank when nobody opened yet, because there is nothing to divide by.",
+    "Greyed rows inside a test block are context, not versions being tested. "
+    "They sit at the bottom of their block, and they are the people the test "
+    "could not include. Compare only the rows above them.",
 ]
 
 # Plain-English hover glossary (Luke 2026-07-28): shown as a cell note on each
@@ -276,6 +365,20 @@ VARIANT_DESCRIPTIONS = {
         "vs B comparison: both arms started on the same day, after these.",
     "Subject A": "Arm A of this email's subject line test.",
     "Subject B": "Arm B of this email's subject line test.",
+    "Membership offer (A)":
+        "The membership email (Lite $38 / Full $69), sent 2 to 3 days after a "
+        "second visit. This is the control half of the membership vs trial "
+        "test.",
+    "2-week trial offer (B)":
+        "The $29 two-week trial email, sent to the other half of the same "
+        "group at the same point in the flow. Same people, same timing, "
+        "different offer, so a difference here is the offer.",
+    OUT_OF_TEST_LABEL:
+        "Returners who could not be put in the test: they already bought a "
+        "two-week trial once (SHIFT sells one per person, ever) or their zip "
+        "code is outside West Michigan or unknown. They still get the "
+        "membership email, exactly as before. Counted here so the block adds "
+        "up, but leave them out when comparing A against B.",
 }
 DASH_HOWTO = (
     "How to read this table: pink rows are SHIFT, orange rows are ABC. Bold "
@@ -291,6 +394,7 @@ GYM_FILLS = {  # gym -> (base fill, alternating fill)
 BAND_BG, BAND_FG = "#b0bec5", "#000000"  # all text black (Luke, 2026-07-28)
 HEADER_BG = "#eceff1"
 NOTE_FG = "#000000"
+PRETEST_FG = "#7f8c8d"  # grey text on the context-only pre-test rows
 
 
 # --------------------------------------------------------------------------
@@ -546,6 +650,10 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                                "returned", "converted")}
         zero = b["sends"] == 0
         m["open_pct"] = 0 if zero else _pct(b["opens"], b["delivered"])
+        # Chris's Variants!H5 ask (2026-08-06): of the people who opened, how
+        # many clicked. Blank when nobody opened (_pct returns "" on a zero
+        # denominator), never 0, so an unopened row can't read as "0% click".
+        m["cpo_pct"] = 0 if zero else _pct(b["clicks"], b["opens"])
         m["resp_pct"] = 0 if zero else _pct(b["responses"], b["sends"])
         m["return_pct"] = 0 if zero else _pct(b["returned"], b["sends"])
         m["conv_pct"] = 0 if zero else _pct(b["converted"], b["sends"])
@@ -605,19 +713,19 @@ def _normalize_row(row: list) -> list:
     numbers again so combined-row math and sheet formulas keep working."""
     row = row + [""] * (DATA_NCOLS - len(row))
     for i in _COUNT_IDX:
-        if i == 3 and row[i] in ("", None):
+        if i == I_DELIV and row[i] in ("", None):
             row[i] = ""  # delivered is unknown for Brevo gyms, keep it blank
             continue
         try:
             row[i] = int(float(row[i]))
         except (TypeError, ValueError):
-            row[i] = "" if i == 3 else 0
-    for i in (5, 9, 13, 15):  # pct columns
+            row[i] = "" if i == I_DELIV else 0
+    for i in _PCT_IDX:
         try:
             row[i] = float(row[i])
         except (TypeError, ValueError):
             row[i] = ""
-    row[21] = GYM_ORDER.get(row[0], 9)
+    row[I_ORDER] = GYM_ORDER.get(row[0], 9)
     return row
 
 
@@ -626,32 +734,33 @@ def _combined_rows(per_gym: list[list], stamp: str) -> list[list]:
     single gym in the sheet these would duplicate its rows, so none appear."""
     groups: dict[tuple, list] = defaultdict(list)
     for row in per_gym:
-        if row[17] == "automation":
-            groups[(row[18], row[1])].append(row)
+        if row[I_LEVEL] == "automation":
+            groups[(row[I_SECTION], row[1])].append(row)
     out = []
     for (section, name), rows_g in sorted(groups.items()):
         if len({r[0] for r in rows_g}) < 2:
             continue
-        t = {i: sum(r[i] for r in rows_g if isinstance(r[i], int))
-             for i in _COUNT_IDX}
+        t = {k: sum(r[_mi(k)] for r in rows_g if isinstance(r[_mi(k)], int))
+             for k in _COUNT_KEYS}
         # a gym without delivery tracking contributes its sends to the
         # open-rate denominator; Delivered shows only the tracked part
-        deliv = t[3] if any(isinstance(r[3], int) for r in rows_g) else ""
-        open_den = sum((r[3] if isinstance(r[3], int) else r[2])
-                       for r in rows_g)
-        zero = t[2] == 0
+        have_deliv = any(isinstance(r[I_DELIV], int) for r in rows_g)
+        open_den = sum((r[I_DELIV] if isinstance(r[I_DELIV], int)
+                        else r[I_SENDS]) for r in rows_g)
+        zero = t["sends"] == 0
 
         def p(a, b):
             return 0 if zero else _pct(a, b)
 
-        out.append([
-            COMBINED, name, t[2], deliv, t[4], p(t[4], open_den), t[6], t[7],
-            t[8], p(t[8], t[2]), t[10], t[11], t[12], p(t[12], t[2]),
-            t[14], p(t[14], t[2]),
-            ("no sends yet" if zero else
-             f"small sample (under {SMALL_N}), directional only"
-             if t[2] < SMALL_N else ""),
-            "automation", section, "", stamp, 0])
+        m = dict(t)
+        m["delivered"] = t["delivered"] if have_deliv else ""
+        for key, (num, den) in _RATIO_KEYS.items():
+            m[key] = p(t[num], open_den if key == "open_pct" else t[den])
+        m["note"] = ("no sends yet" if zero else
+                     f"small sample (under {SMALL_N}), directional only"
+                     if t["sends"] < SMALL_N else "")
+        out.append([COMBINED, name] + [m[k] for k in METRIC_KEYS]
+                   + ["automation", section, "", stamp, 0])
     return out
 
 
@@ -660,14 +769,19 @@ def _merge_data(svc, own_rows: list[dict], stamp: str) -> list[list]:
     'All gyms' per-automation totals, rewrite the tab."""
     got = svc.spreadsheets().values().get(
         spreadsheetId=ALLGYMS_SHEET_ID,
-        range=f"Data!A{D0}:V{D1}").execute().get("values", [])
+        range=f"Data!A{D0}:{DATA_LASTCOL}{D1}").execute().get("values", [])
     kept = [_normalize_row(row) for row in got
             if row and row[0]
             and row[0] not in (GYM, COMBINED, "All gyms")]  # "All gyms" =
     # the pre-2026-07-28 label of the combined rows; drop any leftovers
     per_gym = kept + [_data_row(r, stamp) for r in own_rows]
     merged = per_gym + _combined_rows(per_gym, stamp)
-    merged.sort(key=lambda r: (r[17], r[18], r[1], r[21]))
+    # Context rows sort LAST inside their section (Luke 2026-08-07): they are
+    # not arms, so they must not sit above the A/B rows a reader is trying to
+    # compare. _fmt_requests greys them out to match.
+    merged.sort(key=lambda r: (r[I_LEVEL], r[I_SECTION],
+                               1 if r[1] in CONTEXT_LABELS else 0,
+                               r[1], r[I_ORDER]))
     svc.spreadsheets().values().clear(
         spreadsheetId=ALLGYMS_SHEET_ID, range="Data!A:Z").execute()
     note = ("Machine-written by the Send It crons after every send run. "
@@ -686,13 +800,16 @@ def _gym_cond() -> str:
 
 def _section_formula(level: str, section: str, variant_cols: bool) -> str:
     section = section.replace('"', '""')
+    tag, note = _a1col(I_TAG), _col("note")
+    lvl, sec = _a1col(I_LEVEL), _a1col(I_SECTION)
     if variant_cols:
-        src = ("{Data!$A$%d:$B$%d,Data!$T$%d:$T$%d,Data!$C$%d:$Q$%d}"
-               % (D0, D1, D0, D1, D0, D1))
+        src = ("{Data!$A$%d:$B$%d,Data!$%s$%d:$%s$%d,Data!$%s$%d:$%s$%d}"
+               % (D0, D1, tag, D0, tag, D1, _col("sends"), D0, note, D1))
     else:
-        src = f"Data!$A${D0}:$Q${D1}"
-    conds = ('Data!$R$%d:$R$%d="%s",Data!$S$%d:$S$%d="%s",%s'
-             % (D0, D1, level, D0, D1, section, _gym_cond()))
+        src = f"Data!$A${D0}:${note}${D1}"
+    conds = ('Data!$%s$%d:$%s$%d="%s",Data!$%s$%d:$%s$%d="%s",%s'
+             % (lvl, D0, lvl, D1, level, sec, D0, sec, D1, section,
+                _gym_cond()))
     # No SORT wrapper: the writer pre-sorts Data into display order (name asc,
     # "All gyms" row first) and FILTER preserves it. SORT also breaks on
     # single-row results (a 1x1 sort-column arg parses as a column index).
@@ -700,54 +817,65 @@ def _section_formula(level: str, section: str, variant_cols: bool) -> str:
 
 
 def _totals_formulas() -> list:
+    """The "Everything combined" row: one formula per metric column, in
+    METRIC_KEYS order, Note excluded (the row's label sits in column B)."""
     # excludes the "All gyms" per-automation rows or they would double-count
-    cond = (f'(Data!$R${D0}:$R${D1}="automation")'
+    lvl = _a1col(I_LEVEL)
+    cond = (f'(Data!${lvl}${D0}:${lvl}${D1}="automation")'
             f'*(Data!$A${D0}:$A${D1}<>"{COMBINED}")*{_gym_cond()}')
 
-    def sp(col):
-        return f"SUMPRODUCT({cond}*Data!${col}${D0}:${col}${D1})"
-
-    def ratio(num, den):
-        return f'=IFERROR({sp(num)}/{sp(den)},"")'
+    def sp(key):
+        c = _col(key)
+        return f"SUMPRODUCT({cond}*Data!${c}${D0}:${c}${D1})"
 
     # open-rate denominator falls back to sends where delivered is blank (ABC)
-    open_den = (f"SUMPRODUCT({cond}*IF(Data!$D${D0}:$D${D1}=\"\","
-                f"Data!$C${D0}:$C${D1},Data!$D${D0}:$D${D1}))")
-    open_ratio = f'=IFERROR({sp("E")}/{open_den},"")'
+    d, s = _col("delivered"), _col("sends")
+    open_den = (f"SUMPRODUCT({cond}*IF(Data!${d}${D0}:${d}${D1}=\"\","
+                f"Data!${s}${D0}:${s}${D1},Data!${d}${D0}:${d}${D1}))")
 
-    return [f"={sp('C')}", f"={sp('D')}", f"={sp('E')}", open_ratio,
-            f"={sp('G')}", f"={sp('H')}", f"={sp('I')}", ratio("I", "C"),
-            f"={sp('K')}", f"={sp('L')}", f"={sp('M')}", ratio("M", "C"),
-            f"={sp('O')}", ratio("O", "C")]
+    out = []
+    for key in METRIC_KEYS:
+        if key == "note":
+            continue
+        if key == "open_pct":
+            out.append(f'=IFERROR({sp("opens")}/{open_den},"")')
+        elif key in _RATIO_KEYS:
+            num, den = _RATIO_KEYS[key]
+            out.append(f'=IFERROR({sp(num)}/{sp(den)},"")')
+        else:
+            out.append(f"={sp(key)}")
+    return out
 
 
 def _build_stats_tab(tab: str, merged: list[list], stamp: str,
                      dropdown_value: str, variant_tab: bool) -> tuple:
     """Grid rows (None = leave empty for FILTER spill) + layout metadata."""
     level = "variant" if variant_tab else "automation"
-    ncols = 18 if variant_tab else 17
-    lvl_rows = [r for r in merged if r[17] == level]
+    lead_cols = 3 if variant_tab else 2  # Gym, name (+Tag on Variants)
+    ncols = lead_cols + len(METRIC_HEADERS)
+    lvl_rows = [r for r in merged if r[I_LEVEL] == level]
     if variant_tab:
         counts: dict[str, int] = defaultdict(int)
         for r in lvl_rows:
-            counts[r[18]] += 1
+            counts[r[I_SECTION]] += 1
         sections = sorted(counts, key=lambda s: -counts[s]) or ["A/B tests"]
     else:
         counts = defaultdict(int)
         for r in lvl_rows:
-            counts[r[18]] += 1
+            counts[r[I_SECTION]] += 1
         sections = DASH_SECTIONS
 
     grid: list[list] = []
     meta = {"bands": [], "headers": [], "data_ranges": [], "notes": [],
-            "totals": None, "ncols": ncols, "header_notes": []}
+            "totals": None, "ncols": ncols, "lead_cols": lead_cols,
+            "variant_tab": variant_tab, "header_notes": []}
     gloss = VARIANT_DESCRIPTIONS if variant_tab else DESCRIPTIONS
 
     def _glossary(sec: str) -> str:
         seen, lines = set(), []
         for r in lvl_rows:
             name = r[1]
-            if r[18] != sec or name in seen or r[0] == COMBINED:
+            if r[I_SECTION] != sec or name in seen or r[0] == COMBINED:
                 continue
             seen.add(name)
             if gloss.get(name):
@@ -792,7 +920,9 @@ def _build_stats_tab(tab: str, merged: list[list], stamp: str,
 
 def _fmt_requests(sheet_id: int, meta: dict, existing_cf: int) -> list:
     ncols = meta["ncols"]
-    pct_cols = [7, 11, 15, 17] if ncols == 18 else [6, 10, 14, 16]  # 1-based
+    left_cols = meta["lead_cols"]  # Gym/name (+Tag) stay left-aligned
+    # 1-based display columns of every ratio metric
+    pct_cols = [left_cols + METRIC_KEYS.index(k) + 1 for k in _RATIO_KEYS]
     first_band = meta["bands"][0]
     last_data = meta["data_ranges"][-1][1]
     reqs = [{"deleteConditionalFormatRule": {"sheetId": sheet_id, "index": 0}}
@@ -817,7 +947,6 @@ def _fmt_requests(sheet_id: int, meta: dict, existing_cf: int) -> list:
                                "fields": ",".join(
                                    f"userEnteredFormat.{f}" for f in fields)}}
 
-    left_cols = 3 if ncols == 18 else 2  # Gym/name (+Tag) stay left-aligned
     reqs.append(cell_fmt(rng(1, 1), {"textFormat": {"bold": True, "fontSize": 12}},
                          ["textFormat"]))
     reqs.append(cell_fmt(rng(2, 2, 0, 1), {"textFormat": {"bold": True}},
@@ -877,6 +1006,21 @@ def _fmt_requests(sheet_id: int, meta: dict, existing_cf: int) -> list:
     # rules are appended in that order (no index = append at the end).
     cf_range = rng(first_band, last_data)
     r0 = first_band
+    # Context rows read as background, not as an arm (Luke 2026-08-07): grey
+    # italic text. This rule is appended FIRST so its text format wins; it
+    # sets no background, so the gym colour rules below still shade the row.
+    # _merge_data has already sorted these rows to the bottom of their band.
+    if meta["variant_tab"]:
+        test = ",".join(f'$B{r0}="{lbl}"' for lbl in CONTEXT_LABELS)
+        reqs.append({"addConditionalFormatRule": {"rule": {
+            "ranges": [cf_range],
+            "booleanRule": {
+                "condition": {"type": "CUSTOM_FORMULA",
+                              "values": [{"userEnteredValue":
+                                          f"=OR({test})"}]},
+                "format": {"textFormat": {
+                    "italic": True,
+                    "foregroundColor": _hex(PRETEST_FG)}}}}}})
     # "All gyms" per-automation total rows: bold on a neutral fill
     reqs.append({"addConditionalFormatRule": {"rule": {
         "ranges": [cf_range],
@@ -896,8 +1040,8 @@ def _fmt_requests(sheet_id: int, meta: dict, existing_cf: int) -> list:
                     "condition": {"type": "CUSTOM_FORMULA",
                                   "values": [{"userEnteredValue": formula}]},
                     "format": {"backgroundColor": _hex(color)}}}}})
-    lead = [70, 250, 210] if ncols == 18 else [70, 250]
-    widths = lead + [92] * 14 + [340]
+    lead = [70, 250, 210][:left_cols]
+    widths = lead + [92] * (len(METRIC_HEADERS) - 1) + [340]  # last = Note
     for i, w in enumerate(widths):
         reqs.append({"updateDimensionProperties": {
             "range": {"sheetId": sheet_id, "dimension": "COLUMNS",
@@ -906,28 +1050,46 @@ def _fmt_requests(sheet_id: int, meta: dict, existing_cf: int) -> list:
     return reqs
 
 
+# History carries every metric column except Note; its rows are
+# [Month, Gym] + metrics, the same 2-column lead as a Data row, so _mi()
+# indexes both.
+HISTORY_METRIC_KEYS = [k for k in METRIC_KEYS if k != "note"]
 HISTORY_HEADER = (["Month", "Gym"] + METRIC_HEADERS[:-1] + ["Updated"])
+HISTORY_NCOLS = len(HISTORY_HEADER)
 
 
 def _history_totals(auto_rows: list[dict], stamp: str) -> list:
     t = defaultdict(int)
     deliv_known = False
     for r in auto_rows:
-        for k in ("sends", "delivered", "opens", "clicks", "taps", "responses",
-                  "redeems", "purchases", "returned", "converted"):
+        for k in _COUNT_KEYS:
             v = r["m"][k]
             if isinstance(v, int):
                 t[k] += v
                 if k == "delivered":
                     deliv_known = True
-    delivered = t["delivered"] if deliv_known else ""
+    m = dict(t)
+    m["delivered"] = t["delivered"] if deliv_known else ""
     open_den = t["delivered"] if deliv_known else t["sends"]
-    return [GYM, t["sends"], delivered, t["opens"],
-            _pct(t["opens"], open_den), t["clicks"], t["taps"],
-            t["responses"], _pct(t["responses"], t["sends"]),
-            t["redeems"], t["purchases"], t["returned"],
-            _pct(t["returned"], t["sends"]), t["converted"],
-            _pct(t["converted"], t["sends"]), stamp]
+    for key, (num, den) in _RATIO_KEYS.items():
+        m[key] = _pct(t[num], open_den if key == "open_pct" else t[den])
+    return [GYM] + [m[k] for k in HISTORY_METRIC_KEYS] + [stamp]
+
+
+def _history_migrate(row: list) -> list:
+    """Bring a row read back from the History tab up to the current layout.
+
+    Adding "Clicks per open %" (2026-08-13) inserted a column mid-row. Rows
+    written by an earlier build are one cell short, and blindly right-padding
+    them would slide Q1 taps under the new header and every metric after it one
+    column left. A short row instead gets a blank inserted AT the new column, so
+    finalized months keep their real numbers and simply read blank for a metric
+    that was never measured. Rows already at full width pass through untouched.
+    """
+    row = list(row)
+    if len(row) < HISTORY_NCOLS:
+        row.insert(_mi("cpo_pct"), "")
+    return row + [""] * (HISTORY_NCOLS - len(row))
 
 
 def _maintain_history(svc, auto_rows: list[dict], stamp: str) -> None:
@@ -936,8 +1098,9 @@ def _maintain_history(svc, auto_rows: list[dict], stamp: str) -> None:
     month = datetime.now(timezone.utc).strftime("%Y-%m")
     got = svc.spreadsheets().values().get(
         spreadsheetId=ALLGYMS_SHEET_ID,
-        range="History!A2:Q1000").execute().get("values", [])
-    rows = [r + [""] * (17 - len(r)) for r in got if r and r[0]]
+        range=f"History!A2:{_a1col(HISTORY_NCOLS - 1)}1000"
+        ).execute().get("values", [])
+    rows = [_history_migrate(r) for r in got if r and r[0]]
     out = []
     for r in rows:
         m, g = r[0], r[1]
@@ -981,10 +1144,10 @@ def _history_fmt_requests(sheet_id: int, existing_cf: int) -> list:
                   "userEnteredFormat.horizontalAlignment"}})
     reqs.append({"repeatCell": {
         "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 1000,
-                  "startColumnIndex": 2, "endColumnIndex": 17},
+                  "startColumnIndex": 2, "endColumnIndex": HISTORY_NCOLS},
         "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
         "fields": "userEnteredFormat.horizontalAlignment"}})
-    for c in (5, 9, 13, 15):  # 0-based: Open %, Response %, Return %, Conv %
+    for c in _PCT_IDX:  # 0-based; History shares the Data row's 2-col lead
         reqs.append({"repeatCell": {
             "range": {"sheetId": sheet_id, "startRowIndex": 1,
                       "endRowIndex": 1000, "startColumnIndex": c,
@@ -996,7 +1159,7 @@ def _history_fmt_requests(sheet_id: int, existing_cf: int) -> list:
         reqs.append({"addConditionalFormatRule": {"rule": {
             "ranges": [{"sheetId": sheet_id, "startRowIndex": 1,
                         "endRowIndex": 1000, "startColumnIndex": 0,
-                        "endColumnIndex": 17}],
+                        "endColumnIndex": HISTORY_NCOLS}],
             "booleanRule": {
                 "condition": {"type": "CUSTOM_FORMULA",
                               "values": [{"userEnteredValue":
@@ -1026,15 +1189,6 @@ EXP_METRIC_FIELDS = {
     "Membership Conversion Rate": "converted",
 }
 EXP_MANUAL_METRIC = "Retention Rate"  # not computable from Send It data
-
-
-def _a1col(c: int) -> str:
-    s = ""
-    c += 1
-    while c:
-        c, r = divmod(c - 1, 26)
-        s = chr(65 + r) + s
-    return s
 
 
 def _update_experiments(svc, tests: dict, var_rows: list[dict]) -> None:

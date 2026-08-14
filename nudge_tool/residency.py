@@ -59,6 +59,17 @@ def mint_token() -> str:
     """Refresh token -> fresh 1-hour Firebase ID token (same recipe as
     beta_pull.mint_token; whitespace collapsed because cloud env fields wrap
     long values)."""
+    if not os.getenv("BETA_REFRESH_TOKEN"):
+        # Local runs (the CLI dry run) get these from the repo .env; on Render
+        # they are already real env vars and this is a no-op. Without it a dry
+        # run silently looks up nobody and every trial-eligible returner reads
+        # as "unknown zip".
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(Path(__file__).resolve().parent.parent / ".env",
+                        override=False)
+        except Exception:
+            pass
     api_key = re.sub(r"\s+", "", os.getenv("BETA_API_KEY", ""))
     refresh = re.sub(r"\s+", "", os.getenv("BETA_REFRESH_TOKEN", ""))
     missing = [n for n, v in (("BETA_API_KEY", api_key),
@@ -211,4 +222,48 @@ def attach_zips(ds, emails, today: date | None = None) -> int:
         em = (c.email or "").strip().lower()
         if em in want and by_email.get(em):
             c.zip_code = by_email[em]
+    return fetched
+
+
+def attach_for_active_triggers(ds, client, asof, log=None) -> int:
+    """Attach zips for every climber a residency-gated trigger might reach.
+
+    Any ACTIVE trigger gated on resident_zip_prefix needs Beta-profile zips
+    attached BEFORE the queue builds. Candidates are only the climbers who
+    already pass all of that trigger's OTHER rules, so this stays a handful of
+    lookups, not a scan of the whole roster. An unknown zip fails closed in the
+    engine, so a failure here can only WITHHOLD a trial offer, never send a
+    wrong one.
+
+    Lives here, not in send_nudges, because both the cron and the local
+    `nudge_tool run` dry run have to do it. When only the cron did it (up to
+    2026-08-13), a local dry run showed every trial-eligible returner falling
+    through to the membership email, because their zip was never fetched: the
+    dry run disagreed with what the cron would actually do, which is the one
+    thing a dry run must not do.
+
+    Returns the number of live API fetches (0 when no trigger is gated).
+    """
+    from dataclasses import replace as _dc_replace
+    from . import engine
+
+    gated = [t for t in engine._active(client)
+             if "resident_zip_prefix" in t.requires]
+    if not gated:
+        return 0
+    cand: set[str] = set()
+    for t in gated:
+        probe = _dc_replace(t, requires={k: v for k, v in t.requires.items()
+                                         if k != "resident_zip_prefix"})
+        for c in ds.climbers.values():
+            if c.is_converted or c.trial_win_date or not (c.email or "").strip():
+                continue
+            if engine._match(c, probe, asof, client, log, None) is not None:
+                cand.add(c.email.strip().lower())
+    if not cand:
+        return 0
+    fetched = attach_zips(ds, cand, today=asof)
+    print(f"  residency: {len(cand)} candidate(s) checked, "
+          f"{fetched} looked up live, "
+          f"{sum(1 for c in ds.climbers.values() if c.zip_code)} with a zip")
     return fetched

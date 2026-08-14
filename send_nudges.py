@@ -149,29 +149,13 @@ def run_send(a) -> None:
 
     asof = engine.resolve_asof(ds, a.as_of) if a.as_of else today
 
-    # Residency pre-pass (trial-swap 2026-08-07): any ACTIVE trigger gated on
-    # resident_zip_prefix needs Beta-profile zips attached BEFORE the queue
-    # builds. Fetch (cache-first) only for the few climbers who pass all the
-    # trigger's OTHER rules; an unknown zip fails closed in the engine, so a
-    # failure here can only withhold a trial offer, never send a wrong one.
-    # Inert while trial_offer stays active:false.
-    res_triggers = [t for t in engine._active(client)
-                    if "resident_zip_prefix" in t.requires]
-    if res_triggers:
-        from dataclasses import replace as _dc_replace
-        from nudge_tool import residency
-        cand: set[str] = set()
-        for t in res_triggers:
-            probe = _dc_replace(t, requires={k: v for k, v in t.requires.items()
-                                             if k != "resident_zip_prefix"})
-            for c in ds.climbers.values():
-                if c.is_converted or c.trial_win_date or not (c.email or "").strip():
-                    continue
-                if engine._match(c, probe, asof, client, log, None) is not None:
-                    cand.add(c.email.strip().lower())
-        if cand:
-            n = residency.attach_zips(ds, cand, today=asof)
-            stage(f"residency zips attached ({len(cand)} candidate(s), {n} fetched live)")
+    # Residency pre-pass (trial-swap 2026-08-07): zips for the residency-gated
+    # triggers, attached BEFORE the queue builds. Shared with the local dry run
+    # since 2026-08-13 so the two paths cannot disagree; see
+    # residency.attach_for_active_triggers for why.
+    from nudge_tool import residency
+    n = residency.attach_for_active_triggers(ds, client, asof, log)
+    stage(f"residency zips attached ({n} fetched live)")
 
     suppressed_out: list = []
     queue = engine.build_queue(ds, client, asof, log=log, unsubscribed=unsubscribed,
