@@ -105,8 +105,15 @@ FUNNEL_LABELS = {
     "membership_offer_control": "Membership offer, test arm A",
     "trial_offer": "2-week trial offer, test arm B",
     "comeback": "Trial win-back",
+    "daypass_to_trial": "Membership Lite offer (0-14d after last day pass)",
 }
-DASH_SECTIONS = ["FTV funnel emails", "Blocker nudges", "Surveys"]
+# Order here is the order the Dashboard renders sections in. KEEP THIS LIST
+# IDENTICAL IN BOTH REPOS. Each gym's cron rebuilds the whole Dashboard from
+# its OWN copy, and ABC's cron runs at 11:00 while SHIFT's runs at 11:03, so a
+# section that exists in only one repo is written at 11:03 and erased the next
+# morning at 11:00 (or vice versa) with no error anywhere.
+DASH_SECTIONS = ["FTV funnel emails", "Day pass regulars", "Blocker nudges",
+                 "Surveys"]
 
 
 def _section_of(trigger_name: str) -> str:
@@ -114,6 +121,11 @@ def _section_of(trigger_name: str) -> str:
         return "Surveys"
     if trigger_name.startswith("nudge_") and trigger_name != "nudge_round_two":
         return "Blocker nudges"
+    # Day-pass regulars are NOT first-time visitors (3-10 visits each), so they
+    # do not belong under the FTV funnel heading. SHIFT-only today; the section
+    # simply renders empty for a gym that has no such trigger active.
+    if trigger_name == "daypass_to_trial":
+        return "Day pass regulars"
     return "FTV funnel emails"
 
 
@@ -325,6 +337,10 @@ DESCRIPTIONS = {
     "Round two (high intent)":
         "Follow-up offer for survey responders who said they are likely to "
         "come back.",
+    "Membership Lite offer (0-14d after last day pass)":
+        "Membership Lite offer for day-pass regulars: people who bought 2 or "
+        "more day passes within 30 days, are not members and never bought a "
+        "trial. Sent 0 to 14 days after their last day pass, once per person.",
     "Blocker: pricing":
         "Offer email tailored to survey responders whose main issue was price.",
     "Blocker: crowding":
