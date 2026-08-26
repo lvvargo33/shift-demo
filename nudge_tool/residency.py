@@ -192,18 +192,29 @@ def _stale(checked_at: str, today: date) -> bool:
         return True
 
 
-def attach_zips(ds, emails, today: date | None = None) -> int:
+def attach_zips(ds, emails, today: date | None = None,
+                force_stale: bool = False) -> int:
     """Set Climber.zip_code for every climber whose email is in `emails`,
     from cache first, the Beta API for the rest. Returns the number of live
     API fetches. Call with the SMALL candidate set a residency-gated trigger
-    is about to consider, never the whole dataset."""
+    is about to consider, never the whole dataset.
+
+    force_stale (2026-08-26): ignore RETRY_EMPTY_DAYS and always re-fetch a
+    cached blank. Use this ONLY for a candidate who is inside their own
+    one-shot eligibility window right now (see attach_for_active_triggers):
+    RETRY_EMPTY_DAYS=7 is longer than that whole window (SHIFT's trial A/B is
+    a 2-3 day window), so a blank looked up on day 2 was silently blocking the
+    day-3 retry and permanently dropping that person to the fallback email.
+    Never set this for a general/whole-roster call: it would re-hit the Beta
+    API every run for anyone who simply has no address on file."""
     today = today or date.today()
     want = {(e or "").strip().lower() for e in emails} - {""}
     if not want:
         return 0
     cache = load_cache()
     to_fetch = [e for e in want
-                if e not in cache or (not cache[e][0] and _stale(cache[e][1], today))]
+                if e not in cache
+                or (not cache[e][0] and (force_stale or _stale(cache[e][1], today)))]
     fetched = 0
     if to_fetch:
         try:
@@ -262,7 +273,10 @@ def attach_for_active_triggers(ds, client, asof, log=None) -> int:
                 cand.add(c.email.strip().lower())
     if not cand:
         return 0
-    fetched = attach_zips(ds, cand, today=asof)
+    # force_stale: every name in `cand` matched today, i.e. is inside its
+    # trigger's days_since window right now, so a blank must be re-checked
+    # today even if it was already checked (and blank) within RETRY_EMPTY_DAYS.
+    fetched = attach_zips(ds, cand, today=asof, force_stale=True)
     print(f"  residency: {len(cand)} candidate(s) checked, "
           f"{fetched} looked up live, "
           f"{sum(1 for c in ds.climbers.values() if c.zip_code)} with a zip")
