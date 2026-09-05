@@ -63,6 +63,14 @@ OUTREACH_DRIVE_ID = os.getenv(
     "OUTREACH_DRIVE_ID", "1SUUYeh_7DabmIl6Ae7bSFLxsjGBUbdbi")
 SMALL_N = 30
 
+# googleapiclient's own retry loop (transient 5xx/429, read timeouts, dropped
+# TLS) only runs when execute() is told how many times to try; the default is 0,
+# i.e. one attempt. On 2026-09-05 a Sheets 503 on an unretried request killed
+# ABC's stats push (the send itself was fine, so the sheet silently sat a day
+# stale). Every request in this module passes it. Matches nudge_tool/drive_io.py
+# and nudge_tool/survey.py; see rule 1 in the project CLAUDE.md.
+_NUM_RETRIES = 5
+
 # --- engagement cache (2026-08-04) ------------------------------------------
 # The run used to ask Mailchimp for an activity feed for EVERY person ever
 # emailed, every day. That loop was 181s of a 204s run and grew ~5s a day with
@@ -594,7 +602,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         svc = _sheets_service()
         got = svc.spreadsheets().values().get(
             spreadsheetId=client.survey.get("gsheet_id"),
-            range="Taps!A:D").execute().get("values", [])
+            range="Taps!A:D").execute(num_retries=_NUM_RETRIES).get("values", [])
         embed_sent = {s["email"]: s["sent"] for s in sends if s["tag"] in EMBED_TAGS}
         for r in got[1:]:
             if len(r) < 4:
@@ -785,7 +793,7 @@ def _merge_data(svc, own_rows: list[dict], stamp: str) -> list[list]:
     'All gyms' per-automation totals, rewrite the tab."""
     got = svc.spreadsheets().values().get(
         spreadsheetId=ALLGYMS_SHEET_ID,
-        range=f"Data!A{D0}:{DATA_LASTCOL}{D1}").execute().get("values", [])
+        range=f"Data!A{D0}:{DATA_LASTCOL}{D1}").execute(num_retries=_NUM_RETRIES).get("values", [])
     kept = [_normalize_row(row) for row in got
             if row and row[0]
             and row[0] not in (GYM, COMBINED, "All gyms")]  # "All gyms" =
@@ -799,14 +807,14 @@ def _merge_data(svc, own_rows: list[dict], stamp: str) -> list[list]:
                                1 if r[1] in CONTEXT_LABELS else 0,
                                r[1], r[I_ORDER]))
     svc.spreadsheets().values().clear(
-        spreadsheetId=ALLGYMS_SHEET_ID, range="Data!A:Z").execute()
+        spreadsheetId=ALLGYMS_SHEET_ID, range="Data!A:Z").execute(num_retries=_NUM_RETRIES)
     note = ("Machine-written by the Send It crons after every send run. "
             "Do not edit anything here; the Dashboard and Variants tabs "
             "read from this tab.")
     svc.spreadsheets().values().update(
         spreadsheetId=ALLGYMS_SHEET_ID, range="Data!A1",
         valueInputOption="RAW",
-        body={"values": [[note], DATA_HEADER] + merged}).execute()
+        body={"values": [[note], DATA_HEADER] + merged}).execute(num_retries=_NUM_RETRIES)
     return merged
 
 
@@ -1115,7 +1123,7 @@ def _maintain_history(svc, auto_rows: list[dict], stamp: str) -> None:
     got = svc.spreadsheets().values().get(
         spreadsheetId=ALLGYMS_SHEET_ID,
         range=f"History!A2:{_a1col(HISTORY_NCOLS - 1)}1000"
-        ).execute().get("values", [])
+        ).execute(num_retries=_NUM_RETRIES).get("values", [])
     rows = [_history_migrate(r) for r in got if r and r[0]]
     out = []
     for r in rows:
@@ -1132,11 +1140,11 @@ def _maintain_history(svc, auto_rows: list[dict], stamp: str) -> None:
     out.append([f"{month} (so far)"] + _history_totals(auto_rows, stamp))
     out.sort(key=lambda r: (r[0].split(" ")[0], r[1]))
     svc.spreadsheets().values().clear(
-        spreadsheetId=ALLGYMS_SHEET_ID, range="History!A:Z").execute()
+        spreadsheetId=ALLGYMS_SHEET_ID, range="History!A:Z").execute(num_retries=_NUM_RETRIES)
     svc.spreadsheets().values().update(
         spreadsheetId=ALLGYMS_SHEET_ID, range="History!A1",
         valueInputOption="RAW",
-        body={"values": [HISTORY_HEADER] + out}).execute()
+        body={"values": [HISTORY_HEADER] + out}).execute(num_retries=_NUM_RETRIES)
 
 
 def _history_fmt_requests(sheet_id: int, existing_cf: int) -> list:
@@ -1219,7 +1227,7 @@ def _update_experiments(svc, tests: dict, var_rows: list[dict]) -> None:
         got = svc.spreadsheets().values().batchGet(
             spreadsheetId=ALLGYMS_SHEET_ID,
             ranges=[f"{EXP_TAB}!A1:Z1", f"{EXP_TAB}!A2:Z1000",
-                    "Lists!A1:Z1000"]).execute()["valueRanges"]
+                    "Lists!A1:Z1000"]).execute(num_retries=_NUM_RETRIES)["valueRanges"]
     except Exception as exc:
         print(f"  allgyms: experiments auto-fill skipped ({exc})")
         return
@@ -1280,7 +1288,7 @@ def _update_experiments(svc, tests: dict, var_rows: list[dict]) -> None:
     if data:
         svc.spreadsheets().values().batchUpdate(
             spreadsheetId=ALLGYMS_SHEET_ID,
-            body={"valueInputOption": "RAW", "data": data}).execute()
+            body={"valueInputOption": "RAW", "data": data}).execute(num_retries=_NUM_RETRIES)
     for n in notes:
         print(f"  allgyms: experiments {n}")
     print(f"  allgyms: experiments auto-fill: {filled} row(s) updated, "
@@ -1295,7 +1303,7 @@ def push(slug: str = "shift") -> None:
 
     fields = "sheets(properties(sheetId,title),conditionalFormats)"
     meta0 = svc.spreadsheets().get(
-        spreadsheetId=ALLGYMS_SHEET_ID, fields=fields).execute()
+        spreadsheetId=ALLGYMS_SHEET_ID, fields=fields).execute(num_retries=_NUM_RETRIES)
     have = {s["properties"]["title"] for s in meta0["sheets"]}
     add = [t for t in ("Dashboard", "Variants", "History", "Data")
            if t not in have]
@@ -1303,9 +1311,9 @@ def push(slug: str = "shift") -> None:
         svc.spreadsheets().batchUpdate(
             spreadsheetId=ALLGYMS_SHEET_ID,
             body={"requests": [{"addSheet": {"properties": {"title": t}}}
-                               for t in add]}).execute()
+                               for t in add]}).execute(num_retries=_NUM_RETRIES)
         meta0 = svc.spreadsheets().get(
-            spreadsheetId=ALLGYMS_SHEET_ID, fields=fields).execute()
+            spreadsheetId=ALLGYMS_SHEET_ID, fields=fields).execute(num_retries=_NUM_RETRIES)
     sheet_ids = {s["properties"]["title"]: s["properties"]["sheetId"]
                  for s in meta0["sheets"]}
     cf_counts = {s["properties"]["title"]: len(s.get("conditionalFormats", []))
@@ -1316,7 +1324,7 @@ def push(slug: str = "shift") -> None:
     try:
         got = svc.spreadsheets().values().batchGet(
             spreadsheetId=ALLGYMS_SHEET_ID,
-            ranges=["Dashboard!B2", "Variants!B2"]).execute()
+            ranges=["Dashboard!B2", "Variants!B2"]).execute(num_retries=_NUM_RETRIES)
         for tab, vr in zip(("Dashboard", "Variants"), got["valueRanges"]):
             v = (vr.get("values") or [[""]])[0][0]
             if v in ("All gyms",) + tuple(GYM_FILLS):
@@ -1334,10 +1342,10 @@ def push(slug: str = "shift") -> None:
     for tab, variant_tab in (("Dashboard", False), ("Variants", True)):
         grid, m = _build_stats_tab(tab, merged, stamp, picks[tab], variant_tab)
         svc.spreadsheets().values().clear(
-            spreadsheetId=ALLGYMS_SHEET_ID, range=f"{tab}!A:Z").execute()
+            spreadsheetId=ALLGYMS_SHEET_ID, range=f"{tab}!A:Z").execute(num_retries=_NUM_RETRIES)
         svc.spreadsheets().values().update(
             spreadsheetId=ALLGYMS_SHEET_ID, range=f"{tab}!A1",
-            valueInputOption="USER_ENTERED", body={"values": grid}).execute()
+            valueInputOption="USER_ENTERED", body={"values": grid}).execute(num_retries=_NUM_RETRIES)
         fmt_reqs += _fmt_requests(sheet_ids[tab], m, cf_counts.get(tab, 0))
         for r, cidx, text in m["header_notes"]:
             if text:
@@ -1379,7 +1387,7 @@ def push(slug: str = "shift") -> None:
             "fields": "index"}})
     svc.spreadsheets().batchUpdate(
         spreadsheetId=ALLGYMS_SHEET_ID,
-        body={"requests": fmt_reqs}).execute()
+        body={"requests": fmt_reqs}).execute(num_retries=_NUM_RETRIES)
     print(f"  allgyms: formatting applied, History maintained ({stamp})")
     stage(f"formatting applied ({len(fmt_reqs)} requests)")
 
