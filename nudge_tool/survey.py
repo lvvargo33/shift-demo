@@ -18,8 +18,10 @@ Source is config-driven (client.json "survey"):
 from __future__ import annotations
 
 import csv
+import http.client
 import io
 import os
+import ssl
 import subprocess
 import sys
 import time
@@ -146,24 +148,73 @@ _SHEETS_RO = "https://www.googleapis.com/auth/spreadsheets.readonly"
 
 # Sheets/Drive APIs throw transient HTTP 500/503 ("Internal error encountered")
 # and rate-limit 429s that succeed on a simple retry. Without this a single
-# Google-side blip failed the whole nudge send (it reads this sheet before
-# tagging anyone). Back off 1s, 2s, 4s, 8s, then give up.
+# Google-side blip fails the whole nudge send (it reads this sheet before
+# tagging anyone). Back off 1s, 2s, 4s, 8s, then give up. (Ported from SHIFT
+# S27, where exactly this failure aborted a live cron run.)
 _RETRY_STATUSES = {429, 500, 502, 503, 504}
 _RETRY_DELAYS = (1, 2, 4, 8)
 
+# Same reasoning one layer down, for errors that never become an HTTP status:
+# the socket hangs and googleapiclient's default 60 s timeout fires, or the TLS
+# connection drops mid-read. That is a TimeoutError / OSError / ssl.SSLError,
+# NOT an HttpError, so the status retry above never saw it and one blip aborted
+# the whole 2026-09-01 live send run ("TimeoutError: The read operation timed
+# out" inside the response-sheet read). Retry those the same way.
+# httplib2's own error base is added at call time (import is lazy).
+_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
+    TimeoutError,      # socket.timeout is an alias for this on py3.10+
+    ConnectionError,
+    ssl.SSLError,
+    http.client.HTTPException,
+    OSError,           # covers socket.error and friends; last so the above win
+)
+
+# googleapiclient's OWN transport retry loop (ssl/timeout/connection errors,
+# exponential backoff) only runs when execute() is told how many times to try;
+# the default is 0, i.e. one attempt. drive_io.py already passes this on every
+# call. The sheet reader never did, which is why the timeout above went straight
+# through to the caller.
+_NUM_RETRIES = 5
+
+
+def _transport_errors() -> tuple[type[BaseException], ...]:
+    """Transport-level exception types, including httplib2's if it's installed."""
+    try:
+        import httplib2
+    except Exception:
+        return _TRANSPORT_ERRORS
+    return _TRANSPORT_ERRORS + (httplib2.HttpLib2Error,)
+
+
+def _execute(request):
+    """Call request.execute(), asking googleapiclient to retry transport blips.
+
+    Falls back to a bare execute() for request objects that don't accept the
+    kwarg (test doubles, older client versions)."""
+    try:
+        return request.execute(num_retries=_NUM_RETRIES)
+    except TypeError:
+        return request.execute()
+
 
 def _execute_retrying(request):
-    """Run a googleapiclient request, retrying transient 5xx/429 with backoff."""
+    """Run a googleapiclient request, retrying transient failures with backoff.
+
+    Two classes are retried: HTTP 5xx/429 responses, and transport errors where
+    no HTTP response ever came back (read timeout, dropped TLS connection)."""
     from googleapiclient.errors import HttpError
+    transport = _transport_errors()
     for delay in _RETRY_DELAYS:
         try:
-            return request.execute()
+            return _execute(request)
         except HttpError as e:
             status = getattr(getattr(e, "resp", None), "status", None)
             if int(status or 0) not in _RETRY_STATUSES:
                 raise
             time.sleep(delay)
-    return request.execute()  # last attempt: let a final failure propagate
+        except transport:
+            time.sleep(delay)
+    return _execute(request)  # last attempt: let a final failure propagate
 
 
 def _read_gsheet_sa(sheet_id: str, rng: str) -> list[dict]:

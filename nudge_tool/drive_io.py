@@ -27,6 +27,12 @@ import os
 _RW = "https://www.googleapis.com/auth/drive"
 _RO = "https://www.googleapis.com/auth/drive.readonly"
 
+# Drive throws occasional transient 5xx ("Unknown Error") on media requests;
+# one blip must not abort a whole send run (it did on 2026-07-16). googleapiclient
+# retries 5xx/429/connection errors with exponential backoff when num_retries is
+# set, so every request in this module passes it.
+_NUM_RETRIES = 5
+
 
 def _load_info(text: str) -> dict:
     """Parse SA key info from text that is EITHER raw JSON OR base64-of-JSON.
@@ -77,7 +83,8 @@ def find_in_folder(folder_id: str, name: str, svc=None) -> str | None:
     safe = name.replace("'", "\\'")
     q = f"'{folder_id}' in parents and name = '{safe}' and trashed = false"
     res = svc.files().list(q=q, fields="files(id,name,modifiedTime)",
-                           orderBy="modifiedTime desc", pageSize=10).execute()
+                           orderBy="modifiedTime desc",
+                           pageSize=10).execute(num_retries=_NUM_RETRIES)
     files = res.get("files", [])
     return files[0]["id"] if files else None
 
@@ -96,13 +103,15 @@ def push(local_path: str, *, folder_id: str | None = None, file_id: str | None =
         file_id = find_in_folder(folder_id, name, svc)
     media = MediaFileUpload(local_path, mimetype="text/csv", resumable=True)
     if file_id:
-        svc.files().update(fileId=file_id, media_body=media).execute()
+        svc.files().update(fileId=file_id,
+                           media_body=media).execute(num_retries=_NUM_RETRIES)
         return file_id
     if not folder_id:
         raise RuntimeError("push needs folder_id or file_id")
     try:
         f = svc.files().create(body={"name": name, "parents": [folder_id]},
-                               media_body=media, fields="id").execute()
+                               media_body=media,
+                               fields="id").execute(num_retries=_NUM_RETRIES)
         return f["id"]
     except Exception as e:
         if "storageQuota" in str(e) or "quota" in str(e).lower():
@@ -122,7 +131,7 @@ def pull(file_id: str, local_path: str, svc=None) -> str:
     dl = MediaIoBaseDownload(buf, req)
     done = False
     while not done:
-        _, done = dl.next_chunk()
+        _, done = dl.next_chunk(num_retries=_NUM_RETRIES)
     data = buf.getvalue()
     os.makedirs(os.path.dirname(os.path.abspath(local_path)), exist_ok=True)
     with open(local_path, "wb") as f:
