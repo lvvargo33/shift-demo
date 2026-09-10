@@ -114,6 +114,9 @@ FUNNEL_LABELS = {
     "trial_offer": "2-week trial offer, test arm B",
     "comeback": "Trial win-back",
     "daypass_to_trial": "Membership Lite offer (0-14d after last day pass)",
+    # ABC-only member-survey program; listed here so the label + section +
+    # glossary stay identical across the two copies (2026-09-10)
+    "member_survey": "Member survey (every 180 days)",
 }
 # Order here is the order the Dashboard renders sections in. KEEP THIS LIST
 # IDENTICAL IN BOTH REPOS. Each gym's cron rebuilds the whole Dashboard from
@@ -125,7 +128,9 @@ DASH_SECTIONS = ["FTV funnel emails", "Day pass regulars", "Blocker nudges",
 
 
 def _section_of(trigger_name: str) -> str:
-    if trigger_name == "survey_request":
+    # member_survey = ABC's member program (Luke 2026-09-10: one row under the
+    # existing Surveys section, no new section, so nothing to mirror in SHIFT)
+    if trigger_name in ("survey_request", "member_survey"):
         return "Surveys"
     if trigger_name.startswith("nudge_") and trigger_name != "nudge_round_two":
         return "Blocker nudges"
@@ -315,7 +320,12 @@ FOOTNOTES = [
     "invoices.",
     "Delivered: SHIFT counts Mailchimp's send confirmation, ABC counts "
     "Brevo's delivered receipt. A blank Delivered means that system had no "
-    "delivery info for those emails, and that row's Open % is out of sends.",
+    "delivery info for those emails, and that row's Open % is out of sends. "
+    "Brevo keeps 90 days of receipts, so an ABC send with no receipt inside "
+    "that window stays uncounted.",
+    "Member survey (ABC): the only row on this sheet that goes to current "
+    "members, not first-timers. Returned, converted, redeemed and purchases "
+    "are blank there because they describe first-timers.",
     "'Before the test started' rows on Variants: SHIFT's survey and offer "
     "emails went live before their subject tests did, so their earliest sends "
     "have no A or B version. Those sends sit in their own row so each test "
@@ -349,6 +359,17 @@ DESCRIPTIONS = {
         "Membership Lite offer for day-pass regulars: people who bought 2 or "
         "more day passes within 30 days, are not members and never bought a "
         "trial. Sent 0 to 14 days after their last day pass, once per person.",
+    "Offer reminder (day 9-10)":
+        "Reminder that the come-back offer is still good. Goes 9 to 10 days "
+        "after the first visit to people who got the offer and have not "
+        "returned.",
+    "Membership offer (2-3d after 2nd visit)":
+        "Membership email sent 2 to 3 days after someone comes back for a "
+        "second visit within 30 days of their first.",
+    "Member survey (every 180 days)":
+        "ABC's short satisfaction survey for CURRENT members, 10 a day, each "
+        "member at most once every 180 days. Not part of the first-timer "
+        "funnel.",
     "Blocker: pricing":
         "Offer email tailored to survey responders whose main issue was price.",
     "Blocker: crowding":

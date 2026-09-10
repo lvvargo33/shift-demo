@@ -782,6 +782,19 @@ def build_sent_log(sent_rows: list | None, ds: Dataset) -> list[dict]:
 # the offer's buy link apart from the survey form link.
 _BUY_LINK_MARKERS = ("purchase-a-pass", "sendmoregetbeta")
 _SURVEY_LINK_MARKERS = ("docs.google.com/forms", "forms.gle")
+
+# Outreach-log rows that are NOT first-time-visitor outreach (2026-09-10,
+# ported from ABC, where these trigger names exist; SHIFT never logs them,
+# so this is a no-op here and only keeps build_engagement identical). ABC's
+# log also carries its member-survey program (member_survey.TRIGGER_NAME)
+# and internal sends: the front-desk check-in alert (checkin_alert
+# .TRIGGER_NAME, mailed to the gym's own inbox) and staff/auto replies to
+# survey responders (member_reply.REPLY_TRIGGER / AUTO_TRIGGER). None of
+# them belongs in an FTV funnel. String literals on purpose.
+MEMBER_PROGRAM_TRIGGERS = frozenset({"member_survey"})
+INTERNAL_TRIGGERS = frozenset({"member_checkin_alert", "member_reply",
+                               "member_auto_reply"})
+NON_FTV_TRIGGERS = MEMBER_PROGRAM_TRIGGERS | INTERNAL_TRIGGERS
 # A journey email sends minutes after the tag lands, so the email actually
 # sent to a person is the activity-feed "sent" event on (or within a day or
 # two of) their outreach-log send date. Keeping the window tight is what
@@ -870,6 +883,11 @@ def build_engagement(ds: Dataset, sent_rows: list | None,
     surveys: dict[str, dict] = {}
     for r in sent_rows or []:
         if (r.get("mode") or "").strip() == "test":
+            continue
+        # FTV funnels only: member surveys (tag also contains "survey") and
+        # the internal sends would otherwise inflate "sent" with emails whose
+        # opens can never pin to these templates (2026-09-10).
+        if (r.get("trigger_name") or "").strip() in NON_FTV_TRIGGERS:
             continue
         email = (r.get("email") or "").strip().lower()
         sent = (r.get("sent_date") or "").strip()[:10]
