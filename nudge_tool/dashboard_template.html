@@ -3,7 +3,7 @@
   shift-nudge-tool dashboard. Reuses the "Send It" Lovable skin (CSS verbatim
   from Redesign/Shift_ABC_Prep/New_HTML/ftv_mvp_demo_v2_shift.html). Views built
   on REAL Beta-export data (FTV_PILOT_SPEC.md section 14): Dashboard, Recovery
-  Queue, Detail, Funnel, Settings. Inbox + Insights are survey-driven and arrive
+  Queue, Detail, Settings. Inbox + Insights are survey-driven and arrive
   with the survey loop (S2); they are intentionally absent until then.
 
   The tool injects the run's data into the <script id="nudge-data"> tag below
@@ -171,15 +171,6 @@ button, input, textarea, select { font-family: inherit; }
 .prio-count strong { color: var(--primary); font-size: 13px; }
 .prio-title { font-size: 14.5px; font-weight: 600; margin-top: 4px; letter-spacing: -0.2px; }
 .prio-desc { font-size: 12px; color: var(--fg-muted); margin-top: 4px; line-height: 1.45; }
-
-/* --- funnel --- */
-.funnel-row { margin: 0 0 16px; }
-.funnel-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 5px; }
-.funnel-label { font-size: 13.5px; font-weight: 600; color: var(--fg); }
-.funnel-count { font-size: 13px; color: var(--fg-muted); font-weight: 600; white-space: nowrap; }
-.funnel-track { height: 30px; background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: 7px; overflow: hidden; }
-.funnel-fill { height: 100%; background: linear-gradient(90deg, var(--primary) 0%, #A53D22 100%); display: flex; align-items: center; padding-left: 10px; color: #fff; font-size: 11.5px; font-weight: 700; min-width: 38px; transition: width var(--t-norm); }
-.funnel-note { font-size: 11px; color: var(--fg-hint); margin-top: 4px; }
 
 /* --- detail --- */
 .detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 18px; font-size: 13px; }
@@ -379,10 +370,6 @@ button, input, textarea, select { font-family: inherit; }
       Recovery Queue
       <span class="nav-badge" id="queue-badge">0</span>
     </button>
-    <button class="nav-btn" data-view="funnel" onclick="showView('funnel')">
-      <svg viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-      Funnel
-    </button>
     <button class="nav-btn" id="nav-insights" data-view="insights">
       <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
       Insights
@@ -405,7 +392,6 @@ button, input, textarea, select { font-family: inherit; }
     <div id="view-dashboard" class="view active"></div>
     <div id="view-queue" class="view"></div>
     <div id="view-detail" class="view"></div>
-    <div id="view-funnel" class="view"></div>
     <div id="view-inbox" class="view"></div>
     <div id="view-surveys" class="view"></div>
     <div id="view-insights" class="view"></div>
@@ -609,7 +595,7 @@ function periodSelectHtml() {
 function setReportPeriod(v) {
   REPORT_PERIOD = v;
   persistInsightsState();
-  renderDashboard(); renderFunnel(); renderInsights();
+  renderDashboard(); renderInsights();
 }
 // Persist the Insights view state so the auto-refresh reload keeps the user's
 // period, Counts/% choice, and which chart they were on (sessionStorage survives
@@ -1043,54 +1029,6 @@ function renderDetail(id) {
   h += '</div></div>';
 
   $('view-detail').innerHTML = h;
-}
-
-/* ============================ FUNNEL ============================ */
-function funnelStageRow(label, count, pct, note, prevCount) {
-  const drop = prevCount != null && prevCount > 0 ? Math.round(100 * (prevCount - count) / prevCount) : null;
-  return '<div class="funnel-row">' +
-    '<div class="funnel-top"><div class="funnel-label">' + escapeHtml(label) + '</div>' +
-      '<div class="funnel-count">' + count.toLocaleString() + ' &nbsp;·&nbsp; ' + pct.toFixed(1) + '%' +
-      (drop != null && drop > 0 ? ' <span style="color:var(--destructive);">(−' + drop + '%)</span>' : '') + '</div></div>' +
-    '<div class="funnel-track"><div class="funnel-fill" style="width:' + Math.max(pct, 4) + '%;">' + pct.toFixed(0) + '%</div></div>' +
-    '<div class="funnel-note">' + escapeHtml(note || '') + '</div></div>';
-}
-function renderFunnel() {
-  let h = pageHeader('First-visit → member funnel',
-    'Every first-time visitor and how far each got.');
-  if (!reportingOn()) {
-    h += '<div class="card"><div class="empty-state"><div class="empty-state-title">No reporting data</div>' +
-      '<div class="empty-state-msg">This client has no reporting config yet.</div></div></div>';
-    $('view-funnel').innerHTML = h; return;
-  }
-  h += periodSelectHtml();
-  const ftvs = filterFtvs(), a = agg(ftvs);
-  const pct = x => a.n ? 100 * x / a.n : 0;
-  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('funnel') + 'Where first-timers drop off (' + escapeHtml(periodLabel()) + ')</div>' +
-    '<div class="card-description">Each stage is a subset of the one above it, so the bar widths are honest.</div></div>' +
-    '<div class="card-content with-top">';
-  h += funnelStageRow('First-time visitors', a.n, 100, 'Checked in at least once (purchases with no check-in are not counted)', null);
-  h += funnelStageRow('Came back (2+ visits)', a.ret, a.retPct, 'The habit starts here, the strongest conversion signal', a.n);
-  h += funnelStageRow('Became a member', a.conv, a.convPct, 'Signed up for a membership', a.ret);
-  h += '</div></div>';
-
-  // conversion by entry product
-  const be = byEntry(ftvs);
-  if (be.length) {
-    h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('users') + 'Conversion by entry product</div>' +
-      '<div class="card-description">How each first purchase type converts to membership. The product someone walks in on changes the odds.</div></div>' +
-      '<div class="card-content with-top"><table class="conv-table"><thead><tr><th>Entry product</th><th class="num">First-timers</th><th class="num">Became member</th><th class="num">Rate</th></tr></thead><tbody>';
-    be.forEach(e => {
-      h += '<tr><td>' + escapeHtml(e.label) + '</td><td class="num">' + e.n.toLocaleString() + '</td><td class="num">' + e.conv.toLocaleString() + '</td><td class="num"><strong>' + e.pct.toFixed(1) + '%</strong></td></tr>';
-    });
-    h += '</tbody></table></div></div>';
-  }
-
-  h += '<div class="card"><div class="card-content with-top" style="font-size:12.5px;color:var(--fg-subtle);line-height:1.7;">' +
-    'Counts are distinct climbers. A first-time visitor = their earliest day-pass, trial, punch, class, event, or membership purchase (staff excluded) who then checked in at least once. Purchases that never resulted in a check-in are not counted. ' +
-    '"Became a member" = appears in the membership records. As of <strong>' + escapeHtml(DATA.as_of) + '</strong>.' +
-    '</div></div>';
-  $('view-funnel').innerHTML = h;
 }
 
 /* ============================ SETTINGS ============================ */
@@ -1821,7 +1759,6 @@ $('brand-sub').textContent = DATA.client || 'Send It';
 $('queue-badge').textContent = DATA.queue.length;
 renderDashboard();
 renderQueue();
-renderFunnel();
 setupSurveyNav();
 
 // Restore the tab across auto-refresh reloads (so a periodic refresh doesn't
@@ -1830,7 +1767,7 @@ setupSurveyNav();
   let id = '';
   try { id = sessionStorage.getItem('shiftActiveView') || ''; } catch (e) {}
   if (!id) id = (location.hash || '').replace('#', '');
-  const valid = ['dashboard', 'queue', 'funnel', 'inbox', 'surveys', 'insights'];
+  const valid = ['dashboard', 'queue', 'inbox', 'surveys', 'insights'];
   if (!valid.includes(id) || id === 'dashboard') return;
   if ((id === 'inbox' || id === 'surveys') && !surveyOn()) return;
   showView(id);
