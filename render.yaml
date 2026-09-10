@@ -141,6 +141,22 @@ services:
         sync: false
       - key: OUTREACH_DRIVE_ID # canonical outreach_log.csv (pre-create + share with the SA)
         sync: false
+      # Residency zip lookup (nudge_tool/residency.py). The membership A/B test
+      # arms require a West-MI zip, and the zip comes from the Beta climber
+      # profile API at send time. These two are the SAME values as on
+      # shift-beta-pull. They were never set on this cron (2026-09-05 report:
+      # "residency: no token ... missing secret(s)"), so from the 8/13 A/B
+      # activation until they were added every candidate read as "unknown zip"
+      # and fell through to the plain membership_offer. Added 2026-09-10.
+      - key: BETA_API_KEY      # Firebase web API key (AIza...)
+        sync: false
+      - key: BETA_REFRESH_TOKEN  # long-lived Firebase refresh token (from browser, once)
+        sync: false
+      # OPTIONAL: Drive id of an uploaded CSV (header email,zip,checked_at) that
+      # mirrors _residency_cache.csv across runs. Unset = the cron re-looks-up the
+      # few candidates each run (fine; the set is tiny).
+      - key: RESIDENCY_CACHE_DRIVE_ID
+        sync: false
       # Engagement cache (2026-08-04). Drive file id of a CSV holding the frozen
       # delivered/opened/clicked for sends older than the fresh window, so the
       # stats push stops re-asking Mailchimp about every person ever emailed
