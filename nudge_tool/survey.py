@@ -225,12 +225,13 @@ def _read_gsheet_sa(sheet_id: str, rng: str) -> list[dict]:
     Drive round-trip: a base64 env var (GSHEETS_SA_B64), a key FILE holding raw
     JSON OR base64 (GSHEETS_SA_KEY, e.g. a Render Secret File), or raw JSON
     (GSHEETS_SA_JSON). google's from_service_account_file accepts raw JSON only,
-    which broke on the base64 Secret File the send cron mounts."""
-    from googleapiclient.discovery import build
+    which broke on the base64 Secret File the send cron mounts.
 
+    The service is built once per thread and reused (drive_io.sheets_service):
+    a fresh build() + spreadsheets().values() per read cost ~55 MB of garbage
+    each on the 2026-09-11 OOM run."""
     from . import drive_io
-    creds = drive_io._creds(_SHEETS_RO)
-    svc = build("sheets", "v4", credentials=creds, cache_discovery=False)
+    svc = drive_io.sheets_service(_SHEETS_RO)
     req = svc.spreadsheets().values().get(spreadsheetId=sheet_id, range=rng)
     values = _execute_retrying(req).get("values", [])
     if not values:

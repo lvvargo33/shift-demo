@@ -96,6 +96,22 @@ def stage(label: str, tag: str = "send") -> None:
         pass
 
 
+def reclaim() -> None:
+    """Free cyclic garbage now and hand the pages back to the OS. Same recipe
+    as live_server._reclaim (2026-08-21): gc.collect() frees what Python would
+    otherwise free on its own schedule, malloc_trim(0) returns the freed pages
+    (glibc only, a no-op elsewhere). Called between the big steps of the stats
+    push (2026-09-11) so the `peak=` number tracks live data, not garbage.
+    Never raises."""
+    try:
+        import gc
+        gc.collect()
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:  # noqa: BLE001 - not on glibc, or no ctypes: fine
+        pass
+
+
 def versions() -> str:
     """Installed versions of the libraries the cron depends on. requirements.txt
     is unpinned, so a redeploy can silently change any of these; printing them

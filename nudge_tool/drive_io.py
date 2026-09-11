@@ -23,9 +23,11 @@ from __future__ import annotations
 import io
 import json
 import os
+import threading
 
 _RW = "https://www.googleapis.com/auth/drive"
 _RO = "https://www.googleapis.com/auth/drive.readonly"
+_SHEETS_RW = "https://www.googleapis.com/auth/spreadsheets"
 
 # Drive throws occasional transient 5xx ("Unknown Error") on media requests;
 # one blip must not abort a whole send run (it did on 2026-07-16). googleapiclient
@@ -75,6 +77,66 @@ def _creds(scope: str):
 def _service(scope: str = _RW):
     from googleapiclient.discovery import build
     return build("drive", "v3", credentials=_creds(scope), cache_discovery=False)
+
+
+# --- Sheets service, built ONCE per thread (2026-09-11) ------------------------
+# Every `svc.spreadsheets()` and `.values()` call makes googleapiclient rebuild
+# that Resource's whole method table, and each method's docstring pretty-prints
+# the Sheets schema: about 20 MB of cyclic garbage PER CALL on this API (and
+# about 40 MB per build()). Python frees it only on a later gen-2 collection and
+# glibc then keeps the pages, so on Render the number only goes up. Measured
+# 2026-08-04 (+326 MB across 12 Sheets operations, SHIFT cron OOM-killed at
+# 512 MB) and again 2026-09-11 (appalachian-nudge-send killed at 505 MB right
+# after the formatting step; the local probe showed +20 MB per values().get).
+# Reusing one Resource tree makes those calls cost nothing. The cache is per
+# thread because googleapiclient's http object is not thread-safe and
+# live_server runs several threads that read sheets.
+
+class _Spreadsheets:
+    """Stand-in for `svc.spreadsheets()`: hands out the SAME values() Resource
+    every time; everything else (get, batchUpdate, ...) goes to the real one."""
+
+    def __init__(self, real):
+        self._real = real
+        self._values = real.values()
+
+    def values(self):
+        return self._values
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+class _Sheets:
+    """Stand-in for `build("sheets", "v4")` with a cached spreadsheets() tree."""
+
+    def __init__(self, svc):
+        self._svc = svc
+        self._spreadsheets = _Spreadsheets(svc.spreadsheets())
+
+    def spreadsheets(self):
+        return self._spreadsheets
+
+    def __getattr__(self, name):
+        return getattr(self._svc, name)
+
+
+_THREAD = threading.local()
+
+
+def sheets_service(scope: str = _SHEETS_RW):
+    """One Sheets service per (thread, scope), built on first use. Call sites
+    use it exactly like the object build() returns:
+    svc.spreadsheets().values().get(...).execute(num_retries=...)."""
+    cache = getattr(_THREAD, "sheets", None)
+    if cache is None:
+        cache = _THREAD.sheets = {}
+    svc = cache.get(scope)
+    if svc is None:
+        from googleapiclient.discovery import build
+        svc = cache[scope] = _Sheets(build(
+            "sheets", "v4", credentials=_creds(scope), cache_discovery=False))
+    return svc
 
 
 def find_in_folder(folder_id: str, name: str, svc=None) -> str | None:

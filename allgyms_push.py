@@ -49,7 +49,7 @@ sys.path.insert(0, str(BASE))
 
 from nudge_tool import config, drive_io, engine, ingest, survey
 from nudge_tool.mailchimp_client import MailchimpClient
-from nudge_tool.stage import stage as _stage
+from nudge_tool.stage import reclaim, stage as _stage
 
 
 def stage(label: str) -> None:
@@ -447,9 +447,10 @@ PRETEST_FG = "#7f8c8d"  # grey text on the context-only pre-test rows
 # --------------------------------------------------------------------------
 
 def _sheets_service():
-    from googleapiclient.discovery import build
-    creds = drive_io._creds("https://www.googleapis.com/auth/spreadsheets")
-    return build("sheets", "v4", credentials=creds, cache_discovery=False)
+    # One Resource tree for the whole push. Rebuilding it per call (the old
+    # build() here + a fresh spreadsheets().values() on every request) cost
+    # ~20 MB per Sheets call that never came back; see drive_io.sheets_service.
+    return drive_io.sheets_service("https://www.googleapis.com/auth/spreadsheets")
 
 
 def _pull_outreach(dest: Path) -> list[dict]:
@@ -1319,6 +1320,7 @@ def _update_experiments(svc, tests: dict, var_rows: list[dict]) -> None:
 def push(slug: str = "shift") -> None:
     client = config.load_client(slug)
     auto_rows, var_rows = collect(client)
+    reclaim()  # collect's ingest + feed garbage, before the Sheets work starts
     stamp = _stamp()
     svc = _sheets_service()
 
@@ -1358,6 +1360,7 @@ def push(slug: str = "shift") -> None:
     print(f"  allgyms: Data tab now {len(merged)} rows "
           f"({len(auto_rows)} automations + {len(var_rows)} variants from {GYM})")
     stage(f"Data tab rewritten ({len(merged)} rows)")
+    reclaim()
 
     fmt_reqs: list = []
     for tab, variant_tab in (("Dashboard", False), ("Variants", True)):
@@ -1377,9 +1380,11 @@ def push(slug: str = "shift") -> None:
         print(f"  allgyms: rebuilt '{tab}' "
               f"({len(m['bands'])} sections, filter = {picks[tab]})")
         stage(f"'{tab}' tab rewritten ({len(grid)} rows)")
+        reclaim()
 
     _maintain_history(svc, auto_rows, stamp)
     stage("History tab maintained")
+    reclaim()
     fmt_reqs += _history_fmt_requests(sheet_ids["History"],
                                       cf_counts.get("History", 0))
     # Data tab: format reset + freeze + light header styling
@@ -1411,6 +1416,7 @@ def push(slug: str = "shift") -> None:
         body={"requests": fmt_reqs}).execute(num_retries=_NUM_RETRIES)
     print(f"  allgyms: formatting applied, History maintained ({stamp})")
     stage(f"formatting applied ({len(fmt_reqs)} requests)")
+    reclaim()
 
     try:
         _update_experiments(svc, experiment_tests(client), var_rows)
