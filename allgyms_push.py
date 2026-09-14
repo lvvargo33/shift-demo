@@ -49,6 +49,7 @@ sys.path.insert(0, str(BASE))
 
 from nudge_tool import config, drive_io, engine, ingest, survey
 from nudge_tool.mailchimp_client import MailchimpClient
+from nudge_tool import attribution
 from nudge_tool.stage import reclaim, stage as _stage
 
 
@@ -240,13 +241,15 @@ METRIC_HEADERS = [
     "Sends", "Delivered", "Opens", "Open %", "Link clicks", "Clicks per open %",
     "Q1 taps",
     "Responses", "Response %", "Offer redemptions", "Purchases after send",
-    "Returned after send", "Return %", "Converted after send", "Conversion %",
+    "Returned after send", "Return %", "Returned, opened first",
+    "Converted after send", "Conversion %", "Converted, opened first",
     "Note"]
 METRIC_KEYS = [
     "sends", "delivered", "opens", "open_pct", "clicks", "cpo_pct",
     "taps",
     "responses", "resp_pct", "redeems", "purchases",
-    "returned", "return_pct", "converted", "conv_pct", "note"]
+    "returned", "return_pct", "ret_opened",
+    "converted", "conv_pct", "conv_opened", "note"]
 
 # Data tab layout: row 1 = do-not-edit note, row 2 = header, rows 3+ = data.
 # Cols: A Gym, B Name, then one column per METRIC_HEADERS entry, then
@@ -290,7 +293,8 @@ def _col(key: str) -> str:
 
 # count metrics (summable); the rest are ratios recomputed from these
 _COUNT_KEYS = ("sends", "delivered", "opens", "clicks", "taps", "responses",
-               "redeems", "purchases", "returned", "converted")
+               "redeems", "purchases", "returned", "ret_opened",
+               "converted", "conv_opened")
 # ratio metric -> (numerator key, denominator key). Open % swaps its
 # denominator to sends when a gym has no delivery tracking (see _totals_formulas).
 _RATIO_KEYS = {
@@ -345,6 +349,15 @@ FOOTNOTES = [
     "Greyed rows inside a test block are context, not versions being tested. "
     "They sit at the bottom of their block, and they are the people the test "
     "could not include. Compare only the rows above them.",
+    "How Returned, Converted, Offer redemptions and Purchases are counted "
+    "(since 2026-09-14): each person counts once. The credit goes to the LAST "
+    "email they got before they acted, and only if they acted within that "
+    "email's window (came back: 30 days, joined: 60, redeemed: 30, bought: 30, "
+    "answered the survey: 14, survey emails only). Before this date every "
+    "email a person got took credit for anything they did later, so History "
+    "months finalized before September 2026 read higher than the same months "
+    "would today. 'Opened first' = how many of those people had opened that "
+    "email before they acted (a few opens are automatic, see above).",
 ]
 
 # Plain-English hover glossary (Luke 2026-07-28): shown as a cell note on each
@@ -681,15 +694,46 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                 if opened and not opened_at:
                     opened_at = prev[3] or OPENED_AT_UNKNOWN
         measured[key] = (delivered, opened, clicked, opened_at)
+
+    # Outcomes (roadmap block 6 phase B, 2026-09-14): one credit per person
+    # per outcome, to the LAST send before the event, inside that send's
+    # window; and whether that email had been opened first. Before this every
+    # send took credit for anything later (3 emails + 1 join = 3 credits).
+    # Survey responses credit survey emails only. Same rule in the ABC copy.
+    events: dict[str, dict] = {}
+    for s in sends:
+        email = s["email"]
+        if email in events:
+            continue
         c = climber_by_email.get(email)
-        returned = bool(c and any(v > sent for v in c.visit_days))
-        converted = bool(c and getattr(c, "membership_created", "")
-                         and c.membership_created >= sent)
-        redeemed = bool(c and any(v > sent for v in c.discounted_daypass_dates))
-        txs = (tx_by_cid.get(c.climber_id, []) if c else []) \
-            + tx_by_email.get(email, [])
-        purchased = any(t > sent for t in txs)
-        responded = email in resp_by_email and resp_by_email[email] >= sent
+        txs = (tx_by_cid.get(c.climber_id, []) if c else []) + tx_by_email.get(email, [])
+        events[email] = {
+            "returned": list(c.visit_days) if c else [],
+            "converted": ([c.membership_created] if c
+                          and getattr(c, "membership_created", "") else []),
+            "redeemed": list(c.discounted_daypass_dates) if c else [],
+            "purchased": list(txs),
+            "responded": [resp_by_email[email]] if email in resp_by_email else [],
+        }
+
+    def _send_obj(s: dict) -> attribution.Send:
+        _d, o, _c, oa = measured[(s["email"], s["sent"], s["tag"])]
+        return attribution.Send(email=s["email"], sent=s["sent"], tag=s["tag"],
+                                trig=s["trig"], opened=o, opened_at=oa)
+    credits = attribution.credit([_send_obj(s) for s in sends], events)
+    resp_credits = attribution.credit(
+        [_send_obj(s) for s in sends if "survey" in s["tag"]], events)
+    stage("outcomes credited (one per person, last touch, windowed)")
+
+    for s in sends:
+        email, sent = s["email"], s["sent"]
+        key = (email, sent, s["tag"])
+        delivered, opened, clicked, _oa = measured[key]
+        cr = credits[key]
+        returned, ret_opened = cr["returned"], cr["returned_opened"]
+        converted, conv_opened = cr["converted"], cr["converted_opened"]
+        redeemed, purchased = cr["redeemed"], cr["purchased"]
+        responded = (resp_credits.get(key) or {}).get("responded", False)
         tapped = s["tag"] in EMBED_TAGS and email in taps_valid
         for bucket, key in ((by_trig, s["trig"] or s["tag"]), (by_tag, s["tag"])):
             b = bucket[key]
@@ -702,7 +746,9 @@ def collect(client) -> tuple[list[dict], list[dict]]:
             b["redeems"] += redeemed
             b["purchases"] += purchased
             b["returned"] += returned
+            b["ret_opened"] += ret_opened
             b["converted"] += converted
+            b["conv_opened"] += conv_opened
         trig_of_tag[s["tag"]] = s["trig"] or s["tag"]
 
     # zero-rows (Luke 2026-07-28): every ACTIVE automation and every test arm
@@ -717,7 +763,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     def metrics(b: dict) -> dict:
         m = {k: b[k] for k in ("sends", "delivered", "opens", "clicks", "taps",
                                "responses", "redeems", "purchases",
-                               "returned", "converted")}
+                               "returned", "ret_opened", "converted", "conv_opened")}
         zero = b["sends"] == 0
         m["open_pct"] = 0 if zero else _pct(b["opens"], b["delivered"])
         # Chris's Variants!H5 ask (2026-08-06): of the people who opened, how
@@ -834,13 +880,27 @@ def _combined_rows(per_gym: list[list], stamp: str) -> list[list]:
     return out
 
 
+def _data_migrate(row: list, old_header: list | None) -> list:
+    """A Data row read back under an older header (the other gym's cron still
+    on a previous layout, or this one before a redeploy) is re-laid by column
+    NAME into the current DATA_HEADER, blank where a column is new. Rows under
+    the current header pass through. Added 2026-09-14 with the two 'opened
+    first' columns; _normalize_row then rebuilds the numbers and GymOrder."""
+    if old_header and old_header != DATA_HEADER and "Gym" in old_header:
+        vals = dict(zip(old_header, row))
+        return [vals.get(h, "") for h in DATA_HEADER]
+    return list(row)
+
+
 def _merge_data(svc, own_rows: list[dict], stamp: str) -> list[list]:
     """Replace this gym's Data rows, keep every other gym's, recompute the
     'All gyms' per-automation totals, rewrite the tab."""
     got = svc.spreadsheets().values().get(
         spreadsheetId=ALLGYMS_SHEET_ID,
-        range=f"Data!A{D0}:{DATA_LASTCOL}{D1}").execute(num_retries=_NUM_RETRIES).get("values", [])
-    kept = [_normalize_row(row) for row in got
+        range=f"Data!A{D0 - 1}:{_a1col(max(DATA_NCOLS, 26) - 1)}{D1}"
+        ).execute(num_retries=_NUM_RETRIES).get("values", [])
+    old_header = [str(x).strip() for x in (got[0] if got else [])]
+    kept = [_normalize_row(_data_migrate(row, old_header)) for row in got[1:]
             if row and row[0]
             and row[0] not in (GYM, COMBINED, "All gyms")]  # "All gyms" =
     # the pre-2026-07-28 label of the combined rows; drop any leftovers
@@ -1146,17 +1206,22 @@ def _history_totals(auto_rows: list[dict], stamp: str) -> list:
     return [GYM] + [m[k] for k in HISTORY_METRIC_KEYS] + [stamp]
 
 
-def _history_migrate(row: list) -> list:
+def _history_migrate(row: list, old_header: list | None = None) -> list:
     """Bring a row read back from the History tab up to the current layout.
 
     Adding "Clicks per open %" (2026-08-13) inserted a column mid-row. Rows
     written by an earlier build are one cell short, and blindly right-padding
     them would slide Q1 taps under the new header and every metric after it one
-    column left. A short row instead gets a blank inserted AT the new column, so
-    finalized months keep their real numbers and simply read blank for a metric
-    that was never measured. Rows already at full width pass through untouched.
+    column left. Since 2026-09-14 (two "opened first" columns added) the tab's
+    own header row is read back too and each value is placed under the SAME
+    heading it was written under, so finalized months keep their real numbers
+    and simply read blank for a metric that was never measured, wherever new
+    columns land. Without a usable header the older insert-at-cpo rule applies.
     """
     row = list(row)
+    if old_header and old_header != HISTORY_HEADER and "Month" in old_header:
+        vals = dict(zip(old_header, row))
+        return [vals.get(h, "") for h in HISTORY_HEADER]
     if len(row) < HISTORY_NCOLS:
         row.insert(_mi("cpo_pct"), "")
     return row + [""] * (HISTORY_NCOLS - len(row))
@@ -1168,9 +1233,10 @@ def _maintain_history(svc, auto_rows: list[dict], stamp: str) -> None:
     month = datetime.now(timezone.utc).strftime("%Y-%m")
     got = svc.spreadsheets().values().get(
         spreadsheetId=ALLGYMS_SHEET_ID,
-        range=f"History!A2:{_a1col(HISTORY_NCOLS - 1)}1000"
+        range=f"History!A1:{_a1col(max(HISTORY_NCOLS, 26) - 1)}1000"
         ).execute(num_retries=_NUM_RETRIES).get("values", [])
-    rows = [_history_migrate(r) for r in got if r and r[0]]
+    old_header = [str(x).strip() for x in (got[0] if got else [])]
+    rows = [_history_migrate(r, old_header) for r in got[1:] if r and r[0]]
     out = []
     for r in rows:
         m, g = r[0], r[1]
