@@ -861,6 +861,28 @@ def _has_event(events: list | None, kind: str, since: str,
     return False
 
 
+def _first_event_date(events: list | None, kind: str, since: str,
+                      url_markers: tuple = (), campaign_ids: set | None = None) -> str:
+    """The earliest date (YYYY-MM-DD) of an event that _has_event would count
+    with the same arguments, or "" when there is none or the matching events
+    carry no date. Feeds the engagement cache's opened_at (2026-09-14)."""
+    dates: list[str] = []
+    for a in events or []:
+        if a.get("activity_type") != kind:
+            continue
+        when = str(a.get("created_at_timestamp") or a.get("timestamp") or "")[:10]
+        if not when or when < since:
+            continue
+        if url_markers:
+            url = (a.get("link_clicked") or "").lower()
+            if not any(m in url for m in url_markers):
+                continue
+        if campaign_ids is not None and a.get("campaign_id") not in campaign_ids:
+            continue
+        dates.append(when)
+    return min(dates) if dates else ""
+
+
 def build_engagement(ds: Dataset, sent_rows: list | None,
                      activity_by_email: dict | None = None,
                      client: ClientConfig | None = None,

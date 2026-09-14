@@ -93,8 +93,14 @@ _NUM_RETRIES = 5
 # see drive_io), so the file is created by hand once and its id passed in here.
 ENGAGEMENT_CACHE_DRIVE_ID = os.getenv("ENGAGEMENT_CACHE_DRIVE_ID", "").strip()
 ENGAGEMENT_FRESH_DAYS = int(os.getenv("ENGAGEMENT_FRESH_DAYS", "14") or 14)
+# opened_at (2026-09-14, Luke's decision 2 after Chris's "last email opened"
+# ask): the date of the first open pinned to that send, "" when never opened,
+# "unknown" when the send was opened but the ESP no longer returns the event.
+# A row that is opened but undated is re-fetched ONCE to fill the date; a
+# frozen flag is never downgraded by a later feed. Same rule in the ABC copy.
 CACHE_FIELDS = ["email", "sent_date", "tag", "delivered", "opened", "clicked",
-                "frozen_at"]
+                "opened_at", "frozen_at"]
+OPENED_AT_UNKNOWN = "unknown"
 
 # trigger_name -> display label (falls back to the raw name)
 FUNNEL_LABELS = {
@@ -470,7 +476,7 @@ def _cache_path() -> Path:
 
 
 def _load_engagement_cache() -> dict[tuple, tuple]:
-    """(email, sent_date, tag) -> (delivered, opened, clicked).
+    """(email, sent_date, tag) -> (delivered, opened, clicked, opened_at).
 
     Fails soft to {} at every step: an unreadable cache costs a slower run that
     re-measures everything, never a wrong number."""
@@ -493,7 +499,8 @@ def _load_engagement_cache() -> dict[tuple, tuple]:
                 if not all(key):
                     continue
                 out[key] = (r.get("delivered") == "1", r.get("opened") == "1",
-                            r.get("clicked") == "1")
+                            r.get("clicked") == "1",
+                            (r.get("opened_at") or "").strip()[:10])
     except (OSError, csv.Error) as exc:
         print(f"  allgyms: engagement cache unreadable ({exc}); "
               f"re-measuring every send this run")
@@ -511,10 +518,11 @@ def _save_engagement_cache(measured: dict[tuple, tuple], stamp: str) -> None:
         with open(_cache_path(), "w", encoding="utf-8", newline="") as f:
             w = csv.DictWriter(f, fieldnames=CACHE_FIELDS)
             w.writeheader()
-            for (email, sent, tag), (d, o, c) in sorted(measured.items()):
+            for (email, sent, tag), (d, o, c, oa) in sorted(measured.items()):
                 w.writerow({"email": email, "sent_date": sent, "tag": tag,
                             "delivered": int(d), "opened": int(o),
-                            "clicked": int(c), "frozen_at": stamp})
+                            "clicked": int(c), "opened_at": oa or "",
+                            "frozen_at": stamp})
         drive_io.push(str(_cache_path()), file_id=ENGAGEMENT_CACHE_DRIVE_ID)
     except Exception as exc:
         print(f"  allgyms: engagement cache push failed ({exc}); "
@@ -576,9 +584,13 @@ def collect(client) -> tuple[list[dict], list[dict]]:
 
     def _is_fresh(s: dict) -> bool:
         """True = measure live this run. Sends inside the window always are;
-        older ones only when the cache has no answer for them yet."""
-        return (s["sent"] >= fresh_from
-                or (s["email"], s["sent"], s["tag"]) not in cache)
+        older ones when the cache has no answer for them yet, or holds an
+        open with no date yet (one backfill fetch, 2026-09-14; the merge
+        below writes "unknown" if the event is gone, so never twice)."""
+        if s["sent"] >= fresh_from:
+            return True
+        hit = cache.get((s["email"], s["sent"], s["tag"]))
+        return hit is None or bool(hit[1] and not hit[3])
 
     need = [s for s in sends if _is_fresh(s)]
     emails = sorted({s["email"] for s in need})
@@ -645,10 +657,11 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     for s in sends:
         email, sent = s["email"], s["sent"]
         key = (email, sent, s["tag"])
-        hit = cache.get(key) if not _is_fresh(s) else None
+        prev = cache.get(key)
+        hit = prev if not _is_fresh(s) else None
         if hit is not None:
             # settled send: keep the delivered/opened/clicked already measured
-            delivered, opened, clicked = hit
+            delivered, opened, clicked, opened_at = hit
         else:
             ev = feeds.get(email) or []
             sent_ids = engine._sent_campaign_ids(ev, sent, journey_ids)
@@ -656,7 +669,18 @@ def collect(client) -> tuple[list[dict], list[dict]]:
             opened = delivered and engine._has_event(
                 ev, "open", sent, campaign_ids=sent_ids)
             clicked = engine._has_event(ev, "click", sent, click_markers)
-        measured[key] = (delivered, opened, clicked)
+            opened_at = engine._first_event_date(
+                ev, "open", sent, campaign_ids=sent_ids) if opened else ""
+            if prev is not None:
+                # never downgrade a frozen flag: a feed that no longer shows an
+                # event (Mailchimp trims old activity, a partial answer) must not
+                # erase a measured open; and a backfill fetch that finds no date
+                # writes "unknown" so the row is not asked again
+                delivered, opened, clicked = (delivered or prev[0],
+                                              opened or prev[1], clicked or prev[2])
+                if opened and not opened_at:
+                    opened_at = prev[3] or OPENED_AT_UNKNOWN
+        measured[key] = (delivered, opened, clicked, opened_at)
         c = climber_by_email.get(email)
         returned = bool(c and any(v > sent for v in c.visit_days))
         converted = bool(c and getattr(c, "membership_created", "")
