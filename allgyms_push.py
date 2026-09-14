@@ -49,7 +49,7 @@ sys.path.insert(0, str(BASE))
 
 from nudge_tool import config, drive_io, engine, ingest, survey
 from nudge_tool.mailchimp_client import MailchimpClient
-from nudge_tool import attribution
+from nudge_tool import attribution, experiments
 from nudge_tool.stage import reclaim, stage as _stage
 
 
@@ -566,6 +566,12 @@ def _pct(a: int, b: int):
     return round(a / b, 4) if b else ""
 
 
+# Per-send facts from the last collect(): email, sent, tag, var_tag, the
+# measured flags and the attribution credits. Read by the Experiments v2
+# writer (block 6, 2026-09-14) so it can count PEOPLE per arm.
+SEND_RECORDS: list[dict] = []
+
+
 def collect(client) -> tuple[list[dict], list[dict]]:
     """This gym's stats -> (automation rows, variant rows), one dict each:
     {gym, name, section, tag, level, m: {metric_key: value}}"""
@@ -667,6 +673,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     by_tag: dict[str, dict] = defaultdict(lambda: defaultdict(int))
     trig_of_tag: dict[str, str] = {}
     measured: dict[tuple, tuple] = {}  # what this run knows -> the next cache
+    records: list[dict] = []  # per-send facts for the Experiments v2 writer
     for s in sends:
         email, sent = s["email"], s["sent"]
         key = (email, sent, s["tag"])
@@ -735,6 +742,10 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         redeemed, purchased = cr["redeemed"], cr["purchased"]
         responded = (resp_credits.get(key) or {}).get("responded", False)
         tapped = s["tag"] in EMBED_TAGS and email in taps_valid
+        records.append({"email": email, "sent": sent, "tag": s["tag"],
+                        "trig": s["trig"] or s["tag"], "var_tag": s["tag"],
+                        "delivered": delivered, "opened": opened, "clicked": clicked,
+                        "opened_at": _oa, "credits": cr, "responded": responded})
         for bucket, key in ((by_trig, s["trig"] or s["tag"]), (by_tag, s["tag"])):
             b = bucket[key]
             b["sends"] += 1
@@ -795,6 +806,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     _save_engagement_cache(measured, _stamp())
     stage(f"collect done ({len(auto_rows)} automation rows, "
           f"{len(var_rows)} variant rows, {len(measured)} sends cached)")
+    SEND_RECORDS[:] = records
     return auto_rows, var_rows
 
 
@@ -1407,6 +1419,106 @@ def _update_experiments(svc, tests: dict, var_rows: list[dict]) -> None:
           f"{len(notes)} skipped with notes")
 
 
+def _update_experiments_v2(svc, client, records: list[dict], var_rows: list[dict],
+                           sheet_id: int | None) -> None:
+    """Experiments v2 (roadmap block 6, 2026-09-14): the gym's experiments.json
+    drives the rows. Each entry is written DOWN into the row whose Experiment
+    ID equals its sheet_id (appended if missing): the descriptive columns,
+    Sample Size A/B = MATURE people per arm, Result A/B = the primary outcome
+    rate per person (windowed, last touch), plus the V2 columns to the right
+    of Chris's own (added to the header once, with hover notes). Rows the
+    registry does not name are never touched. With no registry entries for
+    this gym the S40 dropdown-text auto-fill above runs instead, so nothing
+    regresses. Fail-soft like v1: the caller wraps this in try/except."""
+    registry, notes = experiments.load_registry(client.client_dir)
+    mine = [e for e in registry if e.get("gym") == GYM and e.get("active", True)]
+    for n in notes:
+        print(f"  allgyms: experiments {n}")
+    if not mine:
+        _update_experiments(svc, experiment_tests(client), var_rows)
+        return
+    got = svc.spreadsheets().values().get(
+        spreadsheetId=ALLGYMS_SHEET_ID,
+        range=f"{EXP_TAB}!A1:AZ1000").execute(num_retries=_NUM_RETRIES).get("values", [])
+    header = [str(h).strip() for h in (got[0] if got else [])]
+    rows = got[1:]
+    if "Experiment ID" not in header:
+        print("  allgyms: experiments v2 skipped (no 'Experiment ID' header)")
+        return
+    missing = [h for h in experiments.V2_HEADERS if h not in header]
+    if missing:
+        header = header + missing
+        if sheet_id is not None:
+            meta = svc.spreadsheets().get(
+                spreadsheetId=ALLGYMS_SHEET_ID,
+                fields="sheets(properties(sheetId,gridProperties(columnCount)))"
+                ).execute(num_retries=_NUM_RETRIES)
+            ncols = next((s["properties"]["gridProperties"]["columnCount"]
+                          for s in meta.get("sheets", [])
+                          if s["properties"]["sheetId"] == sheet_id), None)
+            if ncols is not None and ncols < len(header):
+                svc.spreadsheets().batchUpdate(
+                    spreadsheetId=ALLGYMS_SHEET_ID,
+                    body={"requests": [{"appendDimension": {
+                        "sheetId": sheet_id, "dimension": "COLUMNS",
+                        "length": len(header) - ncols}}]}).execute(num_retries=_NUM_RETRIES)
+        svc.spreadsheets().values().update(
+            spreadsheetId=ALLGYMS_SHEET_ID, range=f"{EXP_TAB}!A1",
+            valueInputOption="RAW", body={"values": [header]}).execute(num_retries=_NUM_RETRIES)
+        print(f"  allgyms: experiments v2 header gained {len(missing)} column(s)")
+    col = {h: i for i, h in enumerate(header)}
+
+    def cell(row: list, name: str) -> str:
+        c = col.get(name)
+        return row[c].strip() if c is not None and len(row) > c and row[c] else ""
+
+    by_id: dict[str, int] = {}
+    used = 1
+    for i, row in enumerate(rows):
+        v = cell(row, "Experiment ID")
+        if v and v not in by_id:
+            by_id[v] = i + 2
+        if v or cell(row, "Send It Test"):
+            used = i + 2
+    next_free = used + 1
+    today = datetime.now(timezone.utc).date()
+    data, filled = [], 0
+    for exp in mine:
+        res = experiments.evaluate(exp, records, today)
+        notes += res["notes"]
+        rn = by_id.get(exp["sheet_id"])
+        cells = dict(res["cells"])
+        if rn is None:
+            rn = next_free
+            next_free += 1
+            cells["Experiment ID"] = exp["sheet_id"]
+            if exp.get("started"):
+                cells["Date"] = exp["started"]
+        for name, v in cells.items():
+            c = col.get(name)
+            if c is not None:
+                data.append({"range": f"{EXP_TAB}!{_a1col(c)}{rn}", "values": [[v]]})
+        filled += 1
+        print(f"  allgyms: experiments {exp['sheet_id']} ({exp['exp_id']}): "
+              f"{res['health']}; {res['result']}; {res['cells']['Progress']}")
+    if data:
+        svc.spreadsheets().values().batchUpdate(
+            spreadsheetId=ALLGYMS_SHEET_ID,
+            body={"valueInputOption": "RAW", "data": data}).execute(num_retries=_NUM_RETRIES)
+    if sheet_id is not None:
+        note_reqs = [{"updateCells": {
+            "rows": [{"values": [{"note": experiments.V2_NOTES[h]}]}], "fields": "note",
+            "start": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": col[h]}}}
+            for h in experiments.V2_HEADERS if h in col]
+        if note_reqs:
+            svc.spreadsheets().batchUpdate(
+                spreadsheetId=ALLGYMS_SHEET_ID,
+                body={"requests": note_reqs}).execute(num_retries=_NUM_RETRIES)
+    for n in notes:
+        print(f"  allgyms: experiments {n}")
+    print(f"  allgyms: experiments v2: {filled} row(s) written from the registry")
+
+
 def push(slug: str = "shift") -> None:
     client = config.load_client(slug)
     auto_rows, var_rows = collect(client)
@@ -1509,7 +1621,8 @@ def push(slug: str = "shift") -> None:
     reclaim()
 
     try:
-        _update_experiments(svc, experiment_tests(client), var_rows)
+        _update_experiments_v2(svc, client, SEND_RECORDS, var_rows,
+                               sheet_ids.get(EXP_TAB))
         stage("experiments auto-fill done")
     except Exception:
         print("  allgyms: experiments auto-fill FAILED (stats push "

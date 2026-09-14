@@ -1,0 +1,59 @@
+{
+  "_note": "Experiments registry (roadmap block 6, 2026-09-14). Luke owns this file; the 11 AM cron reads it as the truth and writes each entry DOWN into the row of the All Gyms sheet's Experiments tab whose Experiment ID equals sheet_id (a missing row is appended). Chris reads, he does not type. arms = the outreach-log tags that put a send in each arm (SHIFT's Mailchimp journey tags). primary_outcome is one of opened_7d, clicked_7d, responded_14d, returned_30d, converted_60d, redeemed_30d (default returned_30d). baseline = the rate expected without a change, mwe = the smallest improvement worth acting on (fraction, default 0.05). started = the date the test went live, for the record. Set active to false to freeze a row.",
+  "experiments": [
+    {
+      "exp_id": "shift_survey_subject_01",
+      "sheet_id": "E-001",
+      "name": "SHIFT - survey subject (A vs B)",
+      "gym": "SHIFT",
+      "audience": "Day Pass FTV",
+      "type": "FTV survey email",
+      "categories": ["subject_style"],
+      "variant_a": "Thanks for climbing with us!",
+      "variant_b": "How was your first visit to Shift?",
+      "arms": {
+        "A": ["FTV_survey_subject_a", "FTV_survey_subject_a_embed"],
+        "B": ["FTV_survey_subject_b", "FTV_survey_subject_b_embed"]
+      },
+      "primary_outcome": "opened_7d",
+      "baseline": 0.30,
+      "mwe": 0.05,
+      "started": "2026-07-03",
+      "active": true
+    },
+    {
+      "exp_id": "shift_offer_subject_01",
+      "sheet_id": "E-002",
+      "name": "SHIFT - offer subject (A vs B)",
+      "gym": "SHIFT",
+      "audience": "Day Pass FTV",
+      "type": "Follow-up email",
+      "categories": ["subject_style"],
+      "variant_a": "A little something to get you back on the wall",
+      "variant_b": "Your Next Climb Is 50% Off",
+      "arms": {"A": ["FTV_reengage_subject_a"], "B": ["FTV_reengage_subject_b"]},
+      "primary_outcome": "opened_7d",
+      "baseline": 0.32,
+      "mwe": 0.05,
+      "started": "2026-07-03",
+      "active": true
+    },
+    {
+      "exp_id": "shift_membership_vs_trial_01",
+      "sheet_id": "E-005",
+      "name": "SHIFT - membership offer (membership vs 2-week trial)",
+      "gym": "SHIFT",
+      "audience": "Day Pass FTV",
+      "type": "Offer",
+      "categories": ["offer"],
+      "variant_a": "Membership offer (Lite $38 / Full $69)",
+      "variant_b": "2-Week Trial $29",
+      "arms": {"A": ["send_it_membership_offer_a"], "B": ["send_it_trial_offer"]},
+      "primary_outcome": "converted_60d",
+      "baseline": 0.09,
+      "mwe": 0.05,
+      "started": "2026-08-13",
+      "active": true
+    }
+  ]
+}
