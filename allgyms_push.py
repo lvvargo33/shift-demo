@@ -242,14 +242,16 @@ METRIC_HEADERS = [
     "Q1 taps",
     "Responses", "Response %", "Offer redemptions", "Purchases after send",
     "Returned after send", "Return %", "Returned, opened first",
+    "Return % of readers",
     "Converted after send", "Conversion %", "Converted, opened first",
+    "Conversion % of readers",
     "Note"]
 METRIC_KEYS = [
     "sends", "delivered", "opens", "open_pct", "clicks", "cpo_pct",
     "taps",
     "responses", "resp_pct", "redeems", "purchases",
-    "returned", "return_pct", "ret_opened",
-    "converted", "conv_pct", "conv_opened", "note"]
+    "returned", "return_pct", "ret_opened", "ret_opened_pct",
+    "converted", "conv_pct", "conv_opened", "conv_opened_pct", "note"]
 
 # Data tab layout: row 1 = do-not-edit note, row 2 = header, rows 3+ = data.
 # Cols: A Gym, B Name, then one column per METRIC_HEADERS entry, then
@@ -303,6 +305,10 @@ _RATIO_KEYS = {
     "resp_pct": ("responses", "sends"),
     "return_pct": ("returned", "sends"),
     "conv_pct": ("converted", "sends"),
+    # Chris's ask 2026-09-15: of the people who READ the email, how many came
+    # back / joined with it as their last touch ("opened first" over Opens)
+    "ret_opened_pct": ("ret_opened", "opens"),
+    "conv_opened_pct": ("conv_opened", "opens"),
 }
 _COUNT_IDX = [_mi(k) for k in _COUNT_KEYS]
 _PCT_IDX = [_mi(k) for k in _RATIO_KEYS]
@@ -358,6 +364,11 @@ FOOTNOTES = [
     "months finalized before September 2026 read higher than the same months "
     "would today. 'Opened first' = how many of those people had opened that "
     "email before they acted (a few opens are automatic, see above).",
+    "'% of readers' (since 2026-09-15): of the people who OPENED this email, "
+    "how many came back or joined with it as their last email ('opened "
+    "first' divided by Opens). Blank when nobody has opened yet. Automatic "
+    "opens (see above) sit in the bottom of this fraction, so it reads a "
+    "little low, equally for every version.",
 ]
 
 # Plain-English hover glossary (Luke 2026-07-28): shown as a cell note on each
@@ -784,6 +795,10 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         m["resp_pct"] = 0 if zero else _pct(b["responses"], b["sends"])
         m["return_pct"] = 0 if zero else _pct(b["returned"], b["sends"])
         m["conv_pct"] = 0 if zero else _pct(b["converted"], b["sends"])
+        # Chris 2026-09-15: same idea as Clicks per open, for outcomes. Blank
+        # (not 0) when nobody opened, so an unopened row can't read as 0%.
+        m["ret_opened_pct"] = 0 if zero else _pct(b["ret_opened"], b["opens"])
+        m["conv_opened_pct"] = 0 if zero else _pct(b["conv_opened"], b["opens"])
         m["note"] = ("no sends yet" if zero else
                      f"small sample (under {SMALL_N}), directional only"
                      if b["sends"] < SMALL_N else "")
