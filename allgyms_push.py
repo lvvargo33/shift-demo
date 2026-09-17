@@ -99,8 +99,14 @@ ENGAGEMENT_FRESH_DAYS = int(os.getenv("ENGAGEMENT_FRESH_DAYS", "14") or 14)
 # "unknown" when the send was opened but the ESP no longer returns the event.
 # A row that is opened but undated is re-fetched ONCE to fill the date; a
 # frozen flag is never downgraded by a later feed. Same rule in the ABC copy.
+#
+# open_kind (2026-09-17, shared cache layout with the ABC copy): at ABC it
+# says whether an open was the person's own mail app ("real") or only a mail
+# proxy such as Apple Mail privacy protection ("proxy"). SHIFT ALWAYS WRITES
+# IT BLANK: Mailchimp's activity feed counts both as a plain open and does not
+# say which kind it was. Nothing here reads it.
 CACHE_FIELDS = ["email", "sent_date", "tag", "delivered", "opened", "clicked",
-                "opened_at", "frozen_at"]
+                "opened_at", "open_kind", "frozen_at"]
 OPENED_AT_UNKNOWN = "unknown"
 
 # trigger_name -> display label (falls back to the raw name)
@@ -328,8 +334,10 @@ FOOTNOTES = [
     "Why they can differ from Beta/RGP screens too: those systems count all "
     "visitors and sales all day. This sheet only looks at people we emailed, "
     "and only at what they did after the email.",
-    "Apple devices auto-open emails, which inflates open rates a little, "
-    "equally for every version, so comparisons stay fair.",
+    "Opens include Apple Mail's automatic opens, at both gyms: Apple loads "
+    "every email for its users whether or not they read it. So an open is "
+    "not proof of reading. It lifts open rates equally for every version, so "
+    "comparisons stay fair.",
     "Offer redemptions: SHIFT counts a day pass bought at 50% or more off "
     "after the offer email (Beta never records which coupon was used). ABC "
     "counts the 'email discount' product (or an under-$8.25 day pass) on RGP "
@@ -546,7 +554,7 @@ def _save_engagement_cache(measured: dict[tuple, tuple], stamp: str) -> None:
                 w.writerow({"email": email, "sent_date": sent, "tag": tag,
                             "delivered": int(d), "opened": int(o),
                             "clicked": int(c), "opened_at": oa or "",
-                            "frozen_at": stamp})
+                            "open_kind": "", "frozen_at": stamp})
         drive_io.push(str(_cache_path()), file_id=ENGAGEMENT_CACHE_DRIVE_ID)
     except Exception as exc:
         print(f"  allgyms: engagement cache push failed ({exc}); "
