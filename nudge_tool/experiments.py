@@ -30,12 +30,20 @@ import math
 from datetime import date, timedelta
 from pathlib import Path
 
+from nudge_tool.attribution import WINDOWS as CREDIT_WINDOWS
+
 # outcome key -> (plain label, base flag on the send record, window days)
+# converted_30d (2026-09-18, Tasks tab step 1.2, Chris's 9/16 comment): the
+# membership-vs-trial test is judged on joining within 30 days of the
+# membership offer email, not 60. The credit on the record is still windowed
+# at attribution.WINDOWS (60 days for a join), so a tighter outcome also
+# checks the event date carried on the record (`converted_at`).
 OUTCOMES = {
     "opened_7d": ("Opened the email within 7 days", "opened", 7),
     "clicked_7d": ("Clicked a link within 7 days", "clicked", 7),
     "responded_14d": ("Answered the survey within 14 days", "responded", 14),
     "returned_30d": ("Came back within 30 days", "returned", 30),
+    "converted_30d": ("Joined within 30 days", "converted", 30),
     "converted_60d": ("Joined within 60 days", "converted", 60),
     "redeemed_30d": ("Used the offer within 30 days", "redeemed", 30),
 }
@@ -215,9 +223,18 @@ def person_success(recs: list[dict], outcome: str) -> tuple[bool, bool | None]:
     if base == "clicked":
         return any(bool(r.get("clicked")) for r in recs), None
     hit = [r for r in recs if (r.get("credits") or {}).get(base)]
+    if window < CREDIT_WINDOWS.get(base, window):
+        # a yardstick tighter than the credit window needs the event date on
+        # the record (`<base>_at`, written by collect()); no date = not inside
+        hit = [r for r in hit if _inside(r.get(base + "_at", ""), r["sent"], window)]
     if not hit:
         return False, False
     return True, any((r.get("credits") or {}).get(base + "_opened") for r in hit)
+
+
+def _inside(event_at: str, sent: str, window: int) -> bool:
+    ea, sd = _d(event_at), _d(sent)
+    return ea is not None and sd is not None and 0 <= (ea - sd).days <= window
 
 
 def _first_sent(recs: list[dict]) -> str:

@@ -764,10 +764,14 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         redeemed, purchased = cr["redeemed"], cr["purchased"]
         responded = (resp_credits.get(key) or {}).get("responded", False)
         tapped = s["tag"] in EMBED_TAGS and email in taps_valid
+        # the join date rides along so a yardstick tighter than the 60-day
+        # credit window (E-005 at 30 days, step 1.2, 2026-09-18) can check it
+        _ev_c = (events.get(email) or {}).get("converted") or []
         records.append({"email": email, "sent": sent, "tag": s["tag"],
                         "trig": s["trig"] or s["tag"], "var_tag": s["tag"],
                         "delivered": delivered, "opened": opened, "clicked": clicked,
                         "opened_at": _oa, "credits": cr, "responded": responded,
+                        "converted_at": _ev_c[0] if _ev_c else "",
                         # History recount (2026-09-18): every SHIFT send is
                         # first-timer outreach (no member survey here yet)
                         "tapped": tapped, "ftv": True})
