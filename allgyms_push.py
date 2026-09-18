@@ -9,8 +9,9 @@ Tabs written:
               emails / Blocker nudges / Surveys.
   Variants  - same shape, one row per exact A/B tag (subject arms, embed
               arms), same gym filter.
-  History   - one row per gym per month (cumulative snapshot); the current
-              month rides as "(so far)" and is finalized on month rollover.
+  History   - one row per gym per month: emails sent that month beside the
+              running total, every month recounted on every run (2026-09-18);
+              the current month rides as "(so far)".
 
 Run locally:  py allgyms_push.py            (needs GSHEETS_SA_KEY/_B64/_JSON +
                                              Mailchimp creds from .env)
@@ -368,10 +369,11 @@ FOOTNOTES = [
     "email they got before they acted, and only if they acted within that "
     "email's window (came back: 30 days, joined: 60, redeemed: 30, bought: 30, "
     "answered the survey: 14, survey emails only). Before this date every "
-    "email a person got took credit for anything they did later, so History "
-    "months finalized before September 2026 read higher than the same months "
-    "would today. 'Opened first' = how many of those people had opened that "
-    "email before they acted (a few opens are automatic, see above).",
+    "email a person got took credit for anything they did later. Since "
+    "2026-09-18 the History tab is recounted this way on every run, so every "
+    "month back to July 2026 uses the same counting. 'Opened first' = how "
+    "many of those people had opened that email before they acted (a few "
+    "opens are automatic, see above).",
     "'% of readers' (since 2026-09-15): of the people who OPENED this email, "
     "how many came back or joined with it as their last email ('opened "
     "first' divided by Opens). Blank when nobody has opened yet. Automatic "
@@ -764,7 +766,10 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         records.append({"email": email, "sent": sent, "tag": s["tag"],
                         "trig": s["trig"] or s["tag"], "var_tag": s["tag"],
                         "delivered": delivered, "opened": opened, "clicked": clicked,
-                        "opened_at": _oa, "credits": cr, "responded": responded})
+                        "opened_at": _oa, "credits": cr, "responded": responded,
+                        # History recount (2026-09-18): every SHIFT send is
+                        # first-timer outreach (no member survey here yet)
+                        "tapped": tapped, "ftv": True})
         for bucket, key in ((by_trig, s["trig"] or s["tag"]), (by_tag, s["tag"])):
             b = bucket[key]
             b["sends"] += 1
@@ -1215,79 +1220,161 @@ def _fmt_requests(sheet_id: int, meta: dict, existing_cf: int) -> list:
     return reqs
 
 
-# History carries every metric column except Note; its rows are
-# [Month, Gym] + metrics, the same 2-column lead as a Data row, so _mi()
-# indexes both.
+# History (recounted every run since 2026-09-18, Tasks tab step 1.1, Chris's
+# OK 2026-09-17): one row per gym per month of SENDING, carrying two blocks of
+# the same metric columns. "This month" = the emails SENT that month and what
+# they earned, counted exactly as the Data tab counts (each person once per
+# outcome, credited to the last email before the event, inside that email's
+# window, plus "opened first"). "Running total" = everything sent from the
+# first month through that month, counted the same way. Every month is rebuilt
+# from the per-send records on every run, so a past month picks up late
+# outcomes inside its windows and any counting fix (the 2026-09-17 Apple Mail
+# opens fix corrected ABC's July and August opens this way). Before 2026-09-18
+# a month was one cumulative snapshot frozen on its last run under whatever
+# counting rule was live that day, so July and August read higher than they
+# do now. The metric columns keep the Data row's order, so _mi() - 2 indexes
+# a block.
 HISTORY_METRIC_KEYS = [k for k in METRIC_KEYS if k != "note"]
-HISTORY_HEADER = (["Month", "Gym"] + METRIC_HEADERS[:-1] + ["Updated"])
+_HIST_HEADERS = METRIC_HEADERS[:-1]
+HIST_MONTH_PREFIX, HIST_TOTAL_PREFIX = "This month: ", "Running total: "
+HISTORY_HEADER = (["Month", "Gym"]
+                  + [HIST_MONTH_PREFIX + h for h in _HIST_HEADERS]
+                  + [HIST_TOTAL_PREFIX + h for h in _HIST_HEADERS]
+                  + ["Updated"])
 HISTORY_NCOLS = len(HISTORY_HEADER)
+_HIST_BLOCK = len(HISTORY_METRIC_KEYS)  # metric columns per block
+_HIST_M0 = 2                             # first "This month" column (0-based)
+_HIST_T0 = _HIST_M0 + _HIST_BLOCK        # first "Running total" column
+_HIST_LASTCOL = _a1col(max(HISTORY_NCOLS, 26) - 1)
+HISTORY_NOTES = {
+    0: ("One row per gym per month. Every row is rebuilt on each run from the "
+        "emails sent, so a month's numbers can still move until its outcome "
+        "windows close (30 days for returns and redemptions, 60 for joins). "
+        "The current month is marked '(so far)'. Before 2026-09-18 each row "
+        "was a frozen snapshot of the running total under the counting rule "
+        "of that day."),
+    _HIST_M0: ("This month = only the emails SENT in this month, and what those "
+               "emails earned. Each person counts once per outcome, credited to "
+               "the last email they got before they acted, inside that email's "
+               "window (the Dashboard footnotes explain the windows)."),
+    _HIST_T0: ("Running total = everything sent from the first month through "
+               "this month, counted the same way. The current month's running "
+               "total is the Dashboard's 'All' total for this gym."),
+}
 
 
-def _history_totals(auto_rows: list[dict], stamp: str) -> list:
-    t = defaultdict(int)
-    deliv_known = False
-    for r in auto_rows:
-        for k in _COUNT_KEYS:
-            v = r["m"][k]
-            if isinstance(v, int):
-                t[k] += v
-                if k == "delivered":
-                    deliv_known = True
+def _history_metrics(t: dict) -> list:
+    """One History block from summed counts, with the Data row's ratio rules:
+    Delivered blank (unknown) when nothing was tracked, Open % over delivered
+    when it is known else over sends, a ratio blank when its denominator is 0,
+    and plain 0s on a month with no sends."""
+    zero = t["sends"] == 0
     m = dict(t)
-    m["delivered"] = t["delivered"] if deliv_known else ""
-    open_den = t["delivered"] if deliv_known else t["sends"]
+    m["delivered"] = 0 if zero else (t["delivered"] or "")
+    open_den = t["delivered"] or t["sends"]
     for key, (num, den) in _RATIO_KEYS.items():
-        m[key] = _pct(t[num], open_den if key == "open_pct" else t[den])
-    return [GYM] + [m[k] for k in HISTORY_METRIC_KEYS] + [stamp]
+        m[key] = 0 if zero else _pct(t[num], open_den if key == "open_pct"
+                                     else t[den])
+    return [m[k] for k in HISTORY_METRIC_KEYS]
+
+
+def _months_through(first: str, last: str) -> list[str]:
+    """Every YYYY-MM from first to last inclusive (empty months included, so
+    a quiet month shows as a row of zeros rather than vanishing)."""
+    y, mo = int(first[:4]), int(first[5:7])
+    out = []
+    while True:
+        cur = f"{y:04d}-{mo:02d}"
+        out.append(cur)
+        if cur >= last:
+            return out
+        y, mo = (y + 1, 1) if mo == 12 else (y, mo + 1)
+
+
+def _history_rows(records: list[dict], stamp: str,
+                  month_now: str | None = None) -> list[list]:
+    """This gym's History rows from collect()'s per-send records (SEND_RECORDS):
+    one row per month from the first send through the current month, the
+    current one labelled '(so far)'. A member-survey send (ftv False) counts on
+    the send / delivered / open / click / response columns only, as its Data
+    row does; the first-timer outcomes are blank there and are not summed."""
+    month_now = month_now or datetime.now(timezone.utc).strftime("%Y-%m")
+    by_month: dict[str, dict] = defaultdict(lambda: defaultdict(int))
+    for r in records:
+        b = by_month[(r["sent"] or "")[:7]]
+        cr = r.get("credits") or {}
+        b["sends"] += 1
+        b["delivered"] += bool(r.get("delivered"))
+        b["opens"] += bool(r.get("opened"))
+        b["clicks"] += bool(r.get("clicked"))
+        b["taps"] += bool(r.get("tapped"))
+        b["responses"] += bool(r.get("responded"))
+        if r.get("ftv", True):
+            b["redeems"] += bool(cr.get("redeemed"))
+            b["purchases"] += bool(cr.get("purchased"))
+            b["returned"] += bool(cr.get("returned"))
+            b["ret_opened"] += bool(cr.get("returned_opened"))
+            b["converted"] += bool(cr.get("converted"))
+            b["conv_opened"] += bool(cr.get("converted_opened"))
+    if not by_month:
+        return []
+    months = sorted(by_month)
+    running: dict[str, int] = defaultdict(int)
+    out = []
+    for m in _months_through(months[0], max(month_now, months[-1])):
+        b = by_month.get(m) or {}
+        this = {k: b.get(k, 0) for k in _COUNT_KEYS}
+        for k in _COUNT_KEYS:
+            running[k] += this[k]
+        label = f"{m} (so far)" if m == month_now else m
+        out.append([label, GYM] + _history_metrics(this)
+                   + _history_metrics(dict(running)) + [stamp])
+    return out
 
 
 def _history_migrate(row: list, old_header: list | None = None) -> list:
     """Bring a row read back from the History tab up to the current layout.
 
-    Adding "Clicks per open %" (2026-08-13) inserted a column mid-row. Rows
-    written by an earlier build are one cell short, and blindly right-padding
-    them would slide Q1 taps under the new header and every metric after it one
-    column left. Since 2026-09-14 (two "opened first" columns added) the tab's
-    own header row is read back too and each value is placed under the SAME
-    heading it was written under, so finalized months keep their real numbers
-    and simply read blank for a metric that was never measured, wherever new
-    columns land. Without a usable header the older insert-at-cpo rule applies.
+    Since 2026-09-14 the tab's own header row is read back and each value is
+    placed under the SAME heading it was written under, so the other gym's
+    rows keep their numbers wherever new columns land. A row written before
+    2026-09-18 was one cumulative snapshot under plain headings ("Sends"): it
+    belongs in the Running total block, and its This month block reads blank
+    until that gym's cron recounts it (both gyms deploy the same morning).
+    Without a usable header the row is right-padded.
     """
     row = list(row)
     if old_header and old_header != HISTORY_HEADER and "Month" in old_header:
         vals = dict(zip(old_header, row))
-        return [vals.get(h, "") for h in HISTORY_HEADER]
-    if len(row) < HISTORY_NCOLS:
-        row.insert(_mi("cpo_pct"), "")
+        out = []
+        for h in HISTORY_HEADER:
+            v = vals.get(h, "")
+            if v == "" and h.startswith(HIST_TOTAL_PREFIX):
+                v = vals.get(h[len(HIST_TOTAL_PREFIX):], "")
+            out.append(v)
+        return out
     return row + [""] * (HISTORY_NCOLS - len(row))
 
 
-def _maintain_history(svc, auto_rows: list[dict], stamp: str) -> None:
-    """One row per gym per month. The current month rides as '(so far)' and is
-    finalized (label loses the suffix) on the first run of the next month."""
+def _maintain_history(svc, records: list[dict], stamp: str) -> None:
+    """Rewrite this gym's rows (every month, recounted from the per-send
+    records) and keep the other gym's rows as they are. Values are read back
+    UNFORMATTED so the other gym's numbers are rewritten as numbers, not as
+    the '38%' text a formatted read produced before (2026-09-13 finding)."""
     month = datetime.now(timezone.utc).strftime("%Y-%m")
     got = svc.spreadsheets().values().get(
         spreadsheetId=ALLGYMS_SHEET_ID,
-        range=f"History!A1:{_a1col(max(HISTORY_NCOLS, 26) - 1)}1000"
+        range=f"History!A1:{_HIST_LASTCOL}1000",
+        valueRenderOption="UNFORMATTED_VALUE",
         ).execute(num_retries=_NUM_RETRIES).get("values", [])
     old_header = [str(x).strip() for x in (got[0] if got else [])]
-    rows = [_history_migrate(r, old_header) for r in got[1:] if r and r[0]]
-    out = []
-    for r in rows:
-        m, g = r[0], r[1]
-        if g == GYM and m.endswith("(so far)"):
-            base = m.split(" ")[0]
-            if base == month:
-                continue  # replaced by the fresh stub below
-            final_exists = any(x[0] == base and x[1] == GYM for x in rows)
-            if not final_exists:
-                out.append([base] + r[1:])  # month rolled over: finalize
-            continue
-        out.append(r)
-    out.append([f"{month} (so far)"] + _history_totals(auto_rows, stamp))
-    out.sort(key=lambda r: (r[0].split(" ")[0], r[1]))
+    kept = [_history_migrate(r, old_header) for r in got[1:]
+            if r and r[0] and len(r) > 1 and str(r[1]).strip() != GYM]
+    out = kept + _history_rows(records, stamp, month)
+    out.sort(key=lambda r: (str(r[0]).split(" ")[0], str(r[1])))
     svc.spreadsheets().values().clear(
-        spreadsheetId=ALLGYMS_SHEET_ID, range="History!A:Z").execute(num_retries=_NUM_RETRIES)
+        spreadsheetId=ALLGYMS_SHEET_ID,
+        range=f"History!A:{_HIST_LASTCOL}").execute(num_retries=_NUM_RETRIES)
     svc.spreadsheets().values().update(
         spreadsheetId=ALLGYMS_SHEET_ID, range="History!A1",
         valueInputOption="RAW",
@@ -1301,8 +1388,10 @@ def _history_fmt_requests(sheet_id: int, existing_cf: int) -> list:
                  "fields": "userEnteredFormat"}})
     reqs.append({"updateSheetProperties": {
         "properties": {"sheetId": sheet_id,
-                       "gridProperties": {"frozenRowCount": 1}},
-        "fields": "gridProperties.frozenRowCount"}})
+                       "gridProperties": {"frozenRowCount": 1,
+                                          "frozenColumnCount": 2}},
+        "fields": "gridProperties.frozenRowCount,"
+                  "gridProperties.frozenColumnCount"}})
     reqs.append({"repeatCell": {
         "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1},
         "cell": {"userEnteredFormat": {"textFormat": {"bold": True},
@@ -1318,14 +1407,29 @@ def _history_fmt_requests(sheet_id: int, existing_cf: int) -> list:
                   "startColumnIndex": 2, "endColumnIndex": HISTORY_NCOLS},
         "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
         "fields": "userEnteredFormat.horizontalAlignment"}})
-    for c in _PCT_IDX:  # 0-based; History shares the Data row's 2-col lead
-        reqs.append({"repeatCell": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 1,
+    # the same percent columns in both blocks (the Data row's 2-col lead
+    # matches the This month block; the Running total block sits one block over)
+    for c in _PCT_IDX:
+        for off in (0, _HIST_BLOCK):
+            reqs.append({"repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 1,
+                          "endRowIndex": 1000, "startColumnIndex": c + off,
+                          "endColumnIndex": c + off + 1},
+                "cell": {"userEnteredFormat": {
+                    "numberFormat": {"type": "PERCENT", "pattern": "0%"}}},
+                "fields": "userEnteredFormat.numberFormat"}})
+    # a rule between the two blocks and before Updated, so the eye finds
+    # where This month ends and Running total starts
+    for c in (_HIST_T0, HISTORY_NCOLS - 1):
+        reqs.append({"updateBorders": {
+            "range": {"sheetId": sheet_id, "startRowIndex": 0,
                       "endRowIndex": 1000, "startColumnIndex": c,
                       "endColumnIndex": c + 1},
-            "cell": {"userEnteredFormat": {
-                "numberFormat": {"type": "PERCENT", "pattern": "0%"}}},
-            "fields": "userEnteredFormat.numberFormat"}})
+            "left": {"style": "SOLID_MEDIUM", "color": _hex(NOTE_FG)}}})
+    for cidx, text in HISTORY_NOTES.items():
+        reqs.append({"updateCells": {
+            "rows": [{"values": [{"note": text}]}], "fields": "note",
+            "start": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": cidx}}})
     for gym, (base, _alt) in GYM_FILLS.items():
         reqs.append({"addConditionalFormatRule": {"rule": {
             "ranges": [{"sheetId": sheet_id, "startRowIndex": 1,
@@ -1607,8 +1711,8 @@ def push(slug: str = "shift") -> None:
         stage(f"'{tab}' tab rewritten ({len(grid)} rows)")
         reclaim()
 
-    _maintain_history(svc, auto_rows, stamp)
-    stage("History tab maintained")
+    _maintain_history(svc, SEND_RECORDS, stamp)
+    stage("History tab maintained (every month recounted)")
     reclaim()
     fmt_reqs += _history_fmt_requests(sheet_ids["History"],
                                       cf_counts.get("History", 0))
