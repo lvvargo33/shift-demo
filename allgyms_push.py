@@ -107,9 +107,29 @@ ENGAGEMENT_FRESH_DAYS = int(os.getenv("ENGAGEMENT_FRESH_DAYS", "14") or 14)
 # proxy such as Apple Mail privacy protection ("proxy"). SHIFT ALWAYS WRITES
 # IT BLANK: Mailchimp's activity feed counts both as a plain open and does not
 # say which kind it was. Nothing here reads it.
+#
+# unsubscribed (2026-09-18, Tasks step 1.3): 1 = the person used THIS email's
+# unsubscribe link (Mailchimp's `unsub` activity pinned to the send by campaign
+# id, exactly like an open; Brevo's `unsubscribed` event by tag / subject at
+# ABC), 0 = measured and not, "" = not measured under this rule yet. A settled
+# row with a blank value is re-fetched ONCE (Mailchimp has no hourly feed cap,
+# so the whole backfill lands in one longer run); the answer always fills the
+# column, so it is never asked twice, and a measured 1 is never downgraded.
+# The address is already suppressed from every later send (engine rule 5), so
+# this column is the count of WHICH email made people leave.
 CACHE_FIELDS = ["email", "sent_date", "tag", "delivered", "opened", "clicked",
-                "opened_at", "open_kind", "frozen_at"]
+                "opened_at", "open_kind", "unsubscribed", "frozen_at"]
 OPENED_AT_UNKNOWN = "unknown"
+
+
+def _flag_or_blank(v) -> bool | None:
+    """A 0/1 cache cell -> False/True; a blank cell -> None (not measured)."""
+    v = (v or "").strip()
+    return None if v == "" else v == "1"
+
+
+def _cell_or_blank(v: bool | None):
+    return "" if v is None else int(v)
 
 # trigger_name -> display label (falls back to the raw name)
 FUNNEL_LABELS = {
@@ -247,6 +267,7 @@ def experiment_tests(client) -> dict:
 
 METRIC_HEADERS = [
     "Sends", "Delivered", "Opens", "Open %", "Link clicks", "Clicks per open %",
+    "Unsubscribes", "Unsubscribe %",
     "Q1 taps",
     "Responses", "Response %", "Offer redemptions", "Purchases after send",
     "Returned after send", "Return %", "Returned, opened first",
@@ -256,6 +277,7 @@ METRIC_HEADERS = [
     "Note"]
 METRIC_KEYS = [
     "sends", "delivered", "opens", "open_pct", "clicks", "cpo_pct",
+    "unsubs", "unsub_pct",
     "taps",
     "responses", "resp_pct", "redeems", "purchases",
     "returned", "return_pct", "ret_opened", "ret_opened_pct",
@@ -302,14 +324,18 @@ def _col(key: str) -> str:
 
 
 # count metrics (summable); the rest are ratios recomputed from these
-_COUNT_KEYS = ("sends", "delivered", "opens", "clicks", "taps", "responses",
-               "redeems", "purchases", "returned", "ret_opened",
+_COUNT_KEYS = ("sends", "delivered", "opens", "clicks", "unsubs", "taps",
+               "responses", "redeems", "purchases", "returned", "ret_opened",
                "converted", "conv_opened")
-# ratio metric -> (numerator key, denominator key). Open % swaps its
-# denominator to sends when a gym has no delivery tracking (see _totals_formulas).
+# ratio metric -> (numerator key, denominator key). Open % and Unsubscribe %
+# swap their denominator to sends when a gym has no delivery tracking (see
+# _DELIVERED_DEN_KEYS and _totals_formulas).
 _RATIO_KEYS = {
     "open_pct": ("opens", "delivered"),
     "cpo_pct": ("clicks", "opens"),
+    # Tasks step 1.3 (2026-09-18): of the emails that arrived, how many made
+    # the person unsubscribe (the unsubscribe pinned to THIS email)
+    "unsub_pct": ("unsubs", "delivered"),
     "resp_pct": ("responses", "sends"),
     "return_pct": ("returned", "sends"),
     "conv_pct": ("converted", "sends"),
@@ -318,6 +344,9 @@ _RATIO_KEYS = {
     "ret_opened_pct": ("ret_opened", "opens"),
     "conv_opened_pct": ("conv_opened", "opens"),
 }
+# ratios whose denominator is Delivered when it is known, else Sends (every
+# rule that recomputes a ratio must treat these the same way)
+_DELIVERED_DEN_KEYS = ("open_pct", "unsub_pct")
 _COUNT_IDX = [_mi(k) for k in _COUNT_KEYS]
 _PCT_IDX = [_mi(k) for k in _RATIO_KEYS]
 I_SENDS, I_DELIV, I_OPENS = _mi("sends"), _mi("delivered"), _mi("opens")
@@ -380,6 +409,14 @@ FOOTNOTES = [
     "first' divided by Opens). Blank when nobody has opened yet. Automatic "
     "opens (see above) sit in the bottom of this fraction, so it reads a "
     "little low, equally for every version.",
+    "Unsubscribes (since 2026-09-18): people who clicked the unsubscribe link "
+    "in THIS email. Each unsubscribe is pinned to the exact email whose link "
+    "was used, the same way opens are, so a person who leaves counts once, "
+    "on the email that made them leave. Unsubscribe % divides by Delivered "
+    "(or by Sends where Delivered is blank). Anyone who unsubscribes is "
+    "already left out of every later send. Older sends are being measured a "
+    "batch a day at ABC (Brevo keeps 90 days of events), so ABC's older "
+    "counts fill in over the first week.",
 ]
 
 # Plain-English hover glossary (Luke 2026-07-28): shown as a cell note on each
@@ -511,7 +548,9 @@ def _cache_path() -> Path:
 
 
 def _load_engagement_cache() -> dict[tuple, tuple]:
-    """(email, sent_date, tag) -> (delivered, opened, clicked, opened_at).
+    """(email, sent_date, tag) -> (delivered, opened, clicked, opened_at,
+    unsubscribed). A cache file written before 2026-09-18 has no unsubscribed
+    column and reads as None (not measured yet, one backfill fetch due).
 
     Fails soft to {} at every step: an unreadable cache costs a slower run that
     re-measures everything, never a wrong number."""
@@ -535,7 +574,8 @@ def _load_engagement_cache() -> dict[tuple, tuple]:
                     continue
                 out[key] = (r.get("delivered") == "1", r.get("opened") == "1",
                             r.get("clicked") == "1",
-                            (r.get("opened_at") or "").strip()[:10])
+                            (r.get("opened_at") or "").strip()[:10],
+                            _flag_or_blank(r.get("unsubscribed")))
     except (OSError, csv.Error) as exc:
         print(f"  allgyms: engagement cache unreadable ({exc}); "
               f"re-measuring every send this run")
@@ -553,11 +593,13 @@ def _save_engagement_cache(measured: dict[tuple, tuple], stamp: str) -> None:
         with open(_cache_path(), "w", encoding="utf-8", newline="") as f:
             w = csv.DictWriter(f, fieldnames=CACHE_FIELDS)
             w.writeheader()
-            for (email, sent, tag), (d, o, c, oa) in sorted(measured.items()):
+            for (email, sent, tag), (d, o, c, oa, un) in sorted(measured.items()):
                 w.writerow({"email": email, "sent_date": sent, "tag": tag,
                             "delivered": int(d), "opened": int(o),
                             "clicked": int(c), "opened_at": oa or "",
-                            "open_kind": "", "frozen_at": stamp})
+                            "open_kind": "",
+                            "unsubscribed": _cell_or_blank(un),
+                            "frozen_at": stamp})
         drive_io.push(str(_cache_path()), file_id=ENGAGEMENT_CACHE_DRIVE_ID)
     except Exception as exc:
         print(f"  allgyms: engagement cache push failed ({exc}); "
@@ -625,18 +667,25 @@ def collect(client) -> tuple[list[dict], list[dict]]:
 
     def _is_fresh(s: dict) -> bool:
         """True = measure live this run. Sends inside the window always are;
-        older ones when the cache has no answer for them yet, or holds an
-        open with no date yet (one backfill fetch, 2026-09-14; the merge
-        below writes "unknown" if the event is gone, so never twice)."""
+        older ones when the cache has no answer for them yet, holds an open
+        with no date yet (one backfill fetch, 2026-09-14; the merge below
+        writes "unknown" if the event is gone, so never twice), or has no
+        unsubscribe measurement yet (one backfill fetch, 2026-09-18; the
+        merge always writes 0 or 1, so never twice)."""
         if s["sent"] >= fresh_from:
             return True
         hit = cache.get((s["email"], s["sent"], s["tag"]))
-        return hit is None or bool(hit[1] and not hit[3])
+        return hit is None or bool(hit[1] and not hit[3]) or hit[4] is None
 
     need = [s for s in sends if _is_fresh(s)]
     emails = sorted({s["email"] for s in need})
+    unsub_pending = sum(1 for s in need if s["sent"] < fresh_from
+                        and (cache.get((s["email"], s["sent"], s["tag"]))
+                             or (False, False, False, "", None))[4] is None)
     stage(f"activity feeds: {len(emails)} to fetch "
-          f"({len(need)} of {len(sends)} sends live, "
+          + (f"(unsubscribe backfill: {unsub_pending} older send(s) still to measure) "
+             if unsub_pending else "")
+          + f"({len(need)} of {len(sends)} sends live, "
           f"{len(sends) - len(need)} from cache, "
           f"window={ENGAGEMENT_FRESH_DAYS}d from {fresh_from}, "
           f"cache={'on' if ENGAGEMENT_CACHE_DRIVE_ID else 'OFF'})")
@@ -703,7 +752,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         hit = prev if not _is_fresh(s) else None
         if hit is not None:
             # settled send: keep the delivered/opened/clicked already measured
-            delivered, opened, clicked, opened_at = hit
+            delivered, opened, clicked, opened_at, unsubscribed = hit
         else:
             ev = feeds.get(email) or []
             sent_ids = engine._sent_campaign_ids(ev, sent, journey_ids)
@@ -713,6 +762,11 @@ def collect(client) -> tuple[list[dict], list[dict]]:
             clicked = engine._has_event(ev, "click", sent, click_markers)
             opened_at = engine._first_event_date(
                 ev, "open", sent, campaign_ids=sent_ids) if opened else ""
+            # the unsubscribe link used in THIS email: Mailchimp's `unsub`
+            # activity carries the campaign id, so it pins like an open
+            # (Tasks step 1.3, 2026-09-18)
+            unsubscribed = delivered and engine._has_event(
+                ev, "unsub", sent, campaign_ids=sent_ids)
             if prev is not None:
                 # never downgrade a frozen flag: a feed that no longer shows an
                 # event (Mailchimp trims old activity, a partial answer) must not
@@ -720,9 +774,13 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                 # writes "unknown" so the row is not asked again
                 delivered, opened, clicked = (delivered or prev[0],
                                               opened or prev[1], clicked or prev[2])
+                unsubscribed = unsubscribed or bool(prev[4])
                 if opened and not opened_at:
                     opened_at = prev[3] or OPENED_AT_UNKNOWN
-        measured[key] = (delivered, opened, clicked, opened_at)
+        measured[key] = (delivered, opened, clicked, opened_at, unsubscribed)
+    _uns = [v[4] for v in measured.values()]
+    stage(f"unsubscribes: {sum(1 for u in _uns if u)} pinned to a send, "
+          f"{sum(1 for u in _uns if u is None)} send(s) not measured yet")
 
     # Outcomes (roadmap block 6 phase B, 2026-09-14): one credit per person
     # per outcome, to the LAST send before the event, inside that send's
@@ -746,7 +804,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         }
 
     def _send_obj(s: dict) -> attribution.Send:
-        _d, o, _c, oa = measured[(s["email"], s["sent"], s["tag"])]
+        _d, o, _c, oa, _u = measured[(s["email"], s["sent"], s["tag"])]
         return attribution.Send(email=s["email"], sent=s["sent"], tag=s["tag"],
                                 trig=s["trig"], opened=o, opened_at=oa)
     credits = attribution.credit([_send_obj(s) for s in sends], events)
@@ -757,7 +815,8 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     for s in sends:
         email, sent = s["email"], s["sent"]
         key = (email, sent, s["tag"])
-        delivered, opened, clicked, _oa = measured[key]
+        delivered, opened, clicked, _oa, _unsub = measured[key]
+        unsubscribed = bool(_unsub)  # None (not measured yet) counts as 0
         cr = credits[key]
         returned, ret_opened = cr["returned"], cr["returned_opened"]
         converted, conv_opened = cr["converted"], cr["converted_opened"]
@@ -772,6 +831,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                         "delivered": delivered, "opened": opened, "clicked": clicked,
                         "opened_at": _oa, "credits": cr, "responded": responded,
                         "converted_at": _ev_c[0] if _ev_c else "",
+                        "unsubscribed": unsubscribed,
                         # History recount (2026-09-18): every SHIFT send is
                         # first-timer outreach (no member survey here yet)
                         "tapped": tapped, "ftv": True})
@@ -781,6 +841,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
             b["delivered"] += delivered
             b["opens"] += opened
             b["clicks"] += clicked
+            b["unsubs"] += unsubscribed
             b["taps"] += tapped
             b["responses"] += responded
             b["redeems"] += redeemed
@@ -801,8 +862,8 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         by_tag[tag]
 
     def metrics(b: dict) -> dict:
-        m = {k: b[k] for k in ("sends", "delivered", "opens", "clicks", "taps",
-                               "responses", "redeems", "purchases",
+        m = {k: b[k] for k in ("sends", "delivered", "opens", "clicks", "unsubs",
+                               "taps", "responses", "redeems", "purchases",
                                "returned", "ret_opened", "converted", "conv_opened")}
         zero = b["sends"] == 0
         m["open_pct"] = 0 if zero else _pct(b["opens"], b["delivered"])
@@ -810,6 +871,10 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         # many clicked. Blank when nobody opened (_pct returns "" on a zero
         # denominator), never 0, so an unopened row can't read as "0% click".
         m["cpo_pct"] = 0 if zero else _pct(b["clicks"], b["opens"])
+        # Tasks step 1.3 (2026-09-18): unsubscribes pinned to this email, over
+        # delivered (Mailchimp always reports it; the ABC copy falls back to
+        # sends when Brevo has no receipt)
+        m["unsub_pct"] = 0 if zero else _pct(b["unsubs"], b["delivered"])
         m["resp_pct"] = 0 if zero else _pct(b["responses"], b["sends"])
         m["return_pct"] = 0 if zero else _pct(b["returned"], b["sends"])
         m["conv_pct"] = 0 if zero else _pct(b["converted"], b["sends"])
@@ -916,7 +981,7 @@ def _combined_rows(per_gym: list[list], stamp: str) -> list[list]:
         m = dict(t)
         m["delivered"] = t["delivered"] if have_deliv else ""
         for key, (num, den) in _RATIO_KEYS.items():
-            m[key] = p(t[num], open_den if key == "open_pct" else t[den])
+            m[key] = p(t[num], open_den if key in _DELIVERED_DEN_KEYS else t[den])
         m["note"] = ("no sends yet" if zero else
                      f"small sample (under {SMALL_N}), directional only"
                      if t["sends"] < SMALL_N else "")
@@ -939,7 +1004,11 @@ def _data_migrate(row: list, old_header: list | None) -> list:
 
 def _merge_data(svc, own_rows: list[dict], stamp: str) -> list[list]:
     """Replace this gym's Data rows, keep every other gym's, recompute the
-    'All gyms' per-automation totals, rewrite the tab."""
+    'All gyms' per-automation totals, rewrite the tab. The grid is grown to
+    DATA_NCOLS first: the two Unsubscribe columns (2026-09-18) took the row
+    past the 27 columns the live tab had, and a read, clear or write past the
+    grid's edge is refused by Sheets."""
+    _widen_tab(svc, "Data", DATA_NCOLS)
     got = svc.spreadsheets().values().get(
         spreadsheetId=ALLGYMS_SHEET_ID,
         range=f"Data!A{D0 - 1}:{_a1col(max(DATA_NCOLS, 26) - 1)}{D1}"
@@ -958,7 +1027,8 @@ def _merge_data(svc, own_rows: list[dict], stamp: str) -> list[list]:
                                1 if r[1] in CONTEXT_LABELS else 0,
                                r[1], r[I_ORDER]))
     svc.spreadsheets().values().clear(
-        spreadsheetId=ALLGYMS_SHEET_ID, range="Data!A:Z").execute(num_retries=_NUM_RETRIES)
+        spreadsheetId=ALLGYMS_SHEET_ID,
+        range=f"Data!A:{_a1col(max(DATA_NCOLS, 26) - 1)}").execute(num_retries=_NUM_RETRIES)
     note = ("Machine-written by the Send It crons after every send run. "
             "Do not edit anything here; the Dashboard and Variants tabs "
             "read from this tab.")
@@ -1003,7 +1073,8 @@ def _totals_formulas() -> list:
         c = _col(key)
         return f"SUMPRODUCT({cond}*Data!${c}${D0}:${c}${D1})"
 
-    # open-rate denominator falls back to sends where delivered is blank (ABC)
+    # open-rate (and unsubscribe-rate) denominator falls back to sends where
+    # delivered is blank (ABC)
     d, s = _col("delivered"), _col("sends")
     open_den = (f"SUMPRODUCT({cond}*IF(Data!${d}${D0}:${d}${D1}=\"\","
                 f"Data!${s}${D0}:${s}${D1},Data!${d}${D0}:${d}${D1}))")
@@ -1012,8 +1083,8 @@ def _totals_formulas() -> list:
     for key in METRIC_KEYS:
         if key == "note":
             continue
-        if key == "open_pct":
-            out.append(f'=IFERROR({sp("opens")}/{open_den},"")')
+        if key in _DELIVERED_DEN_KEYS:
+            out.append(f'=IFERROR({sp(_RATIO_KEYS[key][0])}/{open_den},"")')
         elif key in _RATIO_KEYS:
             num, den = _RATIO_KEYS[key]
             out.append(f'=IFERROR({sp(num)}/{sp(den)},"")')
@@ -1278,7 +1349,7 @@ def _history_metrics(t: dict) -> list:
     m["delivered"] = 0 if zero else (t["delivered"] or "")
     open_den = t["delivered"] or t["sends"]
     for key, (num, den) in _RATIO_KEYS.items():
-        m[key] = 0 if zero else _pct(t[num], open_den if key == "open_pct"
+        m[key] = 0 if zero else _pct(t[num], open_den if key in _DELIVERED_DEN_KEYS
                                      else t[den])
     return [m[k] for k in HISTORY_METRIC_KEYS]
 
@@ -1317,6 +1388,7 @@ def _history_rows(records: list[dict], stamp: str,
         b["delivered"] += bool(r.get("delivered"))
         b["opens"] += bool(r.get("opened"))
         b["clicks"] += bool(r.get("clicked"))
+        b["unsubs"] += bool(r.get("unsubscribed"))
         b["taps"] += bool(r.get("tapped"))
         b["responses"] += bool(r.get("responded"))
         if r.get("ftv", True):
