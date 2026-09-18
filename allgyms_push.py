@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import csv
 import os
+import re
 import sys
 import traceback
 from collections import defaultdict
@@ -1300,8 +1301,13 @@ def _history_rows(records: list[dict], stamp: str,
     row does; the first-timer outcomes are blank there and are not summed."""
     month_now = month_now or datetime.now(timezone.utc).strftime("%Y-%m")
     by_month: dict[str, dict] = defaultdict(lambda: defaultdict(int))
+    odd = 0
     for r in records:
-        b = by_month[(r["sent"] or "")[:7]]
+        month = str(r.get("sent") or "")[:7]
+        if not re.fullmatch(r"\d{4}-\d{2}", month):
+            odd += 1  # a hand-edited log row must not take the whole push down
+            continue
+        b = by_month[month]
         cr = r.get("credits") or {}
         b["sends"] += 1
         b["delivered"] += bool(r.get("delivered"))
@@ -1316,6 +1322,8 @@ def _history_rows(records: list[dict], stamp: str,
             b["ret_opened"] += bool(cr.get("returned_opened"))
             b["converted"] += bool(cr.get("converted"))
             b["conv_opened"] += bool(cr.get("converted_opened"))
+    if odd:
+        print(f"  allgyms: History skipped {odd} send(s) with a non-ISO sent_date")
     if not by_month:
         return []
     months = sorted(by_month)
@@ -1356,12 +1364,33 @@ def _history_migrate(row: list, old_header: list | None = None) -> list:
     return row + [""] * (HISTORY_NCOLS - len(row))
 
 
+def _widen_tab(svc, title: str, ncols: int) -> None:
+    """Grow a tab's grid to at least ncols columns. A values().clear or
+    update past the grid's edge is refused by Sheets, and the History tab
+    was 26 columns wide when the 41-column layout shipped (2026-09-18)."""
+    meta = svc.spreadsheets().get(
+        spreadsheetId=ALLGYMS_SHEET_ID,
+        fields="sheets(properties(sheetId,title,gridProperties(columnCount)))"
+        ).execute(num_retries=_NUM_RETRIES)
+    for s in meta.get("sheets", []):
+        p = s["properties"]
+        have = p.get("gridProperties", {}).get("columnCount")
+        if p.get("title") == title and have is not None and have < ncols:
+            svc.spreadsheets().batchUpdate(
+                spreadsheetId=ALLGYMS_SHEET_ID,
+                body={"requests": [{"appendDimension": {
+                    "sheetId": p["sheetId"], "dimension": "COLUMNS",
+                    "length": ncols - have}}]}).execute(num_retries=_NUM_RETRIES)
+            print(f"  allgyms: '{title}' widened {have} -> {ncols} columns")
+
+
 def _maintain_history(svc, records: list[dict], stamp: str) -> None:
     """Rewrite this gym's rows (every month, recounted from the per-send
     records) and keep the other gym's rows as they are. Values are read back
     UNFORMATTED so the other gym's numbers are rewritten as numbers, not as
     the '38%' text a formatted read produced before (2026-09-13 finding)."""
     month = datetime.now(timezone.utc).strftime("%Y-%m")
+    _widen_tab(svc, "History", HISTORY_NCOLS)
     got = svc.spreadsheets().values().get(
         spreadsheetId=ALLGYMS_SHEET_ID,
         range=f"History!A1:{_HIST_LASTCOL}1000",
