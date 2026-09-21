@@ -14,6 +14,12 @@ The actual survey email is a Mailchimp Journey on the survey_request tag (S5).
 Source is config-driven (client.json "survey"):
   source: "csv"    -> read csv_path (a local file; dev/testing)
   source: "gsheet" -> read gsheet_id/gsheet_range via the gsheets bridge
+
+Native survey island (ROADMAP Block 11, 2026-09-21): when client.json
+survey.native.enabled is true, completed answers from Chris's survey page
+(pulled out of Firestore by the cron into a Drive CSV, see native_survey.py)
+are read NEXT TO the Form rows and merged per email, native winning. With the
+flag false (ABC) nothing here changes.
 """
 from __future__ import annotations
 
@@ -49,6 +55,7 @@ class SurveyResponse:
     matched: bool = False     # email found a Beta climber
     climber_id: str = ""
     name: str = ""
+    source: str = "form"      # "form" (Google Form sheet) or "native" (Chris's page)
 
 
 @dataclass
@@ -302,7 +309,43 @@ def load_responses(client: ClientConfig) -> list[SurveyResponse]:
             intent=_map_intent(col(row, "q2_intent"), intent_map),
             safety=_is_safety(q4, safety_keywords),
         ))
-    return out
+    return _merge_native(out, client, blocker_map, intent_map, safety_keywords)
+
+
+def _merge_native(form_rows: list[SurveyResponse], client: ClientConfig,
+                  blocker_map: dict, intent_map: dict,
+                  safety_keywords: list[str]) -> list[SurveyResponse]:
+    """Add completed native-page answers and dedupe per email, NATIVE WINS
+    (decision 2026-09-21: a native completion supersedes a Form row for the
+    same person). Only completed sessions are in the cache, so a partial never
+    marks anyone answered. No-op when survey.native.enabled is false."""
+    from . import native_survey
+    if not native_survey.enabled(client):
+        return form_rows
+    native: list[SurveyResponse] = []
+    for row in native_survey.responses(client):
+        email = _norm_email(row.get("email", ""))
+        if not email:
+            continue
+        q2 = (row.get("q2_raw") or "").strip()
+        q3 = (row.get("q3_raw") or "").strip()
+        q4 = (row.get("q4") or "").strip()
+        native.append(SurveyResponse(
+            email=email,
+            answered_at=_d(row.get("answered_at", "")),
+            q1_overall=(row.get("q1") or "").strip(),
+            q2_intent=q2,
+            q3_blocker_raw=q3,
+            q4_text=q4,
+            blocker=_map_blocker(q3, blocker_map),
+            intent=_map_intent(q2, intent_map),
+            safety=_is_safety(q4, safety_keywords),
+            source="native",
+        ))
+    if not native:
+        return form_rows
+    taken = {r.email for r in native}
+    return [r for r in form_rows if r.email not in taken] + native
 
 
 def apply(ds: Dataset, client: ClientConfig) -> SurveyResult:

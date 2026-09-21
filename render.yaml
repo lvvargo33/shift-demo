@@ -48,6 +48,23 @@ services:
         sync: false
       - key: MAILCHIMP_AUDIENCE_ID
         sync: false
+      # Native survey island (ROADMAP Block 11, 2026-09-21). The WEB service
+      # mints the Firestore record when a survey link is clicked (/s) and reads
+      # the answers CSV from Drive. ALL unset = the Google Form, exactly as
+      # before; client.json survey.native.enabled must ALSO be true. Add the
+      # Firestore service-account key as a Secret File named firestore_sa.json.
+      - key: FIRESTORE_PROJECT_ID          # Luke's Firebase project (he owns data + billing)
+        sync: false
+      - key: FIRESTORE_DATABASE_ID         # optional; "(default)" when unset
+        sync: false
+      - key: NATIVE_SURVEY_GYM_ID          # optional override of client.json survey.native.gym_id
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS  # Secret File path of the Firestore SA key
+        value: /etc/secrets/firestore_sa.json
+      - key: NATIVE_SURVEY_PUBLIC_BASE_URL  # Chris's public survey origin, https://<host>, no path
+        sync: false
+      - key: NATIVE_SURVEY_CACHE_DRIVE_ID  # Drive file id of _native_survey_cache.csv (the
+        sync: false                        # cron writes it; this service only reads it)
     healthCheckPath: /healthz
 
   # Daily auto-pull of Beta data (replaces the manual export). Runs on a fresh
@@ -168,6 +185,27 @@ services:
         sync: false
       - key: ENGAGEMENT_FRESH_DAYS  # days a send stays re-measured before it freezes
         value: "14"
+      # Native survey island (ROADMAP Block 11, 2026-09-21). The SEND CRON is the
+      # only service that READS Firestore: with NATIVE_SURVEY_PULL=1 it pulls
+      # completed sessions each morning into _native_survey_cache.csv and pushes
+      # it to Drive (NATIVE_SURVEY_CACHE_DRIVE_ID: create an EMPTY file by hand
+      # in the Drive folder, share Editor with the gsheets SA, paste its id here
+      # AND on the web service). A failed pull prints `native survey: pull
+      # FAILED` and the run continues on yesterday's file. ALL unset = the Form.
+      - key: FIRESTORE_PROJECT_ID
+        sync: false
+      - key: FIRESTORE_DATABASE_ID
+        sync: false
+      - key: NATIVE_SURVEY_GYM_ID
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS  # Secret File firestore_sa.json (same key as the web service)
+        value: /etc/secrets/firestore_sa.json
+      - key: NATIVE_SURVEY_PUBLIC_BASE_URL   # not used by the cron; kept for parity with the web service
+        sync: false
+      - key: NATIVE_SURVEY_CACHE_DRIVE_ID
+        sync: false
+      - key: NATIVE_SURVEY_PULL              # "1" = refresh the cache from Firestore this run
+        value: "1"
       - key: BETA_TX_PATH      # working paths = the client's data paths in the bundle
         value: beta_data/Transactions.csv
       - key: BETA_SES_PATH

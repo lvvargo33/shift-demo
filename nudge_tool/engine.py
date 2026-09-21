@@ -727,6 +727,9 @@ def _survey_block(client: ClientConfig, survey_result, ds=None) -> dict:
             "q1_overall": r.q1_overall, "q2_intent": r.q2_intent,
             "q3_blocker_raw": r.q3_blocker_raw, "q4_text": r.q4_text,
             "blocker": r.blocker, "intent": r.intent, "safety": r.safety,
+            # "form" (Google Form sheet) or "native" (Chris's survey page,
+            # Block 11). Older callers' responses have no attribute -> "form".
+            "source": getattr(r, "source", "form"),
         }
 
     all_rows = [dict(row(r), came_back=_came_back(r, ds)) for r in responses]

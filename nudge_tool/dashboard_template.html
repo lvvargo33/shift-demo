@@ -1200,6 +1200,7 @@ function inboxDetail(r, key) {
     (r.matched ? '<span class="badge badge-success">matched a climber</span>' : '<span class="badge badge-warning">no climber match</span>') +
     (r.blocker ? '<span class="badge badge-warning">' + escapeHtml(blockerLabel(r.blocker)) + '</span>' : '') +
     (r.intent ? '<span class="badge badge-info">' + escapeHtml(intentLabel(r.intent)) + '</span>' : '') +
+    (r.source === 'native' ? '<span class="badge badge-primary">native survey</span>' : '') +
     '</div>';
   h += inboxQ('Overall first visit', r.q1_overall);
   h += inboxQ('Likely to become a regular?', r.q2_intent);

@@ -7,3 +7,8 @@ requests
 python-dotenv
 google-auth
 google-api-python-client
+# Native survey island (Block 11, 2026-09-21): the ONE pinned line, because
+# Chris's page was verified against exactly this version and the record shape
+# must stay byte-compatible. Imported lazily; a service with the island off
+# never loads it.
+google-cloud-firestore==2.21.0

@@ -18,6 +18,8 @@ _*.txt
 # runtime scratch written by allgyms_push: the outreach snapshot and the
 # engagement cache both hold climber emails. Never commit either.
 _allgyms_*.csv
+# native survey answers pulled from Firestore (Block 11): emails + free text.
+_native_survey_cache.csv
 # session/handoff logs the hooks may drop into folders (not part of the app)
 SESSION_LOG.md
 HANDOFF.md

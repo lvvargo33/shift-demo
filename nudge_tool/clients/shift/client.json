@@ -249,7 +249,35 @@
       "discriminat",
       "threat"
     ],
-    "_safety_keywords_note": "If any appears in Q4 free text (lowercased), the climber is flagged safety -> MANUAL precedence (manager call, no automated email)."
+    "_safety_keywords_note": "If any appears in Q4 free text (lowercased), the climber is flagged safety -> MANUAL precedence (manager call, no automated email).",
+    "native": {
+      "enabled": false,
+      "_enabled_note": "Native survey island (ROADMAP Block 11, built 2026-09-21, NOT yet live). Chris's survey page + a Firestore database replace the Google Form as the ANSWER BOX; our sends stay ours. false = nothing changes (the Form is read as always). Flip to true only once Luke's Firebase project exists, the service-account key + FIRESTORE_PROJECT_ID + NATIVE_SURVEY_PUBLIC_BASE_URL + NATIVE_SURVEY_CACHE_DRIVE_ID are on both Render services (NATIVE_SURVEY_PULL=1 on the send cron only) and Chris's page is deployed against that project. When true: a survey click through /s mints the Firestore record and lands on his page (any failure = the Form, exactly as before); the 11 AM cron pulls completed sessions into _native_survey_cache.csv on Drive; survey.load_responses reads that CSV next to the Form sheet and, per email, native wins.",
+      "gym_id": "shift",
+      "_gym_id_note": "Firestore path gyms/{gym_id}/... and the gym_id inside every record. Must equal the NATIVE_SURVEY_GYM_ID Chris's two services use, or his page rejects our records (gym mismatch). NATIVE_SURVEY_GYM_ID in the env overrides this.",
+      "source": "beta",
+      "_source_note": "identity_source on the subject record: which POS the customer id came from. Part of the session id hash (sha256 of [gym_id, source, customer_id, 'first_visit']), so never change it once records exist.",
+      "timezone": "America/Detroit",
+      "_timezone_note": "Completions are stored in UTC on Firestore; this turns completed_at into the local YYYY-MM-DD the sheet and the survey-anchored triggers use (Form timestamps are already local). Open question 1 of Block 11: Luke to confirm at build time; Detroit and New_York keep the same clock.",
+      "map": {
+        "q2": {
+          "unlikely": "Unlikely",
+          "not_sure": "Not sure",
+          "likely": "Likely"
+        },
+        "q3": {
+          "too_expensive": "Too expensive",
+          "too_crowded": "Too crowded",
+          "too_hard": "Climbing felt too hard",
+          "intimidating": "It felt intimidating",
+          "front_desk": "Front desk experience",
+          "confusing": "Confusing / didn't know where to start",
+          "routes_not_fun": "The routes weren't fun",
+          "no_issues": "No issues"
+        }
+      },
+      "_map_note": "Chris's page stores option CODES (left); the Form sheet holds the option TEXT. Each code maps to the label from his FTV_V1 definition so the existing blocker_map / intent_map above keep working unchanged on native rows (e.g. 'Climbing felt too hard' contains 'too hard' -> too_hard; 'No issues' -> no blocker). Q1 is the 1-5 integer as text, Q4 is free text, neither needs a map."
+    }
   },
   "triggers": [
     {

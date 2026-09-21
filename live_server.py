@@ -406,6 +406,71 @@ def _tap_redirect(tap: dict, email: str, q: str) -> str:
     return f"{base}{sep}usp=pp_url&" + "&".join(parts)
 
 
+# --- native survey island (ROADMAP Block 11, 2026-09-21) --------------------
+# When client.json survey.native.enabled is true AND this service has the
+# Firestore env (FIRESTORE_PROJECT_ID + key file + NATIVE_SURVEY_PUBLIC_BASE_URL),
+# a survey click mints the Firestore record Chris's page needs and lands there
+# instead of the Google Form. Anything missing or failing = the Form, exactly
+# as before. The tap is still logged to the Taps tab first (when q is present).
+# `q` is optional so the plain "Take the quick survey" link can go through /s.
+_refresh_for_s = _ensure_beta_data      # this tree's Drive-pull helper (name differs per gym)
+_climber_index: dict = {}               # slug -> (monotonic stamp, {email: climber_id})
+_CLIMBER_INDEX_TTL = int(os.getenv("S_CLIMBER_INDEX_TTL", "600") or "600")
+_climber_index_lock = threading.Lock()
+
+
+def _climber_id_for(slug: str, email: str) -> str:
+    """email -> climber id from this client's dataset, cached per slug so one
+    click pays the ingest and the next ten minutes of clicks do not. "" when
+    the email is not a known climber (then the Form gets the click)."""
+    key = (email or "").strip().lower()
+    if not key:
+        return ""
+    with _climber_index_lock:
+        ent = _climber_index.get(slug)
+        now = time.monotonic()
+        if ent is None or (now - ent[0]) > _CLIMBER_INDEX_TTL:
+            client = load_client(slug)
+            try:
+                _refresh_for_s(client)
+            except Exception as exc:  # noqa: BLE001 (stale local data still answers)
+                print(f"  /s: data refresh failed ({exc}); using local files")
+            idx: dict = {}
+            for c in ingest.load(client).climbers.values():
+                e = (c.email or "").strip().lower()
+                if e and e not in idx:
+                    idx[e] = c.climber_id
+            ent = (now, idx)
+            _climber_index[slug] = ent
+    return ent[1].get(key, "")
+
+
+def _native_survey_url(slug: str, email: str, q: str, tag: str) -> str:
+    """Chris's page URL with a fresh token, or "" (= use the Form). Never raises."""
+    try:
+        from nudge_tool import native_survey
+        client = load_client(slug)
+        if not email or not native_survey.mint_enabled(client):
+            return ""
+        cid = _climber_id_for(slug, email)
+        if not cid:
+            print("  /s: email is not a known climber; Form fallback")
+            return ""
+        return native_survey.mint(client, email, cid, q1=int(q) if q else None, tag=tag)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  /s: native survey FAILED ({type(exc).__name__}: {exc}); Form fallback")
+        return ""
+
+
+def _s_redirect_url(slug: str, tap: dict, email: str, q: str, tag: str) -> str:
+    """Where a survey click lands: the native page when the island is on and
+    the mint succeeds, else the prefilled Google Form ("" = no survey at all)."""
+    url = _native_survey_url(slug, email, q, tag)
+    if url:
+        return url
+    return _tap_redirect(tap, email, q) if tap else ""
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quieter console
         print("  " + (fmt % args))
@@ -432,7 +497,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain; charset=utf-8", b"ok")
             return
 
-        if parsed.path == "/s":  # unauthenticated: survey Q1 tap-through
+        if parsed.path == "/s":  # unauthenticated: survey click-through (Q1 tap or plain link)
             slug = params.get("c", [self.server.default_client])[0]
             tap = _tap_cfg(slug)
             q = (params.get("q", [""])[0] or "").strip()
@@ -448,7 +513,7 @@ class Handler(BaseHTTPRequestHandler):
             if tap and q and email:
                 threading.Thread(target=_log_tap, args=(tap, email, q, tag),
                                  daemon=True).start()
-            url = _tap_redirect(tap, email, q) if tap else ""
+            url = _s_redirect_url(slug, tap, email, q, tag)
             if url:
                 self.send_response(302)
                 self.send_header("Location", url)
