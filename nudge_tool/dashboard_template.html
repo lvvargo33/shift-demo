@@ -1290,7 +1290,7 @@ function cameBackBadge(cb) {
 }
 function renderSurveys() {
   let h = pageHeader('All Survey Responses',
-    'Every completed survey since the pilot started, newest first. “Came back?” shows what each person actually did after answering, from check-in data.');
+    'Every completed survey since the pilot started, newest first. “Came back?” shows what each person did after answering, from check-in data: Yes = checked in again within 30 days of answering, MEMBER = joined within 90 days of answering.');
   const rows = surveyAllRows();
   if (!rows.length) {
     h += '<div class="card"><div class="empty-state"><div class="empty-state-icon">📭</div>' +
@@ -1524,7 +1524,9 @@ const ENG_INFO = {
       '<h4>Who gets the offer</h4>' +
       '<p>Paid first-timers who had NOT come back about 5 to 7 days after their first visit. People who return quickly on their own never get it: they didn’t need a discount. Survey answerers get a message written to their feedback; everyone else gets the standard note with the 50%-off code.</p>' +
       '<h4>What “redeemed” means</h4>' +
-      '<p>They bought a day pass at half price after getting the email, according to the register. Important: the front desk has to ring the 50% off as a discount for it to show up here. A half-price charge typed in by hand is invisible to this count.</p>' +
+      '<p>They bought a day pass at half price within 30 days of getting the email, according to the register. Important: the front desk has to ring the 50% off as a discount for it to show up here. A half-price charge typed in by hand is invisible to this count.</p>' +
+      '<h4>The 30-day clock</h4>' +
+      '<p>“Came back” and “redeemed” both count only what happened in the 30 days after the offer went out, the same window the Pilot scorecard and the All Gyms sheet use. A visit months later is not the email’s doing.</p>' +
       '<h4>Why “came back” can be higher than “redeemed”</h4>' +
       '<p>Some people come back and pay full price, or the discount wasn’t rung up. A come-back without the code still counts as a win: the goal is the second visit, not the discount.</p>' +
       '<h4>Don’t compare this to the scorecard’s come-back rate</h4>' +
@@ -1740,9 +1742,9 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
           'Clicked through to Shift’s pass-purchase page. Tracked by the email system.');
       }
       inner += engBarM('Redeemed the code (50% off a day pass)', o.redeemed, o.sent, false,
-        'Bought a half-off day pass after the offer, from register data. The desk must ring it up as a discount to count.');
-      inner += engBarM('Came back after the offer', o.returned, o.sent, false,
-        'Checked in again any day after the offer went out, with or without the code. From check-in data.');
+        'Bought a half-off day pass within 30 days of the offer, from register data. The desk must ring it up as a discount to count.');
+      inner += engBarM('Came back within 30 days of the offer', o.returned, o.sent, false,
+        'Checked in again within 30 days after the offer went out, with or without the code. From check-in data.');
       if (!av) inner += foot(fetching);
       inner += engInfoBtn('offer');
       slides.push({ title: 'Offer email results', pilot: true, desc: 'The 50%-off come-back offer and what happened next.' + engNote, html: inner });

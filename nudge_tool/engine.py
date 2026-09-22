@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from types import SimpleNamespace
 
-from . import ingest, templates
+from . import attribution, ingest, templates
 from .config import ClientConfig
 from .ingest import Climber, Dataset
 from .triggers import Trigger
@@ -865,18 +865,30 @@ def _within_inbox_window(answered_at: str) -> bool:
 
 
 def _came_back(r, ds) -> str:
-    """What a survey responder DID after answering: 'member' if they converted,
-    'yes' if they visited 2+ days, 'no' if they never came back, '' when we
-    can't tell (unmatched email, or no dataset supplied). Feeds the All Surveys
-    table's "Came back?" column, connecting stated feedback to behavior."""
+    """What a survey responder DID after answering, on the Pilot scorecard's
+    clocks (2026-09-22): 'member' if a membership started on/after the answer
+    date and within 90 days of it, 'yes' if they checked in again after the
+    answer date and within 30 days of it, 'no' otherwise, '' when we can't
+    tell (unmatched email, no dataset, no answer date). Before 9/22 this was
+    'member' = ever converted and 'yes' = 2+ check-in days at any time (even
+    before the survey), which read stated feedback against the wrong window.
+    Feeds the All Surveys table's "Came back?" column."""
     if ds is None or not getattr(r, "matched", False):
         return ""
     c = ds.climbers.get(getattr(r, "climber_id", "") or "")
-    if c is None:
+    answered = (getattr(r, "answered_at", "") or "")[:10]
+    if c is None or not answered:
         return ""
-    if c.is_converted:
+    try:
+        a = date.fromisoformat(answered)
+    except ValueError:
+        return ""
+    join_hi = (a + timedelta(days=90)).isoformat()
+    ret_hi = (a + timedelta(days=attribution.WINDOWS["returned"])).isoformat()
+    joined = c.membership_created or c.conversion_date
+    if joined and answered <= joined[:10] <= join_hi:
         return "member"
-    return "yes" if c.visit_count >= 2 else "no"
+    return "yes" if any(answered < v <= ret_hi for v in c.visit_days) else "no"
 
 
 def _survey_block(client: ClientConfig, survey_result, ds=None) -> dict:
@@ -1013,6 +1025,14 @@ def _sent_campaign_ids(events: list | None, since: str,
     return by_day[min(by_day)] if by_day else set()
 
 
+def _plus_days(day: str, n: int) -> str:
+    """YYYY-MM-DD `n` days after `day`; a bad date gives "" (matches nothing)."""
+    try:
+        return (date.fromisoformat((day or "")[:10]) + timedelta(days=n)).isoformat()
+    except ValueError:
+        return ""
+
+
 def _has_event(events: list | None, kind: str, since: str,
                url_markers: tuple = (), campaign_ids: set | None = None) -> bool:
     """True if the contact's activity feed has an event of `kind` dated on or
@@ -1106,10 +1126,15 @@ def build_engagement(ds: Dataset, sent_rows: list | None,
     for email, rec in offers.items():
         c = climber_for(email, rec["cid"])
         since = rec["sent"]
+        # Windowed like the All Gyms sheet's credit (attribution.WINDOWS,
+        # 2026-09-22): a visit or redemption counts only inside the outcome's
+        # window after the send; before that any later visit counted forever.
+        ret_hi = _plus_days(since, attribution.WINDOWS["returned"])
+        red_hi = _plus_days(since, attribution.WINDOWS["redeemed"])
         if c:
-            if any(v > since for v in c.visit_days):
+            if any(since < v <= ret_hi for v in c.visit_days):
                 o["returned"] += 1
-            if any(v > since for v in c.discounted_daypass_dates):
+            if any(since < v <= red_hi for v in c.discounted_daypass_dates):
                 o["redeemed"] += 1
         if activity_by_email is not None:
             ev = activity_by_email.get(email)
