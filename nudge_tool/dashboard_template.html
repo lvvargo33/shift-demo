@@ -1490,7 +1490,7 @@ const ENG_INFO = {
       '<h4>How last summer is compared</h4>' +
       '<p>The 2025 figures are the same calendar dates one year earlier, counted with the same filters and the same stopwatch: a 2025 first-timer only counts toward a 30-day number once the same date one year later has also had 30 days. That keeps the two summers honest. Last summer’s figure moves a little each day as more of this summer matures.</p>' +
       '<h4>The goals</h4>' +
-      '<p>Set on June 18, 2026: came back within 30 days, goal 30 to 33%. Became a member within 90 days, goal 4 to 5%. Those goals were set against last summer’s full season using an older, looser count (23% back, 2.9% joined). The 2025 figures on the slide are recomputed daily with this page’s filters and the matching dates, so they will not equal 23% and 2.9%, and last summer’s membership figure can even sit above the goal while the 2025 group is small.</p>' +
+      '<p>Came back within 30 days, goal 20 to 23%. Became a member within 90 days, goal 4 to 5%. The original June 18, 2026 goals (30 to 33% back, 4 to 5% joined) were set against last summer’s full season using an older, looser count (23% back, 2.9% joined). The come-back goal was reset on September 22, 2026 to fit this page’s count, where the same dates in 2025 read 18.7%. The 2025 figures on the slide are recomputed daily with this page’s filters and the matching dates, so last summer’s membership figure can sit above the goal while the 2025 group is small.</p>' +
       '<h4>Where the data comes from</h4>' +
       '<p>Purchases from the register system and check-ins from the front-desk sign-in, refreshed daily. Last summer’s numbers come from the same records.</p>',
   },
@@ -1549,10 +1549,11 @@ function scRate(b) {
   return (100 * b.n / b.of).toFixed(1) + '% (' + b.n + ' of ' + b.of + ')';
 }
 function scPctOnly(b) { return b && b.of >= SC_MIN_N ? (100 * b.n / b.of).toFixed(1) + '%' : (b && b.of ? b.n + ' of ' + b.of : 'n/a'); }
-function scCount(b) {
-  // the count shown on the bar itself: always carries its own denominator
-  if (!b.of) return '0 of 0 (too early)';
-  if (b.of < SC_MIN_N) return b.n + ' of ' + b.of + ' (too early)';
+function scCount(b, plain) {
+  // the count shown on the bar itself: always carries its own denominator.
+  // plain = no "(too early)" tag on a small group (Luke 9/22, the members bar)
+  if (!b.of) return plain ? '0 of 0' : '0 of 0 (too early)';
+  if (b.of < SC_MIN_N) return b.n + ' of ' + b.of + (plain ? '' : ' (too early)');
   const pct = (100 * b.n / b.of).toFixed(1) + '%';
   return metricIsPct() ? pct + ' (' + b.n + ' of ' + b.of + ')' : b.n + ' of ' + b.of + ' (' + pct + ')';
 }
@@ -1587,7 +1588,7 @@ function scorecardSlideV2(sc) {
       : 'Nobody has had ' + jd + ' days yet. ') +
     lastYear + ': ' + scRate(b.join) + '.' + goal(goals.join) +
     ' Early read at ' + ed + ' days: ' + scRate(p.join_early) + ' vs ' + scRate(b.join_early) + ' in ' + yr + '.',
-    scCount(p.join), p.join.of < SC_MIN_N);
+    scCount(p.join, true), p.join.of < SC_MIN_N);
 
   inner += engInfoBtn('scorecard');
   return { title: 'Pilot scorecard', pilot: true,

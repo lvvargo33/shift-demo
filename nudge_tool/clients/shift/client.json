@@ -214,7 +214,8 @@
       "join_early_days": 60,
       "join_days": 90,
       "goals": {
-        "return": "30 to 33%",
+        "return": "20 to 23%",
+        "_return_note": "Revised by Luke 2026-09-22 from 30 to 33% (the June 18 goal, set against a looser count that read 23% for summer 2025) to fit this page's screened, 30-day-windowed count (2025 same dates = 18.7%).",
         "join": "4 to 5%"
       }
     },
