@@ -569,6 +569,21 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
     # from the dashboard tiles / funnel / insights (the Recovery Queue is
     # unaffected; it skips members already). Config-driven, no code per client.
     excluded_cats = set(rep.get("exclude_from_cohort", []))
+    # Windowed flags (2026-09-22, consistency with the Pilot scorecard): the
+    # Dashboard tiles and the return-visit slide used to count check-ins from
+    # BEFORE the paid first visit and had no clock. Each record now also
+    # carries: nva = check-in days on/after the paid first visit; ret30 = a
+    # second check-in day within return_days after it; m30 = that many days
+    # have elapsed (as of the latest check-in in the data); j90 / m90 = the
+    # same for joining within join_days. Window lengths come from
+    # reporting.scorecard when present, else 30 / 90.
+    sc = rep.get("scorecard") or {}
+    ret_days = int(sc.get("return_days", 30))
+    join_days = int(sc.get("join_days", 90))
+    data_end = (date.fromisoformat(ds.sessions_max_date[:10])
+                if ds.sessions_max_date else asof)
+    cut_ret = (data_end - timedelta(days=ret_days)).isoformat()
+    cut_join = (data_end - timedelta(days=join_days)).isoformat()
     ftvs = []
     for c in ds.climbers.values():
         fd = c.ftv_date
@@ -588,20 +603,28 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
         dtc = None
         if c.reporting_converted and c.membership_created and c.membership_created >= fd:
             dtc = ingest.days_between(fd, date.fromisoformat(c.membership_created))
+        ret_hi = (date.fromisoformat(fd) + timedelta(days=ret_days)).isoformat()
         ftvs.append({
             "m": fd[:7],                 # YYYY-MM cohort month
             "d": fd,                     # full FTV date (for rolling windows)
             "cat": c.ftv_category,       # entry product
             "nv": min(c.visit_count, 99),  # distinct check-in days (capped)
+            "nva": min(sum(1 for v in c.visit_days if v >= fd), 99),  # on/after the paid first visit
             "v1": c.visit_count >= 1,    # checked in at least once
-            "ret": c.visit_count >= 2,   # came back (2+ visits)
+            "ret": c.visit_count >= 2,   # came back (2+ visits, any time; legacy)
+            "ret30": any(fd < v <= ret_hi for v in c.visit_days),  # back within return_days
+            "m30": fd <= cut_ret,        # return_days have elapsed
             "conv": bool(c.reporting_converted),
+            "j90": dtc is not None and dtc <= join_days,  # joined within join_days
+            "m90": fd <= cut_join,       # join_days have elapsed
             "dtc": dtc,                  # days from FTV to becoming a member (or null)
         })
     return {
         "enabled": True,
         "post_opening_date": opening,
         "as_of": asof.isoformat(),
+        "data_through": data_end.isoformat(),
+        "windows": {"return_days": ret_days, "join_days": join_days},
         "entry_labels": rep.get("entry_product_labels", {}),
         "ftvs": ftvs,
     }
@@ -613,6 +636,15 @@ def _shift_year(d: date, years: int) -> date:
         return d.replace(year=d.year + years)
     except ValueError:
         return d.replace(year=d.year + years, day=28)
+
+
+def scorecard_pilot_ids(ds: Dataset, client: ClientConfig) -> set | None:
+    """climber_ids in the Pilot scorecard's current-year cohort (see
+    build_scorecard), or None when the client has no scorecard block. Lets
+    build_engagement's "sent to paid first-timers" split use the same people
+    the scorecard counts (2026-09-22)."""
+    parts = _scorecard_parts(ds, client)
+    return None if parts is None else {c.climber_id for c in parts["pilot"]}
 
 
 def build_scorecard(ds: Dataset, client: ClientConfig) -> dict:
@@ -642,11 +674,20 @@ def build_scorecard(ds: Dataset, client: ClientConfig) -> dict:
     exact day gap). `trial_categories` drives the day pass vs trials split.
     SHIFT_Automation/_dev_pilot_scorecard_v2.py reproduces every number here
     from the same Drive files (read-only)."""
+    parts = _scorecard_parts(ds, client)
+    if parts is None:
+        return {"enabled": False}
+    return parts["result"]
+
+
+def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
+    """The scorecard's cohorts and result in one pass (shared by
+    build_scorecard and scorecard_pilot_ids)."""
     rep = client.reporting or {}
     cfg = rep.get("scorecard") or {}
     start = cfg.get("start")
     if not cfg.get("enabled") or not start or not ds.sessions_max_date:
-        return {"enabled": False}
+        return None
     cats = set(cfg.get("categories") or [])
     trial_cats = set(cfg.get("trial_categories") or [])
     excl_kw = [str(k).lower() for k in cfg.get("exclude_first_item_keywords", []) if k]
@@ -721,7 +762,7 @@ def build_scorecard(ds: Dataset, client: ClientConfig) -> dict:
 
     pilot = cohort(start_d.isoformat(), "9999-12-31")
     base = cohort(base_lo.isoformat(), base_hi.isoformat())
-    return {
+    result = {
         "enabled": True,
         "start": start_d.isoformat(),
         "data_through": data_end.isoformat(),
@@ -735,6 +776,7 @@ def build_scorecard(ds: Dataset, client: ClientConfig) -> dict:
         "pilot": split(pilot, 0),
         "baseline": split(base, base_shift),
     }
+    return {"pilot": pilot, "base": base, "result": result}
 
 
 def build_config_view(client: ClientConfig) -> dict:
@@ -1086,8 +1128,13 @@ def build_engagement(ds: Dataset, sent_rows: list | None,
     rep = (client.reporting or {}) if client else {}
     excluded_cats = set(rep.get("exclude_from_cohort", []))
     opening = rep.get("post_opening_date")
+    # With a Pilot scorecard configured, "paid first-timers" here = exactly the
+    # people the scorecard counts, so the two slides agree (2026-09-22).
+    sc_ids = scorecard_pilot_ids(ds, client) if client else None
 
     def _is_paid_ftv(c) -> bool:
+        if sc_ids is not None:
+            return bool(c and c.climber_id in sc_ids)
         return bool(c and c.ftv_time and not c.is_staff
                     and c.ftv_category not in excluded_cats
                     and (not opening or c.ftv_date >= opening)

@@ -622,9 +622,18 @@ function agg(ftvs) {
   const conv = ftvs.filter(f => f.conv).length;
   const v1 = ftvs.filter(f => f.v1).length;
   const ret = ftvs.filter(f => f.ret).length;
-  return { n, conv, v1, ret,
-    convPct: n ? 100 * conv / n : 0, retPct: n ? 100 * ret / n : 0, v1Pct: n ? 100 * v1 / n : 0 };
+  // Windowed (2026-09-22, same rules as the Pilot scorecard): came back within
+  // 30 days / joined within 90 days, each out of the people who have had that
+  // many days. Records without the flags (older payloads) fall back to 0.
+  const m30 = ftvs.filter(f => f.m30).length, ret30 = ftvs.filter(f => f.m30 && f.ret30).length;
+  const m90 = ftvs.filter(f => f.m90).length, j90 = ftvs.filter(f => f.m90 && f.j90).length;
+  return { n, conv, v1, ret, m30, ret30, m90, j90,
+    convPct: n ? 100 * conv / n : 0, retPct: n ? 100 * ret / n : 0, v1Pct: n ? 100 * v1 / n : 0,
+    ret30Pct: m30 ? 100 * ret30 / m30 : 0, j90Pct: m90 ? 100 * j90 / m90 : 0 };
 }
+function reportWindows() { return (DATA.reporting && DATA.reporting.windows) || { return_days: 30, join_days: 90 }; }
+// visit days on/after the paid first visit (falls back to all visit days for older payloads)
+function visitsAfter(f) { return f.nva != null ? f.nva : f.nv; }
 function byEntry(ftvs) {
   const labels = entryLabels(), map = {};
   ftvs.forEach(f => { const k = f.cat || 'OTHER'; (map[k] = map[k] || { n: 0, conv: 0 }); map[k].n++; if (f.conv) map[k].conv++; });
@@ -637,7 +646,7 @@ function byVisits(ftvs) {
     { k: '2 visits', lo: 2, hi: 2 }, { k: '3 visits', lo: 3, hi: 3 },
     { k: '4–5 visits', lo: 4, hi: 5 }, { k: '6+ visits', lo: 6, hi: 999 } ];
   return buckets.map(b => {
-    const sub = ftvs.filter(f => f.nv >= b.lo && f.nv <= b.hi);
+    const sub = ftvs.filter(f => visitsAfter(f) >= b.lo && visitsAfter(f) <= b.hi);
     const conv = sub.filter(f => f.conv).length;
     return { k: b.k, n: sub.length, conv, pct: sub.length ? 100 * conv / sub.length : 0 };
   }).filter(b => b.n > 0);
@@ -766,13 +775,16 @@ function renderDashboard() {
   // period-scoped first-timer + conversion numbers
   if (reportingOn()) {
     const a = agg(filterFtvs());
+    const w = reportWindows();
     h += '<div style="margin-top:24px;"><div class="card-title" style="margin-bottom:2px;">' + icon('funnel') + 'First-timers & conversion</div>' +
-      '<div class="card-description" style="margin-bottom:12px;">First-time visitors and how many became members in this window.</div>';
+      '<div class="card-description" style="margin-bottom:12px;">Everyone whose first purchase was a pass, trial, punch pass, class, or event, and what they did next. A wider group than the Pilot scorecard, counted the same way: a return within ' + w.return_days + ' days, a membership within ' + w.join_days + ' days, each out of the people who have had that long.</div>';
     h += periodSelectHtml();
     h += '<div class="stats-grid-3">' +
       statTile('First-timers', a.n.toLocaleString(), periodLabel()) +
-      statTile('Came back (2+ visits)', a.retPct.toFixed(1) + '%', a.ret.toLocaleString() + ' returned at least once') +
-      statTile('Became a member', a.convPct.toFixed(1) + '%', a.conv.toLocaleString() + ' of ' + a.n.toLocaleString() + ' converted') +
+      statTile('Came back within ' + w.return_days + ' days', a.m30 ? a.ret30Pct.toFixed(1) + '%' : 'n/a',
+        a.ret30.toLocaleString() + ' of ' + a.m30.toLocaleString() + ' who have had ' + w.return_days + ' days') +
+      statTile('Became a member within ' + w.join_days + ' days', a.m90 ? a.j90Pct.toFixed(1) + '%' : 'n/a',
+        a.j90.toLocaleString() + ' of ' + a.m90.toLocaleString() + ' who have had ' + w.join_days + ' days') +
     '</div></div>';
   }
 
@@ -1594,13 +1606,17 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
     let inner = bv.length
       ? bv.map(b => convBarM(b.k, b.n, b.conv, b.pct, Math.max.apply(null, bv.map(x => x.n)) || 1, Math.max.apply(null, bv.map(x => x.pct)) || 1)).join('')
       : noData('No check-in data for this period.');
-    slides.push({ title: 'Conversion by return visits', desc: 'The single biggest driver: how many times a first-timer came back, and how that changes the odds of becoming a member.', html: inner });
+    // These four slides cover every first-timer type (a wider group than the
+    // Pilot scorecard) and count memberships ever, not within 90 days; the
+    // note says so. Visits are counted from the paid first visit on.
+    const wide = ' Covers every first-timer type, a wider group than the Pilot scorecard.';
+    slides.push({ title: 'Conversion by return visits', desc: 'The single biggest driver: how many times a first-timer came back after their first paid visit, and how that changes the odds of becoming a member.' + wide, html: inner });
 
     const be = byEntry(ftvs);
     inner = be.length
       ? be.map(e => convBarM(e.label, e.n, e.conv, e.pct, Math.max.apply(null, be.map(x => x.n)) || 1, Math.max.apply(null, be.map(x => x.pct)) || 1)).join('')
       : noData('No data for this period.');
-    slides.push({ title: 'Conversion by entry product', desc: 'How the product someone first walks in on changes their odds of converting.', html: inner });
+    slides.push({ title: 'Conversion by entry product', desc: 'How the product someone first walks in on changes their odds of converting.' + wide, html: inner });
 
     const months = [...new Set(ftvs.map(f => f.m))].sort();
     if (months.length > 1) {
@@ -1608,9 +1624,9 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       const mS = months.map(mm => ftvs.filter(f => f.m === mm && f.conv).length);
       if (metricIsPct()) {
         const pS = months.map((mm, i) => fS[i] > 0 ? 100 * mS[i] / fS[i] : 0);
-        slides.push({ title: 'Conversion rate over time', desc: 'The share of each month’s first-timers who went on to become members.', html: pctLineChart(months.map(monthName), pS, 'Conversion rate') });
+        slides.push({ title: 'Conversion rate over time', desc: 'The share of each month’s first-timers who went on to become members.' + wide, html: pctLineChart(months.map(monthName), pS, 'Conversion rate') });
       } else {
-        slides.push({ title: 'First-timers and new members over time', desc: 'How many first-timers arrived each month, and how many of them went on to become members.', html: trendChart(months.map(monthName), fS, mS, 'First-timers', 'Became members') });
+        slides.push({ title: 'First-timers and new members over time', desc: 'How many first-timers arrived each month, and how many of them went on to become members.' + wide, html: trendChart(months.map(monthName), fS, mS, 'First-timers', 'Became members') });
       }
     }
 
@@ -1619,7 +1635,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
     inner = bt.length
       ? bt.map(b => countBarM(b.k, b.n, totT, Math.max.apply(null, bt.map(x => x.n)) || 1)).join('')
       : noData('No conversions in this period yet.');
-    slides.push({ title: 'When members join', desc: 'Days from a first visit to signing up. Tells you when a follow-up still has a chance.', html: inner });
+    slides.push({ title: 'When members join', desc: 'Days from a first visit to signing up. Tells you when a follow-up still has a chance.' + wide, html: inner });
   }
   if (hasSurvey) {
     // include zero bars for every issue the form CAN name, so "nobody said
@@ -1700,7 +1716,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       const paidN = s.sent_paid_ftv || 0;
       const paidSplit = paidN > 0
         ? 'Of the ' + s.sent.toLocaleString() + ', ' + paidN.toLocaleString() +
-          ' went to paid first-timers; the rest went to guests and others who checked in with their own email.'
+          ' went to first-timers counted on the Pilot scorecard; the rest went to guests and others who checked in with their own email.'
         : 'Includes guests and others who checked in with their own email, so this runs higher than the scorecard’s paid first-timer count.';
       let inner = engBarM('Survey emails sent (all new visitors)', s.sent, s.sent, true,
         'Everyone gets the survey 1 to 2 days after their first visit. ' + paidSplit);
