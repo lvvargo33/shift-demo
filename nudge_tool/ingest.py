@@ -142,6 +142,12 @@ class Climber:
     is_staff: bool = False             # founder/staff email -> excluded from FTV cohort
     reporting_converted: bool = False  # has a real Memberships row (workbook 'converted_to_member')
     membership_created: str | None = None  # earliest membership start date (for timing)
+    # Pilot scorecard v2 (ROADMAP Block 12, 2026-09-22): the line-item names
+    # (lowercased) of this climber's EARLIEST successful transaction of any
+    # kind, so engine.build_scorecard can drop youth passes (a "youth" line in
+    # the first purchase = the kid climbs, the parent gets the email).
+    first_tx_time: str | None = None
+    first_tx_items: list[str] = field(default_factory=list)
 
     @property
     def ftv_date(self) -> str | None:
@@ -281,6 +287,13 @@ def load(client: ClientConfig) -> Dataset:
                     if c.ftv_time is None or tk < c.ftv_time:
                         c.ftv_time = tk
                         c.ftv_category = cat
+            # scorecard: remember the line items of the earliest purchase of
+            # ANY kind (retail included), keyed on the same timestamp sort key.
+            tk = (row.get("time") or "")[:19]
+            if c.first_tx_time is None or tk < c.first_tx_time:
+                c.first_tx_time = tk
+                c.first_tx_items = [m.group(2).strip().lower()
+                                    for m in map(_LINE_RE.match, items.split(";")) if m]
 
     trial_buyers = sum(1 for c in climbers.values() if c.trial_date)
 

@@ -607,6 +607,136 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
     }
 
 
+def _shift_year(d: date, years: int) -> date:
+    """d moved by whole years; Feb 29 lands on Feb 28."""
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:
+        return d.replace(year=d.year + years, day=28)
+
+
+def build_scorecard(ds: Dataset, client: ClientConfig) -> dict:
+    """Insights "Pilot scorecard" v2 (ROADMAP Block 12, definitions locked with
+    Luke 2026-09-22). Config-driven from client.json reporting.scorecard; a
+    client without that block (ABC today) gets enabled:false and its dashboard
+    keeps whatever slide it has. Computed here rather than in the browser so
+    the one-year-earlier baseline never ships a second year of per-person rows.
+
+    Who (one record per climber): own first paid entry (ftv_category) in
+    `categories`, checked in at least once, not staff, first visit on/after
+    `start` (window open-ended), no `exclude_first_item_keywords` word in the
+    earliest purchase's line items (youth passes: the kid climbs, the parent
+    gets the email), and would have passed the email screens: own email on
+    file, email not shared by 2+ climbers, and no membership or
+    post-first-visit trial within `converted_within_days` of the first visit.
+    Guests/comps (no purchase) and every other entry category are out. The
+    baseline year gets the same screens.
+    Bars: came back = a second check-in DAY after the first visit within
+    `return_days` (check-ins BEFORE the paid first visit never count); joined
+    = a real Memberships row created 0..N days after the first visit (N =
+    `join_days`, with `join_early_days` as the early read). Each bar's
+    denominator = the people whose N days have elapsed as of the latest
+    check-in in the data, so a fresh first-timer is never a miss.
+    Baseline = the same calendar dates one year earlier, each person given
+    the same number of days their twin date has had (cut-off shifted by the
+    exact day gap). `trial_categories` drives the day pass vs trials split.
+    SHIFT_Automation/_dev_pilot_scorecard_v2.py reproduces every number here
+    from the same Drive files (read-only)."""
+    rep = client.reporting or {}
+    cfg = rep.get("scorecard") or {}
+    start = cfg.get("start")
+    if not cfg.get("enabled") or not start or not ds.sessions_max_date:
+        return {"enabled": False}
+    cats = set(cfg.get("categories") or [])
+    trial_cats = set(cfg.get("trial_categories") or [])
+    excl_kw = [str(k).lower() for k in cfg.get("exclude_first_item_keywords", []) if k]
+    screen_days = int(cfg.get("converted_within_days", 2))
+    ret_days = int(cfg.get("return_days", 30))
+    early_days = int(cfg.get("join_early_days", 60))
+    join_days = int(cfg.get("join_days", 90))
+    data_end = date.fromisoformat(ds.sessions_max_date[:10])
+    start_d = date.fromisoformat(start[:10])
+    base_lo = _shift_year(start_d, -1)
+    base_hi = _shift_year(data_end, -1)
+    base_shift = (data_end - base_hi).days
+
+    counts: dict[str, int] = {}
+    for c in ds.climbers.values():
+        e = (c.email or "").strip().lower()
+        if e:
+            counts[e] = counts.get(e, 0) + 1
+    shared = {e for e, n in counts.items() if n > 1}
+
+    def dd(s: str) -> date:
+        return date.fromisoformat(s[:10])
+
+    def emailable(c: Climber) -> bool:
+        e = (c.email or "").strip().lower()
+        if not e or e in shared:
+            return False
+        fd = dd(c.ftv_date)
+        if c.membership_created and (dd(c.membership_created) - fd).days <= screen_days:
+            return False
+        # A trial bought strictly AFTER the first visit day is a conversion
+        # that stops the emails; a trial on day one is the entry product.
+        td, fv = c.trial_date, c.first_visit_date
+        if td and fv and td > fv and (dd(td) - fd).days <= screen_days:
+            return False
+        return True
+
+    def keyword_out(c: Climber) -> bool:
+        return any(k in n for n in c.first_tx_items for k in excl_kw)
+
+    def cohort(lo: str, hi: str) -> list:
+        return [c for c in ds.climbers.values()
+                if c.ftv_date and not c.is_staff and c.ftv_category in cats
+                and c.visit_count >= 1 and lo <= c.ftv_date <= hi
+                and emailable(c) and not keyword_out(c)]
+
+    def back_within(c: Climber, days: int) -> bool:
+        fd = dd(c.ftv_date)
+        hi = fd + timedelta(days=days)
+        return any(fd < dd(v) <= hi for v in c.visit_days)
+
+    def joined_within(c: Climber, days: int) -> bool:
+        return bool(c.reporting_converted and c.membership_created
+                    and 0 <= (dd(c.membership_created) - dd(c.ftv_date)).days <= days)
+
+    def bars(grp: list, shift: int) -> dict:
+        out: dict = {"n": len(grp)}
+        for key, days, fn in (("ret", ret_days, back_within),
+                              ("join_early", early_days, joined_within),
+                              ("join", join_days, joined_within)):
+            cut = (data_end - timedelta(days=days + shift)).isoformat()
+            m = [c for c in grp if c.ftv_date <= cut]
+            out[key] = {"n": sum(1 for c in m if fn(c, days)), "of": len(m)}
+        return out
+
+    def split(grp: list, shift: int) -> dict:
+        return {
+            "all": bars(grp, shift),
+            "day_pass": bars([c for c in grp if c.ftv_category not in trial_cats], shift),
+            "trials": bars([c for c in grp if c.ftv_category in trial_cats], shift),
+        }
+
+    pilot = cohort(start_d.isoformat(), "9999-12-31")
+    base = cohort(base_lo.isoformat(), base_hi.isoformat())
+    return {
+        "enabled": True,
+        "start": start_d.isoformat(),
+        "data_through": data_end.isoformat(),
+        "baseline_start": base_lo.isoformat(),
+        "baseline_through": base_hi.isoformat(),
+        "windows": {"return_days": ret_days, "join_early_days": early_days,
+                    "join_days": join_days, "converted_within_days": screen_days},
+        "goals": dict(cfg.get("goals") or {}),
+        "categories": sorted(cats),
+        "trial_categories": sorted(trial_cats),
+        "pilot": split(pilot, 0),
+        "baseline": split(base, base_shift),
+    }
+
+
 def build_config_view(client: ClientConfig) -> dict:
     """Read-only snapshot of the live config for the Settings view. Grounds the
     'everything is tunable per client, no code' story."""
@@ -1025,6 +1155,7 @@ def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
         "metrics": build_metrics(ds, queue, client, asof),
         "funnel": build_funnel(ds),
         "reporting": build_reporting(ds, client, asof),
+        "scorecard": build_scorecard(ds, client),
         "config": build_config_view(client),
         "triggers": [
             {"name": t.name, "tag": t.tag, "template_id": t.template_id,

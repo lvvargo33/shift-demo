@@ -1448,14 +1448,19 @@ function countBarM(label, n, total, maxN) {
 // count shows both the number and its % of sent (the Counts/% toggle flips
 // which leads); the grey sub line is a plain-language source/meaning note.
 // A zero value draws NO fill at all, so an empty stage never shows a sliver.
-function engBarM(label, n, base, isTop, sub) {
+function engBarM(label, n, base, isTop, sub, countOverride, noFill) {
+  // countOverride (2026-09-22, scorecard v2): replaces the count text (e.g.
+  // "49 of 241 (20.3%)" so the denominator travels with the number); noFill
+  // draws no bar, for a group too small for a percent to mean anything
+  // ("1 of 11 (too early)").
   const pct = base > 0 ? 100 * n / base : 0;
   let countHtml;
-  if (isTop) countHtml = n.toLocaleString();
+  if (countOverride) countHtml = escapeHtml(countOverride);
+  else if (isTop) countHtml = n.toLocaleString();
   else if (metricIsPct()) countHtml = pct.toFixed(1) + '% (' + n.toLocaleString() + ')';
   else countHtml = n.toLocaleString() + ' (' + pct.toFixed(1) + '%)';
   const w = Math.round(pct);
-  const fill = n > 0
+  const fill = n > 0 && !noFill
     ? '<div class="bar-fill' + (!isTop && metricIsPct() ? ' bar-green' : '') + '" style="width:' + Math.max(w, 2) + '%;"></div>'
     : '';
   return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
@@ -1475,16 +1480,19 @@ const ENG_INFO = {
     title: 'About the Pilot scorecard',
     body:
       '<h4>Who is counted</h4>' +
-      '<p>Everyone who bought their own first pass (a day pass or intro pass) and actually came in to climb, starting June 19, 2026, the day the email pilot switched on. Each person is counted once.</p>' +
-      '<p>Not counted: guests who came in on a pass someone else bought, online buyers who never showed up, staff, and people who signed up as members on day one (an email nudge can’t take credit for them).</p>' +
-      '<h4>Why only paid first-timers</h4>' +
-      '<p>To judge the pilot, we compare this summer against the same weeks last summer (2025). Purchases leave a clean record, so buyers can be measured the same way in both years. Guests can’t: many check in under the buyer’s email, and a guest who later buys their own pass shows up in the records as a brand-new visitor, not a returner. Counting guests would make the two summers impossible to compare fairly.</p>' +
-      '<p>Guests still matter, and they still get the survey and offer emails when we have their address. They’re just not part of this yardstick.</p>' +
+      '<p>Adults whose own first purchase was a day pass, a 2-week trial, or a 30-day trial, who actually came in to climb, starting June 19, 2026, the day the email pilot switched on. Each person is counted once, and the window stays open: every new first-timer joins the count the next morning.</p>' +
+      '<p>One more filter: only people the emails could have reached. That means their own email address is on file, the address isn’t shared with other climbers (a parent and kids on one address), and they didn’t become a member, or add a trial on top of their first pass, within two days of the first visit. Those people never got a follow-up email, so the pilot can’t take credit for them.</p>' +
+      '<p>Not counted: guests and comps who came in on a pass someone else bought, youth day passes (the kid climbs, the parent gets the email), staff, people who bought a membership on their first visit, classes and camps, events, punch passes, and one-off nights like College Night.</p>' +
+      '<h4>What the bars mean</h4>' +
+      '<p><strong>Came back within 30 days</strong>: a second check-in day after the first visit, within 30 days of it. Only people whose 30 days have already passed are in the percentage, so a first-timer from last week is neither a hit nor a miss yet. That is why this bar’s percentage is out of a smaller number than the first bar. Visits from before the first paid visit (a guest visit last year, say) never count as a return.</p>' +
+      '<p><strong>Became members within 90 days</strong>: a membership started within 90 days of the first visit, again only for people who have had 90 days. While that group is under 20 people the bar shows a plain count instead of a percentage, and the caption shows the same thing at 60 days as an early read. People who joined within two days of their first visit are not in this bar: they never got an email.</p>' +
+      '<p>The line under the second bar splits the come-back number by what they bought first. Trial buyers come back far more often, so a change in the mix moves the total.</p>' +
+      '<h4>Why last summer is filtered the same way</h4>' +
+      '<p>The comparison is the same calendar dates one year earlier, with the same filters and the same stopwatch: a 2025 first-timer only counts toward a 30-day number once the same date one year later has also had 30 days. That keeps the two summers honest. Last summer’s figure moves a little each day as more of this summer matures.</p>' +
       '<h4>The goals</h4>' +
-      '<p>Set before the pilot, against last summer’s numbers for the same weeks: came back within 30 days, goal 30 to 33% (last summer: 23%). Became a member within 90 days, goal 4 to 5% (last summer: 2.9%).</p>' +
-      '<p>Early in the pilot both numbers read low, because the newest first-timers haven’t had time to come back or join yet. The fair read on returns comes about a month after each person’s first visit, and on memberships about three months after.</p>' +
+      '<p>Set on June 18, 2026: came back within 30 days, goal 30 to 33%. Became a member within 90 days, goal 4 to 5%. Those goals were set against last summer’s full season under the old, looser count (23% back, 2.9% joined). The “same dates in 2025” figures on the slide are recomputed daily under this page’s tighter rules and the matching dates, so they will not equal 23% and 2.9%, and last summer’s membership figure can even sit above the goal while the 2025 group is small.</p>' +
       '<h4>Where the data comes from</h4>' +
-      '<p>Purchases from the register system and check-ins from the front-desk sign-in, refreshed daily.</p>',
+      '<p>Purchases from the register system and check-ins from the front-desk sign-in, refreshed daily. Last summer’s numbers come from the same records.</p>',
   },
   survey: {
     title: 'About Survey engagement',
@@ -1529,6 +1537,71 @@ function engInfoBtn(kind) {
 function engagementOn() {
   const e = DATA.engagement || {};
   return !!e.enabled && (((e.offers || {}).sent || 0) > 0 || ((e.surveys || {}).sent || 0) > 0);
+}
+// Pilot scorecard v2 helpers (2026-09-22). A bar is {n, of}: n people did the
+// thing out of the `of` people who have had enough days for it to count. A
+// percent is only printed once the group has SC_MIN_N people; below that the
+// slide says "x of y (too early)" so one person can never read as 9%.
+const SC_MIN_N = 20;
+function scRate(b) {
+  if (!b || !b.of) return 'nobody has had enough time yet';
+  if (b.of < SC_MIN_N) return b.n + ' of ' + b.of + ' (too early)';
+  return (100 * b.n / b.of).toFixed(1) + '% (' + b.n + ' of ' + b.of + ')';
+}
+function scPctOnly(b) { return b && b.of >= SC_MIN_N ? (100 * b.n / b.of).toFixed(1) + '%' : (b && b.of ? b.n + ' of ' + b.of : 'n/a'); }
+function scCount(b) {
+  // the count shown on the bar itself: always carries its own denominator
+  if (!b.of) return '0 of 0 (too early)';
+  if (b.of < SC_MIN_N) return b.n + ' of ' + b.of + ' (too early)';
+  const pct = (100 * b.n / b.of).toFixed(1) + '%';
+  return metricIsPct() ? pct + ' (' + b.n + ' of ' + b.of + ')' : b.n + ' of ' + b.of + ' (' + pct + ')';
+}
+function scGoal(goal, setAgainst, setOn) {
+  if (!goal) return 'Goal: not set.';
+  let s = 'Goal: ' + goal;
+  if (setAgainst) s += ', set ' + (setOn ? 'on ' + setOn + ' ' : '') + 'against last summer’s full-season ' + setAgainst + ' under the old count';
+  return s + '.';
+}
+function scorecardSlideV2(sc) {
+  const p = sc.pilot.all, b = sc.baseline.all;
+  const w = sc.windows || {};
+  const rd = w.return_days || 30, jd = w.join_days || 90, ed = w.join_early_days || 60;
+  const goals = sc.goals || {};
+  const yr = String(sc.baseline_start || '').slice(0, 4) || 'last year';
+  const lastYear = 'Same dates in ' + yr + ' under this page’s rules';
+  const note = t => '<div style="color:var(--fg-subtle);font-size:11.5px;margin:-4px 0 12px;">' + escapeHtml(t) + '</div>';
+
+  let inner = engBarM('Paid first-timers the emails could have reached', p.n, p.n, true,
+    'Adults whose own first purchase was a day pass or a trial, who checked in at least once, with their own email on file. ' +
+    'Same dates in ' + yr + ', same rules: ' + b.n.toLocaleString() + '.');
+
+  inner += engBarM('Came back within ' + rd + ' days', p.ret.n, p.ret.of, false,
+    'A second check-in day after the first visit. Only the ' + p.ret.of.toLocaleString() + ' of ' + p.n.toLocaleString() +
+    ' who have had ' + rd + ' days are in the percentage. ' +
+    scGoal(goals.return, goals.return_set_against, goals.set_on) + ' ' + lastYear + ': ' + scRate(b.ret) + '.',
+    scCount(p.ret), p.ret.of < SC_MIN_N);
+  const dp = sc.pilot.day_pass, tr = sc.pilot.trials, bdp = sc.baseline.day_pass, btr = sc.baseline.trials;
+  if (dp.n + tr.n > 0) {
+    inner += note('By what they bought first: day pass ' + scRate(dp.ret) + ', trials ' + scRate(tr.ret) +
+      '. ' + lastYear + ': day pass ' + scPctOnly(bdp.ret) + ', trials ' + scPctOnly(btr.ret) +
+      '. Trials were ' + tr.n + ' of ' + p.n + ' first-timers this year vs ' + btr.n + ' of ' + b.n + ' in ' + yr + '.');
+  }
+
+  inner += engBarM('Became members within ' + jd + ' days', p.join.n, p.join.of, false,
+    'A membership started within ' + jd + ' days of the first visit. ' +
+    (p.join.of > 0
+      ? 'Only ' + p.join.of.toLocaleString() + ' of ' + p.n.toLocaleString() + ' have had ' + jd + ' days so far' +
+        (p.join.of < SC_MIN_N ? ', too few for a percentage. ' : '. ')
+      : 'Nobody has had ' + jd + ' days yet. ') +
+    'Early read at ' + ed + ' days: ' + scRate(p.join_early) + ' vs ' + scRate(b.join_early) + ' in ' + yr + '. ' +
+    scGoal(goals.join, goals.join_set_against, goals.set_on) + ' ' + lastYear + ': ' + scRate(b.join) + '.',
+    scCount(p.join), p.join.of < SC_MIN_N);
+
+  inner += engInfoBtn('scorecard');
+  return { title: 'Pilot scorecard', pilot: true,
+    desc: 'Paid first-timers the emails could have reached, since ' + longDate(sc.start) + ' (check-ins through ' + longDate(sc.data_through) +
+      '), and what they did next, beside the same dates in ' + yr + ' counted the same way.',
+    html: inner };
 }
 function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
   const slides = [];
@@ -1613,7 +1686,15 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
     // numbers = the pilot scorecard agreed 2026-06-18 vs the same-window
     // summer-2025 baseline: 30-33% return within 30 days (baseline 23%),
     // 4-5% membership conversion within 90 days (baseline 2.9%).
-    if (hasReport && pilotDay0) {
+    // v2 (2026-09-22, ROADMAP Block 12): the engine ships the three bars
+    // already screened and windowed (engine.build_scorecard), next to the
+    // same calendar dates one year earlier under the same rules. The old
+    // client-side count below stays as the fallback for clients without a
+    // reporting.scorecard block (the demo clients).
+    const sc = DATA.scorecard || {};
+    if (hasReport && sc.enabled && sc.pilot && sc.pilot.all.n > 0) {
+      slides.push(scorecardSlideV2(sc));
+    } else if (hasReport && pilotDay0) {
       const pcohort = (DATA.reporting.ftvs || []).filter(f => f.d >= pilotDay0);
       const pN = pcohort.length;
       if (pN > 0) {
@@ -1636,7 +1717,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       const paidN = s.sent_paid_ftv || 0;
       const paidSplit = paidN > 0
         ? 'Of the ' + s.sent.toLocaleString() + ', ' + paidN.toLocaleString() +
-          ' went to paid first-timers (the scorecard group); the rest went to guests and others who checked in with their own email.'
+          ' went to paid first-timers; the rest went to guests and others who checked in with their own email.'
         : 'Includes guests and others who checked in with their own email, so this runs higher than the scorecard’s paid first-timer count.';
       let inner = engBarM('Survey emails sent (all new visitors)', s.sent, s.sent, true,
         'Everyone gets the survey 1 to 2 days after their first visit. ' + paidSplit);
