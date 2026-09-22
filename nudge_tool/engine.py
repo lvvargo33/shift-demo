@@ -686,7 +686,9 @@ def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
     rep = client.reporting or {}
     cfg = rep.get("scorecard") or {}
     start = cfg.get("start")
-    if not cfg.get("enabled") or not start or not ds.sessions_max_date:
+    # getattr: the verify suites hand build_engagement a bare stand-in dataset
+    smax = getattr(ds, "sessions_max_date", None)
+    if not cfg.get("enabled") or not start or not smax:
         return None
     cats = set(cfg.get("categories") or [])
     trial_cats = set(cfg.get("trial_categories") or [])
@@ -695,7 +697,7 @@ def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
     ret_days = int(cfg.get("return_days", 30))
     early_days = int(cfg.get("join_early_days", 60))
     join_days = int(cfg.get("join_days", 90))
-    data_end = date.fromisoformat(ds.sessions_max_date[:10])
+    data_end = date.fromisoformat(smax[:10])
     start_d = date.fromisoformat(start[:10])
     base_lo = _shift_year(start_d, -1)
     base_hi = _shift_year(data_end, -1)
