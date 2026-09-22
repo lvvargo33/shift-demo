@@ -1487,10 +1487,10 @@ const ENG_INFO = {
       '<p><strong>Came back within 30 days</strong>: a second check-in day after the first visit, within 30 days of it. Only people whose 30 days have already passed are in the percentage, so a first-timer from last week is neither a hit nor a miss yet. That is why this bar’s percentage is out of a smaller number than the first bar. Visits from before the first paid visit (a guest visit last year, say) never count as a return.</p>' +
       '<p><strong>Became members within 90 days</strong>: a membership started within 90 days of the first visit, again only for people who have had 90 days. While that group is under 20 people the bar shows a plain count instead of a percentage, and the caption shows the same thing at 60 days as an early read. People who joined within two days of their first visit are not in this bar: they never got an email.</p>' +
       '<p>The line under the second bar splits the come-back number by what they bought first. Trial buyers come back far more often, so a change in the mix moves the total.</p>' +
-      '<h4>Why last summer is filtered the same way</h4>' +
-      '<p>The comparison is the same calendar dates one year earlier, with the same filters and the same stopwatch: a 2025 first-timer only counts toward a 30-day number once the same date one year later has also had 30 days. That keeps the two summers honest. Last summer’s figure moves a little each day as more of this summer matures.</p>' +
+      '<h4>How last summer is compared</h4>' +
+      '<p>The 2025 figures are the same calendar dates one year earlier, counted with the same filters and the same stopwatch: a 2025 first-timer only counts toward a 30-day number once the same date one year later has also had 30 days. That keeps the two summers honest. Last summer’s figure moves a little each day as more of this summer matures.</p>' +
       '<h4>The goals</h4>' +
-      '<p>Set on June 18, 2026: came back within 30 days, goal 30 to 33%. Became a member within 90 days, goal 4 to 5%. Those goals were set against last summer’s full season under the old, looser count (23% back, 2.9% joined). The “same dates in 2025” figures on the slide are recomputed daily under this page’s tighter rules and the matching dates, so they will not equal 23% and 2.9%, and last summer’s membership figure can even sit above the goal while the 2025 group is small.</p>' +
+      '<p>Set on June 18, 2026: came back within 30 days, goal 30 to 33%. Became a member within 90 days, goal 4 to 5%. Those goals were set against last summer’s full season using an older, looser count (23% back, 2.9% joined). The 2025 figures on the slide are recomputed daily with this page’s filters and the matching dates, so they will not equal 23% and 2.9%, and last summer’s membership figure can even sit above the goal while the 2025 group is small.</p>' +
       '<h4>Where the data comes from</h4>' +
       '<p>Purchases from the register system and check-ins from the front-desk sign-in, refreshed daily. Last summer’s numbers come from the same records.</p>',
   },
@@ -1556,51 +1556,43 @@ function scCount(b) {
   const pct = (100 * b.n / b.of).toFixed(1) + '%';
   return metricIsPct() ? pct + ' (' + b.n + ' of ' + b.of + ')' : b.n + ' of ' + b.of + ' (' + pct + ')';
 }
-function scGoal(goal, setAgainst, setOn) {
-  if (!goal) return 'Goal: not set.';
-  let s = 'Goal: ' + goal;
-  if (setAgainst) s += ', set ' + (setOn ? 'on ' + setOn + ' ' : '') + 'against last summer’s full-season ' + setAgainst + ' under the old count';
-  return s + '.';
-}
 function scorecardSlideV2(sc) {
   const p = sc.pilot.all, b = sc.baseline.all;
   const w = sc.windows || {};
   const rd = w.return_days || 30, jd = w.join_days || 90, ed = w.join_early_days || 60;
   const goals = sc.goals || {};
   const yr = String(sc.baseline_start || '').slice(0, 4) || 'last year';
-  const lastYear = 'Same dates in ' + yr + ' under this page’s rules';
+  const lastYear = 'Same dates in ' + yr;
+  const goal = g => g ? ' Goal: ' + g + '.' : '';
   const note = t => '<div style="color:var(--fg-subtle);font-size:11.5px;margin:-4px 0 12px;">' + escapeHtml(t) + '</div>';
 
   let inner = engBarM('Paid first-timers the emails could have reached', p.n, p.n, true,
-    'Adults whose own first purchase was a day pass or a trial, who checked in at least once, with their own email on file. ' +
-    'Same dates in ' + yr + ', same rules: ' + b.n.toLocaleString() + '.');
+    'Adults whose own first purchase was a day pass or a trial, checked in at least once, with their own email on file. ' +
+    lastYear + ': ' + b.n.toLocaleString() + '.');
 
   inner += engBarM('Came back within ' + rd + ' days', p.ret.n, p.ret.of, false,
-    'A second check-in day after the first visit. Only the ' + p.ret.of.toLocaleString() + ' of ' + p.n.toLocaleString() +
-    ' who have had ' + rd + ' days are in the percentage. ' +
-    scGoal(goals.return, goals.return_set_against, goals.set_on) + ' ' + lastYear + ': ' + scRate(b.ret) + '.',
+    'Of the ' + p.ret.of.toLocaleString() + ' who have had ' + rd + ' days, a second check-in within ' + rd + ' days of the first visit. ' +
+    lastYear + ': ' + scRate(b.ret) + '.' + goal(goals.return),
     scCount(p.ret), p.ret.of < SC_MIN_N);
   const dp = sc.pilot.day_pass, tr = sc.pilot.trials, bdp = sc.baseline.day_pass, btr = sc.baseline.trials;
   if (dp.n + tr.n > 0) {
-    inner += note('By what they bought first: day pass ' + scRate(dp.ret) + ', trials ' + scRate(tr.ret) +
-      '. ' + lastYear + ': day pass ' + scPctOnly(bdp.ret) + ', trials ' + scPctOnly(btr.ret) +
-      '. Trials were ' + tr.n + ' of ' + p.n + ' first-timers this year vs ' + btr.n + ' of ' + b.n + ' in ' + yr + '.');
+    inner += note('Day pass ' + scRate(dp.ret) + ', trials ' + scRate(tr.ret) + '. ' +
+      lastYear + ': day pass ' + scPctOnly(bdp.ret) + ', trials ' + scPctOnly(btr.ret) +
+      ' (' + tr.n + ' trials this year, ' + btr.n + ' in ' + yr + ').');
   }
 
   inner += engBarM('Became members within ' + jd + ' days', p.join.n, p.join.of, false,
-    'A membership started within ' + jd + ' days of the first visit. ' +
     (p.join.of > 0
-      ? 'Only ' + p.join.of.toLocaleString() + ' of ' + p.n.toLocaleString() + ' have had ' + jd + ' days so far' +
-        (p.join.of < SC_MIN_N ? ', too few for a percentage. ' : '. ')
+      ? 'Of the ' + p.join.of.toLocaleString() + ' who have had ' + jd + ' days, a membership started within ' + jd + ' days of the first visit. '
       : 'Nobody has had ' + jd + ' days yet. ') +
-    'Early read at ' + ed + ' days: ' + scRate(p.join_early) + ' vs ' + scRate(b.join_early) + ' in ' + yr + '. ' +
-    scGoal(goals.join, goals.join_set_against, goals.set_on) + ' ' + lastYear + ': ' + scRate(b.join) + '.',
+    lastYear + ': ' + scRate(b.join) + '.' + goal(goals.join) +
+    ' Early read at ' + ed + ' days: ' + scRate(p.join_early) + ' vs ' + scRate(b.join_early) + ' in ' + yr + '.',
     scCount(p.join), p.join.of < SC_MIN_N);
 
   inner += engInfoBtn('scorecard');
   return { title: 'Pilot scorecard', pilot: true,
     desc: 'Paid first-timers the emails could have reached, since ' + longDate(sc.start) + ' (check-ins through ' + longDate(sc.data_through) +
-      '), and what they did next, beside the same dates in ' + yr + ' counted the same way.',
+      '), and what they did next, beside the same dates in ' + yr + '.',
     html: inner };
 }
 function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
