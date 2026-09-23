@@ -55,6 +55,26 @@
       "mwe": 0.05,
       "started": "2026-08-13",
       "active": true
+    },
+    {
+      "exp_id": "shift_survey_reminder_01",
+      "sheet_id": "E-006",
+      "name": "SHIFT - survey reminder (none vs one reminder 2 days later)",
+      "gym": "SHIFT",
+      "audience": "Day Pass FTV",
+      "type": "FTV survey email",
+      "categories": ["follow_up"],
+      "variant_a": "No reminder",
+      "variant_b": "One reminder 2 days after the survey email, only if unanswered",
+      "bucket": "survey_reminder_ab",
+      "population": {"tags": ["FTV_survey_subject_a", "FTV_survey_subject_a_embed", "FTV_survey_subject_b", "FTV_survey_subject_b_embed", "send_it_survey_request"], "since": ""},
+      "arms": {"A": [], "B": ["FTV_survey_reminder_embed"]},
+      "primary_outcome": "responded_14d",
+      "baseline": 0.013,
+      "mwe": 0.026,
+      "_bucket_note": "Bucket test (Tasks step 2.2, built 2026-09-23, GATED OFF). Everyone who gets a survey email on or after population.since is in the test; the arm is the hash of email + 'survey_reminder_ab', the same hash the survey_reminder trigger uses to decide who gets the reminder. Arm A sends nothing, so it has no tag. Judged on answered within 14 days of the FIRST survey email. Baseline 1.3% / MWE +2.6 pts = the ROADMAP Block 10 timing row (587 per arm, about 29 weeks at SHIFT alone, 18 pooled); re-estimate at launch if the embed email is the standard by then (answers about 3%). The swap commit sets active:true, started and population.since to the start morning.",
+      "started": "",
+      "active": false
     }
   ]
 }

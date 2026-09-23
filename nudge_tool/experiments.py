@@ -19,12 +19,30 @@ Experiment ID matches, and fills the measurement columns from these rules:
     a split check (SRM) on everyone randomised, and an honest Health /
     Progress / Weeks-to-readable trio instead of a blank (decision 4).
 
+Bucket tests (survey reminder test, Tasks step 2.2, 2026-09-23). Some tests
+have an arm that sends NOTHING (A = no reminder), so its people can never be
+found by a tag. A registry entry with a `bucket` names the hash salt and a
+`population` names the sends that put a person in the test:
+
+    "bucket": "survey_reminder_ab",
+    "population": {"tags": ["FTV_survey_subject_a", ...], "since": "2026-10-01"},
+    "arms": {"A": [], "B": ["FTV_survey_reminder_embed"]}
+
+Everyone with a population send on or after `since` is in the test; their arm
+is the deterministic hash of email + bucket name (the same hash the engine's
+`ab_bucket` requirement uses to decide who gets the B email, so the two can
+never disagree). Sends whose tag is listed under an arm (the reminder) ride
+along on that person's record list, so a response credited to the reminder
+still counts for the person. The outcome clock is the person's FIRST
+population send (both arms judged "within N days of the first email").
+
 Pure functions plus one JSON reader; the sheet writer lives in
 allgyms_push.py. Shared by both gyms (CLAUDE.md rule 4): keep this file
 byte-identical in ABC/Automation and SHIFT/SHIFT_Automation.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from datetime import date, timedelta
@@ -124,11 +142,30 @@ def load_registry(client_dir: Path) -> tuple[list[dict], list[str]]:
                          f"missing {', '.join(missing)}, skipped")
             continue
         arms = e["arms"]
-        if not isinstance(arms, dict) or not arms.get("A") or not arms.get("B"):
+        bucket = (e.get("bucket") or "").strip() if isinstance(e.get("bucket"), str) else ""
+        if bucket:
+            # a bucket test: arms may be empty (A = nothing sent), but the
+            # population must say who is in the test
+            pop = e.get("population")
+            tags = pop.get("tags") if isinstance(pop, dict) else None
+            if not isinstance(arms, dict) or not tags or not isinstance(tags, (list, str)):
+                notes.append(f"{e['exp_id']}: a bucket test needs arms {{'A': [...], 'B': [...]}} "
+                             f"and population.tags, skipped")
+                continue
+        elif not isinstance(arms, dict) or not arms.get("A") or not arms.get("B"):
             notes.append(f"{e['exp_id']}: arms must be {{'A': [...], 'B': [...]}}, skipped")
             continue
         e = dict(e)
-        e["arms"] = {k: ([v] if isinstance(v, str) else list(v)) for k, v in arms.items()}
+        e["arms"] = {k: ([v] if isinstance(v, str) else list(v or [])) for k, v in arms.items()}
+        e["arms"].setdefault("A", [])
+        e["arms"].setdefault("B", [])
+        if bucket:
+            pop = dict(e["population"])
+            tags = pop.get("tags")
+            pop["tags"] = [tags] if isinstance(tags, str) else list(tags)
+            pop["since"] = str(pop.get("since") or "")[:10]
+            e["population"] = pop
+            e["bucket"] = bucket
         e.setdefault("primary_outcome", DEFAULT_OUTCOME)
         if e["primary_outcome"] not in OUTCOMES:
             notes.append(f"{e['exp_id']}: unknown primary_outcome "
@@ -187,10 +224,62 @@ def srm_p(na: int, nb: int) -> float:
 
 # --- people and outcomes ------------------------------------------------------
 
+def bucket_of(email: str, test: str) -> str:
+    """The person's arm in a bucket test: sha256 of "email:test", even = A.
+    MUST stay equal to engine._ab_variant (the sender's rule); the verify
+    suite checks the two agree."""
+    h = hashlib.sha256(
+        f"{(email or '').strip().lower()}:{test}".encode()).hexdigest()
+    return "A" if int(h, 16) % 2 == 0 else "B"
+
+
+def _person_table_bucket(exp: dict, records: list[dict]) -> tuple[dict, list[str]]:
+    """Bucket test: everyone with a population send on/after `since` is in,
+    arm = bucket_of(email, bucket). Arm-tag sends (the reminder) are added to
+    their person's list; one to a person outside the population is ignored,
+    one to an arm-A person is counted in a note (it should never happen)."""
+    pop = exp.get("population") or {}
+    pop_tags = set(pop.get("tags") or [])
+    since = (pop.get("since") or "")[:10]
+    test = exp["bucket"]
+    arms: dict = {"A": {}, "B": {}}
+    for r in records:
+        tag, vt = r.get("tag"), r.get("var_tag")
+        if (tag in pop_tags or vt in pop_tags) and (not since or r["sent"] >= since):
+            arms[bucket_of(r["email"], test)].setdefault(r["email"], []).append(r)
+    arm_tags = {k: set(v) for k, v in exp["arms"].items()}
+    stray = outside = 0
+    for r in records:
+        tag, vt = r.get("tag"), r.get("var_tag")
+        for arm, ts in arm_tags.items():
+            if not ts or (tag not in ts and vt not in ts):
+                continue
+            email = r["email"]
+            mine = bucket_of(email, test)
+            if email not in arms[mine]:
+                outside += 1  # e.g. surveyed before `since`; the sender's floor should stop this
+                continue
+            if mine != arm:
+                stray += 1
+            if r not in arms[mine][email]:
+                arms[mine][email].append(r)
+    notes = []
+    if stray:
+        notes.append(f"{exp['exp_id']}: {stray} arm-tag send(s) went to a person the "
+                     f"hash puts in the other arm")
+    if outside:
+        notes.append(f"{exp['exp_id']}: {outside} arm-tag send(s) went to people outside "
+                     f"the population (sender floor and population.since disagree?)")
+    return arms, notes
+
+
 def person_table(exp: dict, records: list[dict]) -> tuple[dict, list[str]]:
     """{'A': {email: [record, ...]}, 'B': {...}} from the send records; a
     record joins an arm when its tag or its A/B variant tag is listed there.
-    A person seen in both arms is dropped from both (noted)."""
+    A person seen in both arms is dropped from both (noted). A bucket test
+    (see the module docstring) assigns people by hash instead."""
+    if exp.get("bucket"):
+        return _person_table_bucket(exp, records)
     arms = {"A": {}, "B": {}}
     tags = {k: set(v) for k, v in exp["arms"].items()}
     for r in records:
@@ -213,9 +302,20 @@ def _within(opened_at: str, sent: str, window: int) -> bool:
     return (oa - sd).days <= window
 
 
-def person_success(recs: list[dict], outcome: str) -> tuple[bool, bool | None]:
+# outcomes whose event date collect() writes onto the record as `<base>_at`
+DATED_BASES = ("responded", "converted")
+
+
+def person_success(recs: list[dict], outcome: str,
+                   clock: str | None = None) -> tuple[bool, bool | None]:
     """(success, opened_first). opened_first is None for the open/click
-    outcomes (there the open IS the outcome)."""
+    outcomes (there the open IS the outcome).
+
+    clock (bucket tests): the date the outcome window runs from for this
+    person (their first population send). A dated outcome then needs its
+    event inside `window` days of the clock, not of the crediting send, so a
+    response after a day-2 reminder is still judged against the first email.
+    Undated outcomes keep the credit's own window from the crediting send."""
     _label, base, window = OUTCOMES[outcome]
     if base == "opened":
         return any(r.get("opened") and _within(r.get("opened_at", ""), r["sent"], window)
@@ -223,7 +323,9 @@ def person_success(recs: list[dict], outcome: str) -> tuple[bool, bool | None]:
     if base == "clicked":
         return any(bool(r.get("clicked")) for r in recs), None
     hit = [r for r in recs if (r.get("credits") or {}).get(base)]
-    if window < CREDIT_WINDOWS.get(base, window):
+    if clock and base in DATED_BASES:
+        hit = [r for r in hit if _inside(r.get(base + "_at", ""), clock, window)]
+    elif window < CREDIT_WINDOWS.get(base, window):
         # a yardstick tighter than the credit window needs the event date on
         # the record (`<base>_at`, written by collect()); no date = not inside
         hit = [r for r in hit if _inside(r.get(base + "_at", ""), r["sent"], window)]
@@ -248,6 +350,7 @@ def evaluate(exp: dict, records: list[dict], today: date) -> dict:
     arms, notes = person_table(exp, records)
     baseline = exp.get("baseline")
     mwe = float(exp.get("mwe", DEFAULT_MWE))
+    bucket = bool(exp.get("bucket"))
     stats: dict = {}
     for arm in ("A", "B"):
         people = arms[arm]
@@ -255,7 +358,8 @@ def evaluate(exp: dict, records: list[dict], today: date) -> dict:
                   if (today - (_d(_first_sent(rs)) or today)).days >= window}
         succ = opened_first = 0
         for rs in mature.values():
-            ok, of = person_success(rs, outcome)
+            ok, of = person_success(rs, outcome,
+                                    clock=_first_sent(rs) if bucket else None)
             succ += ok
             opened_first += bool(ok and of)
         recent = sum(1 for rs in people.values()

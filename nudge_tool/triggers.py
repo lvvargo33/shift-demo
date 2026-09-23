@@ -30,6 +30,14 @@ message catalog. A trigger now has:
               resident_zip_prefix (list[str])  Beta-profile zip starts with one
                                       of these prefixes (["49"] = West MI).
                                       Unknown zip FAILS CLOSED.
+              ab_bucket       (dict)  {"test": name, "variant": "A"|"B"}: the
+                                      person's deterministic arm in a test
+                                      that spans triggers (hash of email +
+                                      test name). Use the SAME test name at
+                                      both gyms so pooled reads line up.
+              survey_sent_on_or_after (str)  the survey email went out on or
+                                      after this date (survey reminder test,
+                                      Tasks 2.2). No survey date FAILS CLOSED.
   once_only / cooldown_days -- repeat protection, enforced via the local
               outreach log (wired in S3); structural here.
 

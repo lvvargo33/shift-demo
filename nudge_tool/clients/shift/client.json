@@ -310,6 +310,27 @@
   },
   "triggers": [
     {
+      "name": "survey_reminder",
+      "tag": "FTV_survey_reminder_embed",
+      "template_id": "survey_reminder_v1",
+      "description": "SURVEY REMINDER TEST, ARM B (Tasks step 2.2, built 2026-09-23, Chris said yes 9/17). One reminder 2-3 days after the survey email to people who have not answered, returners included (the survey itself goes to returners). Arm A = no reminder. The arm is the fixed hash of email + test name 'survey_reminder_ab' (same salt at ABC so the two gyms can pool). Both arms are judged on 'answered within 14 days of the FIRST survey email' (Experiments tab E-006, a bucket test). The tag triggers Chris's Mailchimp journey 'Send It - FTV Survey Reminder (embed)' (created 9/20). Listed FIRST so on a day-5 overlap the reminder wins and the 50% offer waits for the 2-day spacing guard (still inside its day 5-7 window).",
+      "anchor": "survey_sent",
+      "days_since_min": 2,
+      "days_since_max": 3,
+      "requires": {
+        "not_surveyed": true,
+        "ab_bucket": {
+          "test": "survey_reminder_ab",
+          "variant": "B"
+        },
+        "survey_sent_on_or_after": "",
+        "first_visit_on_or_after": "2026-06-19"
+      },
+      "once_only": true,
+      "active": false,
+      "_active_note": "GATED OFF until the swap morning (Luke 9/23: build now, switch on when Chris says go). The go-live commit sets active:true AND survey_sent_on_or_after to the start date (so the population = survey emails sent from that morning on), ends E-001 + the embed 2x2 in the same commit, and flips E-006 active in experiments.json. `swap_2a.py --date YYYY-MM-DD` in SHIFT_Automation makes all of those edits."
+    },
+    {
       "name": "first_visit_reengage",
       "tag": "first_visit_reengage",
       "ab_tags": {

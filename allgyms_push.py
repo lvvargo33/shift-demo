@@ -134,6 +134,7 @@ def _cell_or_blank(v: bool | None):
 # trigger_name -> display label (falls back to the raw name)
 FUNNEL_LABELS = {
     "survey_request": "FTV survey (day 1-2)",
+    "survey_reminder": "Survey reminder (day 2-3 after the survey)",
     "first_visit_reengage": "Reengage 50% offer (day 5-7)",
     "nudge_round_two": "Round two (high intent)",
     "nudge_pricing": "Blocker: pricing",
@@ -165,7 +166,7 @@ DASH_SECTIONS = ["FTV funnel emails", "Day pass regulars", "Blocker nudges",
 def _section_of(trigger_name: str) -> str:
     # member_survey = ABC's member program (Luke 2026-09-10: one row under the
     # existing Surveys section, no new section, so nothing to mirror in SHIFT)
-    if trigger_name in ("survey_request", "member_survey"):
+    if trigger_name in ("survey_request", "survey_reminder", "member_survey"):
         return "Surveys"
     if trigger_name.startswith("nudge_") and trigger_name != "nudge_round_two":
         return "Blocker nudges"
@@ -223,7 +224,16 @@ TEST_ARMS = {
         MEMBERSHIP_TEST_BAND, "2-week trial offer (B)"),
     "send_it_membership_offer": (
         MEMBERSHIP_TEST_BAND, OUT_OF_TEST_LABEL),
+    # Survey reminder test (Tasks step 2.2, built 2026-09-23, gated off until
+    # the swap morning). Arm A sends nothing, so only arm B has a row here;
+    # A vs B is read on the Experiments tab (E-006, a bucket test).
+    "FTV_survey_reminder_embed": (
+        "Survey reminder test (no reminder vs one reminder 2 days later)",
+        "Reminder sent (arm B)"),
 }
+# TEST_ARMS tags that get their zero row on Variants only once a send exists,
+# so a test built ahead of its start morning does not show on Chris's sheet.
+SEED_WHEN_SENT = {"FTV_survey_reminder_embed"}
 EMBED_TAGS = {"FTV_survey_subject_a_embed", "FTV_survey_subject_b_embed"}
 
 # S40: plain-language short names used inside Send It Test dropdown values
@@ -822,6 +832,13 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         converted, conv_opened = cr["converted"], cr["converted_opened"]
         redeemed, purchased = cr["redeemed"], cr["purchased"]
         responded = (resp_credits.get(key) or {}).get("responded", False)
+        # the record's credits carry the SURVEY-ONLY response credit (an
+        # answer is credited to the last SURVEY email before it, never to the
+        # 50% offer that followed), so a bucket test reads the same rule as
+        # the Responses column (fresh-eyes finding, 2026-09-23)
+        cr = dict(cr)
+        cr["responded"] = bool(responded)
+        cr["responded_opened"] = bool((resp_credits.get(key) or {}).get("responded_opened"))
         tapped = s["tag"] in EMBED_TAGS and email in taps_valid
         # the join date rides along so a yardstick tighter than the 60-day
         # credit window (E-005 at 30 days, step 1.2, 2026-09-18) can check it
@@ -830,6 +847,10 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                         "trig": s["trig"] or s["tag"], "var_tag": s["tag"],
                         "delivered": delivered, "opened": opened, "clicked": clicked,
                         "opened_at": _oa, "credits": cr, "responded": responded,
+                        # the answer date rides along so a bucket test can
+                        # judge "answered within 14 days of the FIRST email"
+                        # (survey reminder test, Tasks 2.2, 2026-09-23)
+                        "responded_at": resp_by_email.get(email, ""),
                         "converted_at": _ev_c[0] if _ev_c else "",
                         "unsubscribed": unsubscribed,
                         # History recount (2026-09-18): every SHIFT send is
@@ -859,6 +880,8 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         if t.active:
             by_trig[t.name]
     for tag in TEST_ARMS:
+        if tag in SEED_WHEN_SENT and tag not in by_tag:
+            continue  # no row on Variants until the first send exists
         by_tag[tag]
 
     def metrics(b: dict) -> dict:

@@ -184,6 +184,16 @@ def _requires_ok(c: Climber, req: dict, asof: date, client: ClientConfig,
             # queue is 0 and it fills naturally as new first-timers arrive.
             if val and (c.first_visit_date or "") < val:
                 return False
+        elif key == "survey_sent_on_or_after":
+            # Survey reminder test (Tasks step 2.2, 2026-09-23): the person's
+            # survey email must have gone out on or after this date, so the
+            # test population is exactly "survey emails sent since the start
+            # morning" no matter when they first visited (the first-visit
+            # floor would miss a day-1 visitor surveyed on the start morning).
+            # Empty value = no floor. No survey-sent date -> fail closed.
+            if val and (not c.survey_sent_date
+                        or (c.survey_sent_date or "")[:10] < val):
+                return False
         else:
             return False
     return True
