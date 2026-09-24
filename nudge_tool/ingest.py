@@ -25,6 +25,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 
+from . import definitions
 from .config import ClientConfig
 
 csv.field_size_limit(10_000_000)  # transactions rows are wide
@@ -142,6 +143,12 @@ class Climber:
     is_staff: bool = False             # founder/staff email -> excluded from FTV cohort
     reporting_converted: bool = False  # has a real Memberships row (workbook 'converted_to_member')
     membership_created: str | None = None  # earliest membership start date (for timing)
+    # REPORTING-ONLY join date (ROADMAP Block 15, 2026-09-24): the earliest
+    # priced membership that is NOT a youth plan (definitions.first_join).
+    # Every "joined" number on the sheet, the scorecard and the site reads
+    # this. The sender keeps membership_created / reporting_converted: a
+    # youth member's family must still stop getting offers.
+    join_date: str | None = None
     # Pilot scorecard v2 (ROADMAP Block 12, 2026-09-22): the line-item names
     # (lowercased) of this climber's EARLIEST successful transaction of any
     # kind, so engine.build_scorecard can drop youth passes (a "youth" line in
@@ -323,6 +330,7 @@ def load(client: ClientConfig) -> Dataset:
                     c.trial_pass_seen = True
 
     # --- Memberships: a second conversion signal ---
+    plans: dict[str, list] = {}  # climber_id -> [(created, plan text)], priced rows
     with open(client.memberships_csv, encoding="utf-8") as f:
         for row in csv.DictReader(f):
             cid = (row.get("climber_key") or "").strip()
@@ -344,6 +352,9 @@ def load(client: ClientConfig) -> Dataset:
                     if created and (c.membership_created is None
                                     or created < c.membership_created):
                         c.membership_created = created
+                    plans.setdefault(cid, []).append((created, prices))
+    for cid, rows in plans.items():
+        climbers[cid].join_date = definitions.first_join(rows)
 
     # reporting: flag staff/founder climbers (excluded from the FTV cohort)
     if staff_emails:

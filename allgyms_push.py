@@ -41,9 +41,10 @@ import csv
 import os
 import re
 import sys
+import time
 import traceback
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -51,7 +52,7 @@ sys.path.insert(0, str(BASE))
 
 from nudge_tool import config, drive_io, engine, ingest, survey
 from nudge_tool.mailchimp_client import MailchimpClient
-from nudge_tool import attribution, experiments
+from nudge_tool import attribution, definitions, experiments
 from nudge_tool.stage import reclaim, stage as _stage
 
 
@@ -117,8 +118,17 @@ ENGAGEMENT_FRESH_DAYS = int(os.getenv("ENGAGEMENT_FRESH_DAYS", "14") or 14)
 # column, so it is never asked twice, and a measured 1 is never downgraded.
 # The address is already suppressed from every later send (engine rule 5), so
 # this column is the count of WHICH email made people leave.
+#
+# click_rule (2026-09-24, ROADMAP Block 15): definitions.CLICK_RULE when
+# `clicked` was measured on THIS email (Mailchimp campaign id, like an open)
+# counting /s survey links too; blank = the older rule (a click in any email
+# after the send, Google Form and buy links only). A settled row under the
+# older rule is re-fetched ONCE and the new answer REPLACES the old flag (the
+# one time a frozen click may go 1 -> 0: the old rule over-counted); after
+# that the never-downgrade rule applies again.
 CACHE_FIELDS = ["email", "sent_date", "tag", "delivered", "opened", "clicked",
-                "opened_at", "open_kind", "unsubscribed", "frozen_at"]
+                "opened_at", "open_kind", "unsubscribed", "click_rule",
+                "frozen_at"]
 OPENED_AT_UNKNOWN = "unknown"
 
 
@@ -159,23 +169,14 @@ FUNNEL_LABELS = {
 # its OWN copy, and ABC's cron runs at 11:00 while SHIFT's runs at 11:03, so a
 # section that exists in only one repo is written at 11:03 and erased the next
 # morning at 11:00 (or vice versa) with no error anywhere.
-DASH_SECTIONS = ["FTV funnel emails", "Day pass regulars", "Blocker nudges",
-                 "Surveys"]
+# Since 2026-09-24 both the list and the trigger -> section rule live in
+# nudge_tool/definitions.py (byte-identical in both repos), so the sheet and
+# the site's email slides cannot disagree about which section an email is in.
+DASH_SECTIONS = definitions.SECTIONS
 
 
 def _section_of(trigger_name: str) -> str:
-    # member_survey = ABC's member program (Luke 2026-09-10: one row under the
-    # existing Surveys section, no new section, so nothing to mirror in SHIFT)
-    if trigger_name in ("survey_request", "survey_reminder", "member_survey"):
-        return "Surveys"
-    if trigger_name.startswith("nudge_") and trigger_name != "nudge_round_two":
-        return "Blocker nudges"
-    # Day-pass regulars are NOT first-time visitors (3-10 visits each), so they
-    # do not belong under the FTV funnel heading. SHIFT-only today; the section
-    # simply renders empty for a gym that has no such trigger active.
-    if trigger_name == "daypass_to_trial":
-        return "Day pass regulars"
-    return "FTV funnel emails"
+    return definitions.section_of(trigger_name)
 
 
 # Only tags that are arms of a running/ran A/B test appear on Variants.
@@ -282,8 +283,10 @@ METRIC_HEADERS = [
     "Responses", "Response %", "Offer redemptions", "Purchases after send",
     "Returned after send", "Return %", "Returned, opened first",
     "Return % of readers",
-    "Converted after send", "Conversion %", "Converted, opened first",
-    "Conversion % of readers",
+    "Joined within 30 days", "Join % (30 days)",
+    "Joined within 60 days", "Join % (60 days)", "Joined within 60 days, opened first",
+    "Join % of readers (60 days)",
+    "Joined within 90 days", "Join % (90 days)",
     "Note"]
 METRIC_KEYS = [
     "sends", "delivered", "opens", "open_pct", "clicks", "cpo_pct",
@@ -291,14 +294,108 @@ METRIC_KEYS = [
     "taps",
     "responses", "resp_pct", "redeems", "purchases",
     "returned", "return_pct", "ret_opened", "ret_opened_pct",
-    "converted", "conv_pct", "conv_opened", "conv_opened_pct", "note"]
+    "converted30", "conv30_pct",
+    "converted", "conv_pct", "conv_opened", "conv_opened_pct",
+    "converted90", "conv90_pct", "note"]
+# Block 15 (2026-09-24): "joined" is shown at 30, 60 AND 90 days, clearly
+# labelled (30 added the same day, Luke: the membership offer test already
+# reads joins at 30 days). The four 60-day columns were "Converted after send", "Conversion
+# %", "Converted, opened first" and "Conversion % of readers" until then; a
+# row read back under the old heading keeps its value under the new one (the
+# other gym's cron may still be on the old layout for a few minutes).
+RENAMED_HEADERS = {
+    "Converted after send": "Joined within 60 days",
+    "Conversion %": "Join % (60 days)",
+    "Converted, opened first": "Joined within 60 days, opened first",
+    "Conversion % of readers": "Join % of readers (60 days)",
+}
+
+# Maturity (Block 15, decided 2026-09-24): a rate only counts the emails whose
+# window has finished (came back 30 days, joined 60 / 90, answered 14), so a
+# send from yesterday is never read as a miss. The counts beside each rate are
+# NOT cut. Each rate's top and bottom are therefore their own counts, carried
+# as extra machine-only columns at the far right of the Data tab (after
+# GymOrder, outside every FILTER range), so the "All gyms" rows, the
+# "Everything combined" formulas and the History tab add them up exactly as
+# they add up everything else. key -> (Data header, window in days).
+MATURE_KEYS = {
+    "m_sends14": ("Mature sends (14 days)", definitions.ANSWER_DAYS),
+    "m_resp14": ("Mature responses (14 days)", definitions.ANSWER_DAYS),
+    "m_sends30": ("Mature sends (30 days)", definitions.RETURN_DAYS),
+    "m_ret30": ("Mature returned (30 days)", definitions.RETURN_DAYS),
+    "m_opens30": ("Mature opens (30 days)", definitions.RETURN_DAYS),
+    "m_retop30": ("Mature returned, opened first (30 days)", definitions.RETURN_DAYS),
+    "m_conv30": ("Mature joined (30 days)", definitions.JOIN_DAYS_SHORT),
+    "m_sends60": ("Mature sends (60 days)", definitions.JOIN_DAYS),
+    "m_conv60": ("Mature joined (60 days)", definitions.JOIN_DAYS),
+    "m_opens60": ("Mature opens (60 days)", definitions.JOIN_DAYS),
+    "m_convop60": ("Mature joined, opened first (60 days)", definitions.JOIN_DAYS),
+    "m_sends90": ("Mature sends (90 days)", definitions.JOIN_DAYS_LONG),
+    "m_conv90": ("Mature joined (90 days)", definitions.JOIN_DAYS_LONG),
+}
+_MAT_KEYS = tuple(MATURE_KEYS)
+
+
+def _add_mature(b: dict, rec: dict, today) -> None:
+    """Add one send's maturity counts to a bucket (a Data row, a History
+    month). rec = a SEND_RECORDS entry. A member-survey send (ftv False) has
+    no first-timer outcomes, so it only feeds the 14-day response pair."""
+    sent = rec.get("sent") or ""
+    cr = rec.get("credits") or {}
+    if definitions.window_passed(sent, definitions.ANSWER_DAYS, today):
+        b["m_sends14"] += 1
+        b["m_resp14"] += bool(rec.get("responded"))
+    if not rec.get("ftv", True):
+        return
+    opened = bool(rec.get("opened"))
+    if definitions.window_passed(sent, definitions.RETURN_DAYS, today):
+        b["m_sends30"] += 1
+        b["m_ret30"] += bool(cr.get("returned"))
+        b["m_opens30"] += opened
+        b["m_retop30"] += bool(cr.get("returned_opened"))
+        b["m_conv30"] += bool(cr.get("converted30"))
+    if definitions.window_passed(sent, definitions.JOIN_DAYS, today):
+        b["m_sends60"] += 1
+        b["m_conv60"] += bool(cr.get("converted"))
+        b["m_opens60"] += opened
+        b["m_convop60"] += bool(cr.get("converted_opened"))
+    if definitions.window_passed(sent, definitions.JOIN_DAYS_LONG, today):
+        b["m_sends90"] += 1
+        b["m_conv90"] += bool(cr.get("converted90"))
+
+
+def _bucket_add(b: dict, rec: dict, today) -> None:
+    """Add one send (a SEND_RECORDS entry) to a bucket of counts. The ONE
+    place a send becomes numbers: both gyms' Data rows and the History tab
+    call it, so a month on History and a row on the Dashboard can only differ
+    by which sends they hold. A member-survey send (ftv False) counts on the
+    send / delivered / open / click / unsubscribe / response columns only."""
+    cr = rec.get("credits") or {}
+    b["sends"] += 1
+    b["delivered"] += bool(rec.get("delivered"))
+    b["opens"] += bool(rec.get("opened"))
+    b["clicks"] += bool(rec.get("clicked"))
+    b["unsubs"] += bool(rec.get("unsubscribed"))
+    b["taps"] += bool(rec.get("tapped"))
+    b["responses"] += bool(rec.get("responded"))
+    if rec.get("ftv", True):
+        b["redeems"] += bool(cr.get("redeemed"))
+        b["purchases"] += bool(cr.get("purchased"))
+        b["returned"] += bool(cr.get("returned"))
+        b["ret_opened"] += bool(cr.get("returned_opened"))
+        b["converted"] += bool(cr.get("converted"))
+        b["conv_opened"] += bool(cr.get("converted_opened"))
+        b["converted90"] += bool(cr.get("converted90"))
+        b["converted30"] += bool(cr.get("converted30"))
+    _add_mature(b, rec, today)
 
 # Data tab layout: row 1 = do-not-edit note, row 2 = header, rows 3+ = data.
 # Cols: A Gym, B Name, then one column per METRIC_HEADERS entry, then
 # Level, Section, Tag, Updated, GymOrder (sort key so "All gyms" rows sit
 # above gym rows).
 DATA_HEADER = (["Gym", "Automation / email version"] + METRIC_HEADERS
-               + ["Level", "Section", "Tag", "Updated", "GymOrder"])
+               + ["Level", "Section", "Tag", "Updated", "GymOrder"]
+               + [h for h, _w in MATURE_KEYS.values()])
 D0, D1 = 3, 500  # data row span referenced by every formula
 COMBINED = "All gyms total"  # gym label of the cross-gym per-automation rows
 GYM_ORDER = {COMBINED: 0, "SHIFT": 1, "ABC": 2}
@@ -311,10 +408,14 @@ GYM_ORDER = {COMBINED: 0, "SHIFT": 1, "ABC": 2}
 # above and the Data tab, the FILTER formulas, the percent formatting, the
 # combined-row math and the History tab all move with it.
 _METRIC_C0 = 2  # a Data row starts [Gym, Name] before the metric columns
+# the maturity counts start after Level, Section, Tag, Updated, GymOrder
+_MAT_C0 = _METRIC_C0 + len(METRIC_KEYS) + 5
 
 
 def _mi(key: str) -> int:
-    """0-based index of a metric column in a Data row."""
+    """0-based index of a metric column (or a maturity count) in a Data row."""
+    if key in MATURE_KEYS:
+        return _MAT_C0 + _MAT_KEYS.index(key)
     return _METRIC_C0 + METRIC_KEYS.index(key)
 
 
@@ -336,35 +437,80 @@ def _col(key: str) -> str:
 # count metrics (summable); the rest are ratios recomputed from these
 _COUNT_KEYS = ("sends", "delivered", "opens", "clicks", "unsubs", "taps",
                "responses", "redeems", "purchases", "returned", "ret_opened",
-               "converted", "conv_opened")
+               "converted", "conv_opened", "converted90", "converted30")
+# everything a total adds up: the visible counts plus the maturity counts
+_SUM_KEYS = _COUNT_KEYS + _MAT_KEYS
 # ratio metric -> (numerator key, denominator key). Open % and Unsubscribe %
 # swap their denominator to sends when a gym has no delivery tracking (see
-# _DELIVERED_DEN_KEYS and _totals_formulas).
+# _DELIVERED_DEN_KEYS and _totals_formulas). The outcome rates read the
+# maturity counts (Block 15, 2026-09-24): only emails whose window has
+# finished are in the top or the bottom of the fraction.
 _RATIO_KEYS = {
     "open_pct": ("opens", "delivered"),
     "cpo_pct": ("clicks", "opens"),
     # Tasks step 1.3 (2026-09-18): of the emails that arrived, how many made
     # the person unsubscribe (the unsubscribe pinned to THIS email)
     "unsub_pct": ("unsubs", "delivered"),
-    "resp_pct": ("responses", "sends"),
-    "return_pct": ("returned", "sends"),
-    "conv_pct": ("converted", "sends"),
+    "resp_pct": ("m_resp14", "m_sends14"),
+    "return_pct": ("m_ret30", "m_sends30"),
+    "conv_pct": ("m_conv60", "m_sends60"),
     # Chris's ask 2026-09-15: of the people who READ the email, how many came
     # back / joined with it as their last touch ("opened first" over Opens)
-    "ret_opened_pct": ("ret_opened", "opens"),
-    "conv_opened_pct": ("conv_opened", "opens"),
+    "ret_opened_pct": ("m_retop30", "m_opens30"),
+    "conv_opened_pct": ("m_convop60", "m_opens60"),
+    "conv90_pct": ("m_conv90", "m_sends90"),
+    "conv30_pct": ("m_conv30", "m_sends30"),
 }
 # ratios whose denominator is Delivered when it is known, else Sends (every
 # rule that recomputes a ratio must treat these the same way)
 _DELIVERED_DEN_KEYS = ("open_pct", "unsub_pct")
-_COUNT_IDX = [_mi(k) for k in _COUNT_KEYS]
+_COUNT_IDX = [_mi(k) for k in _SUM_KEYS]
 _PCT_IDX = [_mi(k) for k in _RATIO_KEYS]
 I_SENDS, I_DELIV, I_OPENS = _mi("sends"), _mi("delivered"), _mi("opens")
 I_NOTE = _mi("note")
 I_LEVEL, I_SECTION, I_TAG = I_NOTE + 1, I_NOTE + 2, I_NOTE + 3
 I_UPDATED, I_ORDER = I_NOTE + 4, I_NOTE + 5
-DATA_NCOLS = I_ORDER + 1
-DATA_LASTCOL = _a1col(I_ORDER)
+DATA_NCOLS = _MAT_C0 + len(_MAT_KEYS)
+DATA_LASTCOL = _a1col(DATA_NCOLS - 1)
+# plain-words note on each rate's header cell (Dashboard + Variants): which
+# emails sit in the bottom of the fraction (Block 15 maturity, 2026-09-24)
+PCT_NOTES = {
+    "open_pct": "Opens / Delivered (Sends where Delivered is blank). Every email "
+                "counts; opens are counted for 14 days after the send.",
+    "cpo_pct": "Link clicks / Opens. Every email counts.",
+    "unsub_pct": "Unsubscribes / Delivered (Sends where Delivered is blank). "
+                 "Every email counts.",
+    "resp_pct": "Only emails sent 14 or more days ago (the survey's answer "
+                "window has closed): answered / those emails. Newer emails are "
+                "in Responses but not in this %.",
+    "return_pct": "Only emails sent 30 or more days ago (the came-back window "
+                  "has closed): came back / those emails. Newer emails are in "
+                  "Returned after send but not in this %.",
+    "ret_opened_pct": "Only emails sent 30 or more days ago: came back after "
+                      "opening / the opens of those emails.",
+    "conv_pct": "Only emails sent 60 or more days ago (the 60-day join window "
+                "has closed): joined / those emails. Newer emails are in Joined "
+                "within 60 days but not in this %.",
+    "conv_opened_pct": "Only emails sent 60 or more days ago: joined after "
+                       "opening / the opens of those emails.",
+    "conv30_pct": "Only emails sent 30 or more days ago (the 30-day join window "
+                  "has closed): joined / those emails. Newer emails are in Joined "
+                  "within 30 days but not in this %.",
+    "conv90_pct": "Only emails sent 90 or more days ago (the 90-day join window "
+                  "has closed): joined / those emails. Blank until the first "
+                  "email is 90 days old.",
+}
+
+
+def _outcome_rates(b: dict) -> dict:
+    """The ratio columns of one bucket of summed counts (mature keys included),
+    blank when the bottom is 0. Open % and Unsubscribe % are NOT here: each
+    gym computes those itself (ABC falls back to sends)."""
+    out = {}
+    for key, (num, den) in _RATIO_KEYS.items():
+        if key not in _DELIVERED_DEN_KEYS:
+            out[key] = _pct(b.get(num, 0), b.get(den, 0))
+    return out
 
 FOOTNOTES = [
     "Why these numbers can differ from Mailchimp's screens: Mailchimp still "
@@ -404,16 +550,33 @@ FOOTNOTES = [
     "Greyed rows inside a test block are context, not versions being tested. "
     "They sit at the bottom of their block, and they are the people the test "
     "could not include. Compare only the rows above them.",
-    "How Returned, Converted, Offer redemptions and Purchases are counted "
+    "How Returned, Joined, Offer redemptions and Purchases are counted "
     "(since 2026-09-14): each person counts once. The credit goes to the LAST "
     "email they got before they acted, and only if they acted within that "
-    "email's window (came back: 30 days, joined: 60, redeemed: 30, bought: 30, "
-    "answered the survey: 14, survey emails only). Before this date every "
-    "email a person got took credit for anything they did later. Since "
-    "2026-09-18 the History tab is recounted this way on every run, so every "
-    "month back to July 2026 uses the same counting. 'Opened first' = how "
-    "many of those people had opened that email before they acted (a few "
+    "email's window (came back: 30 days, joined: 60 or 90, redeemed: 30, "
+    "bought: 30, answered the survey: 14, survey emails only). Before this "
+    "date every email a person got took credit for anything they did later. "
+    "Since 2026-09-18 the History tab is recounted this way on every run, so "
+    "every month back to July 2026 uses the same counting. 'Opened first' = "
+    "how many of those people had opened that email before they acted (a few "
     "opens are automatic, see above).",
+    "Joined (since 2026-09-24): the first paid membership that is not a youth "
+    "plan, started within 60 days of the email (and, in its own columns, "
+    "within 90 days). Youth memberships never count as a join anywhere: the "
+    "child joins, not the person we emailed. Until 2026-09-24 these columns "
+    "were called 'Converted' and had no 90-day version.",
+    "Which emails are in each % (since 2026-09-24): a rate only counts the "
+    "emails whose window has closed, so a send from last week is never read "
+    "as a miss. Response % uses emails at least 14 days old, Return % 30 days, "
+    "Join % (60 days) 60 days, Join % (90 days) 90 days. The counts next to "
+    "each rate include every email. Hover a % header for its exact rule. The "
+    "Pilot scorecard tab and the Experiments tab work the same way.",
+    "Link clicks (since 2026-09-24): a click on a link in THIS email, "
+    "including the rating buttons and every survey link that goes through "
+    "the gym's Send It link. Until then a click was counted for any email "
+    "sent before it and the rating buttons were not counted as clicks; "
+    "older emails are re-measured once under the new rule (ABC: only the "
+    "last 90 days, which is all Brevo keeps).",
     "'% of readers' (since 2026-09-15): of the people who OPENED this email, "
     "how many came back or joined with it as their last email ('opened "
     "first' divided by Opens). Blank when nobody has opened yet. Automatic "
@@ -559,8 +722,10 @@ def _cache_path() -> Path:
 
 def _load_engagement_cache() -> dict[tuple, tuple]:
     """(email, sent_date, tag) -> (delivered, opened, clicked, opened_at,
-    unsubscribed). A cache file written before 2026-09-18 has no unsubscribed
-    column and reads as None (not measured yet, one backfill fetch due).
+    unsubscribed, click_rule). A cache file written before 2026-09-18 has no
+    unsubscribed column and reads as None (not measured yet, one backfill
+    fetch due); one written before 2026-09-24 has no click_rule and reads ""
+    (clicked under the older rule, one re-measure due).
 
     Fails soft to {} at every step: an unreadable cache costs a slower run that
     re-measures everything, never a wrong number."""
@@ -585,7 +750,8 @@ def _load_engagement_cache() -> dict[tuple, tuple]:
                 out[key] = (r.get("delivered") == "1", r.get("opened") == "1",
                             r.get("clicked") == "1",
                             (r.get("opened_at") or "").strip()[:10],
-                            _flag_or_blank(r.get("unsubscribed")))
+                            _flag_or_blank(r.get("unsubscribed")),
+                            (r.get("click_rule") or "").strip())
     except (OSError, csv.Error) as exc:
         print(f"  allgyms: engagement cache unreadable ({exc}); "
               f"re-measuring every send this run")
@@ -603,12 +769,13 @@ def _save_engagement_cache(measured: dict[tuple, tuple], stamp: str) -> None:
         with open(_cache_path(), "w", encoding="utf-8", newline="") as f:
             w = csv.DictWriter(f, fieldnames=CACHE_FIELDS)
             w.writeheader()
-            for (email, sent, tag), (d, o, c, oa, un) in sorted(measured.items()):
+            for (email, sent, tag), (d, o, c, oa, un, cr) in sorted(measured.items()):
                 w.writerow({"email": email, "sent_date": sent, "tag": tag,
                             "delivered": int(d), "opened": int(o),
                             "clicked": int(c), "opened_at": oa or "",
                             "open_kind": "",
                             "unsubscribed": _cell_or_blank(un),
+                            "click_rule": cr or "",
                             "frozen_at": stamp})
         drive_io.push(str(_cache_path()), file_id=ENGAGEMENT_CACHE_DRIVE_ID)
     except Exception as exc:
@@ -644,6 +811,12 @@ def _pct(a: int, b: int):
 # measured flags and the attribution credits. Read by the Experiments v2
 # writer (block 6, 2026-09-14) so it can count PEOPLE per arm.
 SEND_RECORDS: list[dict] = []
+# The Pilot scorecard from the last collect() (engine.build_scorecard, the same
+# call the site's Insights slide makes), for the Scorecard tab (Block 15).
+SCORECARD: dict = {}
+# The maturity cut-off date of the last collect() (the data's last check-in
+# day), read by the History recount so both tabs cut at the same day.
+MATURE_ASOF: list = [None]
 
 
 def collect(client) -> tuple[list[dict], list[dict]]:
@@ -653,6 +826,14 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     stage(f"outreach snapshot pulled ({len(rows)} rows)")
     ds = ingest.load(client)
     stage(f"ingest.load done ({len(ds.climbers)} climbers)")
+    # maturity cut-off (Block 15) = the last check-in in the data, the
+    # scorecard's own clock, so a stale data pull never reads a young email
+    # as a miss; never later than today
+    _smax = getattr(ds, "sessions_max_date", None)
+    mature_asof = datetime.now(timezone.utc).date()
+    if _smax:
+        mature_asof = min(mature_asof, date.fromisoformat(str(_smax)[:10]))
+    MATURE_ASOF[0] = mature_asof
     mc = MailchimpClient(config.load_settings(client, require=True))
     tx_by_cid, tx_by_email = _tx_dates(client)
     stage("transaction dates indexed")
@@ -681,27 +862,55 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         with no date yet (one backfill fetch, 2026-09-14; the merge below
         writes "unknown" if the event is gone, so never twice), or has no
         unsubscribe measurement yet (one backfill fetch, 2026-09-18; the
-        merge always writes 0 or 1, so never twice)."""
+        merge always writes 0 or 1, so never twice), or a click measured
+        under the older rule (one re-measure, 2026-09-24; the merge always
+        writes the current click_rule, so never twice)."""
         if s["sent"] >= fresh_from:
             return True
         hit = cache.get((s["email"], s["sent"], s["tag"]))
-        return hit is None or bool(hit[1] and not hit[3]) or hit[4] is None
+        return (hit is None or bool(hit[1] and not hit[3]) or hit[4] is None
+                or hit[5] not in definitions.CLICK_SETTLED)
 
     need = [s for s in sends if _is_fresh(s)]
     emails = sorted({s["email"] for s in need})
+    _blank = (False, False, False, "", None, "")
     unsub_pending = sum(1 for s in need if s["sent"] < fresh_from
                         and (cache.get((s["email"], s["sent"], s["tag"]))
-                             or (False, False, False, "", None))[4] is None)
+                             or _blank)[4] is None)
+    click_pending = sum(1 for s in need if s["sent"] < fresh_from
+                        and (cache.get((s["email"], s["sent"], s["tag"]))
+                             or _blank)[5] not in definitions.CLICK_SETTLED)
     stage(f"activity feeds: {len(emails)} to fetch "
           + (f"(unsubscribe backfill: {unsub_pending} older send(s) still to measure) "
              if unsub_pending else "")
+          + (f"(click recount: {click_pending} older send(s) to re-measure on this email) "
+             if click_pending else "")
           + f"({len(need)} of {len(sends)} sends live, "
           f"{len(sends) - len(need)} from cache, "
           f"window={ENGAGEMENT_FRESH_DAYS}d from {fresh_from}, "
           f"cache={'on' if ENGAGEMENT_CACHE_DRIVE_ID else 'OFF'})")
+    def _feed(e: str) -> list:
+        """One activity feed, retried twice on a transient failure (a
+        timeout, a dropped connection, a Mailchimp 429 / 5xx). The one-time
+        click recount (2026-09-24) reads ~700 feeds in one run, so a single
+        blip must not cost the whole push; a failure that survives the
+        retries still raises, so no zeros are ever frozen into the cache."""
+        for attempt in range(3):
+            try:
+                return mc.member_activity(e)
+            except Exception as exc:  # noqa: BLE001
+                status = getattr(exc, "status", None)
+                transient = status is None or status == 429 or status >= 500
+                if attempt == 2 or not transient:
+                    raise
+                print(f"  allgyms: Mailchimp feed for one contact failed ({exc}); "
+                      f"retry {attempt + 1} of 2")
+                time.sleep(2 * (attempt + 1))
+        return []
+
     feeds = {}
     for i, e in enumerate(emails, 1):
-        feeds[e] = mc.member_activity(e)
+        feeds[e] = _feed(e)
         if i % 25 == 0:
             stage(f"activity feeds {i}/{len(emails)}")
     stage(f"activity feeds done ({len(emails)} emails, "
@@ -749,7 +958,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         print(f"  allgyms: taps read failed ({exc}); taps omitted")
     stage(f"Q1 taps read ({len(taps_valid)} valid)")
 
-    click_markers = engine._SURVEY_LINK_MARKERS + engine._BUY_LINK_MARKERS
+    click_markers = definitions.SURVEY_LINK_MARKERS + definitions.BUY_LINK_MARKERS
     by_trig: dict[str, dict] = defaultdict(lambda: defaultdict(int))
     by_tag: dict[str, dict] = defaultdict(lambda: defaultdict(int))
     trig_of_tag: dict[str, str] = {}
@@ -762,14 +971,18 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         hit = prev if not _is_fresh(s) else None
         if hit is not None:
             # settled send: keep the delivered/opened/clicked already measured
-            delivered, opened, clicked, opened_at, unsubscribed = hit
+            delivered, opened, clicked, opened_at, unsubscribed, click_rule = hit
         else:
             ev = feeds.get(email) or []
             sent_ids = engine._sent_campaign_ids(ev, sent, journey_ids)
             delivered = bool(sent_ids)
             opened = delivered and engine._has_event(
                 ev, "open", sent, campaign_ids=sent_ids)
-            clicked = engine._has_event(ev, "click", sent, click_markers)
+            # a click on a link in THIS email (campaign id, like an open),
+            # survey form, /s survey links and buy links (Block 15, 2026-09-24)
+            clicked = delivered and engine._has_event(
+                ev, "click", sent, click_markers, campaign_ids=sent_ids)
+            click_rule = definitions.CLICK_RULE
             opened_at = engine._first_event_date(
                 ev, "open", sent, campaign_ids=sent_ids) if opened else ""
             # the unsubscribe link used in THIS email: Mailchimp's `unsub`
@@ -782,12 +995,22 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                 # event (Mailchimp trims old activity, a partial answer) must not
                 # erase a measured open; and a backfill fetch that finds no date
                 # writes "unknown" so the row is not asked again
-                delivered, opened, clicked = (delivered or prev[0],
-                                              opened or prev[1], clicked or prev[2])
+                # the older click rule over-counted, so its flag is replaced
+                # once, not kept (see click_rule at CACHE_FIELDS). But the
+                # feed holds only a person's newest 50 events: when it no
+                # longer shows THIS email's send, the click cannot be pinned,
+                # so the older flag is kept and marked CLICK_RULE_KEPT (never
+                # asked again) rather than wiped (fresh-eyes finding).
+                if prev[5] == definitions.CLICK_RULE:
+                    clicked = clicked or prev[2]
+                elif not sent_ids:
+                    clicked, click_rule = prev[2], definitions.CLICK_RULE_KEPT
+                delivered, opened = delivered or prev[0], opened or prev[1]
                 unsubscribed = unsubscribed or bool(prev[4])
                 if opened and not opened_at:
                     opened_at = prev[3] or OPENED_AT_UNKNOWN
-        measured[key] = (delivered, opened, clicked, opened_at, unsubscribed)
+        measured[key] = (delivered, opened, clicked, opened_at, unsubscribed,
+                         click_rule)
     _uns = [v[4] for v in measured.values()]
     stage(f"unsubscribes: {sum(1 for u in _uns if u)} pinned to a send, "
           f"{sum(1 for u in _uns if u is None)} send(s) not measured yet")
@@ -806,18 +1029,28 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         txs = (tx_by_cid.get(c.climber_id, []) if c else []) + tx_by_email.get(email, [])
         events[email] = {
             "returned": list(c.visit_days) if c else [],
-            "converted": ([c.membership_created] if c
-                          and getattr(c, "membership_created", "") else []),
+            # the REPORTING join date (Block 15, 2026-09-24): youth plans
+            # never count as a join (definitions.first_join)
+            "converted": ([c.join_date] if c
+                          and getattr(c, "join_date", "") else []),
             "redeemed": list(c.discounted_daypass_dates) if c else [],
             "purchased": list(txs),
             "responded": [resp_by_email[email]] if email in resp_by_email else [],
         }
 
     def _send_obj(s: dict) -> attribution.Send:
-        _d, o, _c, oa, _u = measured[(s["email"], s["sent"], s["tag"])]
+        _d, o, _c, oa, _u, _r = measured[(s["email"], s["sent"], s["tag"])]
         return attribution.Send(email=s["email"], sent=s["sent"], tag=s["tag"],
                                 trig=s["trig"], opened=o, opened_at=oa)
     credits = attribution.credit([_send_obj(s) for s in sends], events)
+    # "Joined within 90 days" (Block 15): the same last-touch credit with the
+    # join window stretched to 90 days
+    credits90 = attribution.credit(
+        [_send_obj(s) for s in sends], events,
+        windows={"converted": definitions.JOIN_DAYS_LONG})
+    credits30 = attribution.credit(
+        [_send_obj(s) for s in sends], events,
+        windows={"converted": definitions.JOIN_DAYS_SHORT})
     resp_credits = attribution.credit(
         [_send_obj(s) for s in sends if "survey" in s["tag"]], events)
     stage("outcomes credited (one per person, last touch, windowed)")
@@ -825,12 +1058,9 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     for s in sends:
         email, sent = s["email"], s["sent"]
         key = (email, sent, s["tag"])
-        delivered, opened, clicked, _oa, _unsub = measured[key]
+        delivered, opened, clicked, _oa, _unsub, _rule = measured[key]
         unsubscribed = bool(_unsub)  # None (not measured yet) counts as 0
         cr = credits[key]
-        returned, ret_opened = cr["returned"], cr["returned_opened"]
-        converted, conv_opened = cr["converted"], cr["converted_opened"]
-        redeemed, purchased = cr["redeemed"], cr["purchased"]
         responded = (resp_credits.get(key) or {}).get("responded", False)
         # the record's credits carry the SURVEY-ONLY response credit (an
         # answer is credited to the last SURVEY email before it, never to the
@@ -839,38 +1069,29 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         cr = dict(cr)
         cr["responded"] = bool(responded)
         cr["responded_opened"] = bool((resp_credits.get(key) or {}).get("responded_opened"))
+        cr["converted90"] = bool(credits90[key]["converted"])
+        cr["converted90_opened"] = bool(credits90[key]["converted_opened"])
+        cr["converted30"] = bool(credits30[key]["converted"])
         tapped = s["tag"] in EMBED_TAGS and email in taps_valid
         # the join date rides along so a yardstick tighter than the 60-day
         # credit window (E-005 at 30 days, step 1.2, 2026-09-18) can check it
         _ev_c = (events.get(email) or {}).get("converted") or []
-        records.append({"email": email, "sent": sent, "tag": s["tag"],
-                        "trig": s["trig"] or s["tag"], "var_tag": s["tag"],
-                        "delivered": delivered, "opened": opened, "clicked": clicked,
-                        "opened_at": _oa, "credits": cr, "responded": responded,
-                        # the answer date rides along so a bucket test can
-                        # judge "answered within 14 days of the FIRST email"
-                        # (survey reminder test, Tasks 2.2, 2026-09-23)
-                        "responded_at": resp_by_email.get(email, ""),
-                        "converted_at": _ev_c[0] if _ev_c else "",
-                        "unsubscribed": unsubscribed,
-                        # History recount (2026-09-18): every SHIFT send is
-                        # first-timer outreach (no member survey here yet)
-                        "tapped": tapped, "ftv": True})
+        rec = {"email": email, "sent": sent, "tag": s["tag"],
+               "trig": s["trig"] or s["tag"], "var_tag": s["tag"],
+               "delivered": delivered, "opened": opened, "clicked": clicked,
+               "opened_at": _oa, "credits": cr, "responded": responded,
+               # the answer date rides along so a bucket test can
+               # judge "answered within 14 days of the FIRST email"
+               # (survey reminder test, Tasks 2.2, 2026-09-23)
+               "responded_at": resp_by_email.get(email, ""),
+               "converted_at": _ev_c[0] if _ev_c else "",
+               "unsubscribed": unsubscribed,
+               # History recount (2026-09-18): every SHIFT send is
+               # first-timer outreach (no member survey here yet)
+               "tapped": tapped, "ftv": True}
+        records.append(rec)
         for bucket, key in ((by_trig, s["trig"] or s["tag"]), (by_tag, s["tag"])):
-            b = bucket[key]
-            b["sends"] += 1
-            b["delivered"] += delivered
-            b["opens"] += opened
-            b["clicks"] += clicked
-            b["unsubs"] += unsubscribed
-            b["taps"] += tapped
-            b["responses"] += responded
-            b["redeems"] += redeemed
-            b["purchases"] += purchased
-            b["returned"] += returned
-            b["ret_opened"] += ret_opened
-            b["converted"] += converted
-            b["conv_opened"] += conv_opened
+            _bucket_add(bucket[key], rec, mature_asof)
         trig_of_tag[s["tag"]] = s["trig"] or s["tag"]
 
     # zero-rows (Luke 2026-07-28): every ACTIVE automation and every test arm
@@ -885,26 +1106,18 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         by_tag[tag]
 
     def metrics(b: dict) -> dict:
-        m = {k: b[k] for k in ("sends", "delivered", "opens", "clicks", "unsubs",
-                               "taps", "responses", "redeems", "purchases",
-                               "returned", "ret_opened", "converted", "conv_opened")}
+        m = {k: b[k] for k in _SUM_KEYS}
         zero = b["sends"] == 0
         m["open_pct"] = 0 if zero else _pct(b["opens"], b["delivered"])
-        # Chris's Variants!H5 ask (2026-08-06): of the people who opened, how
-        # many clicked. Blank when nobody opened (_pct returns "" on a zero
-        # denominator), never 0, so an unopened row can't read as "0% click".
-        m["cpo_pct"] = 0 if zero else _pct(b["clicks"], b["opens"])
         # Tasks step 1.3 (2026-09-18): unsubscribes pinned to this email, over
         # delivered (Mailchimp always reports it; the ABC copy falls back to
         # sends when Brevo has no receipt)
         m["unsub_pct"] = 0 if zero else _pct(b["unsubs"], b["delivered"])
-        m["resp_pct"] = 0 if zero else _pct(b["responses"], b["sends"])
-        m["return_pct"] = 0 if zero else _pct(b["returned"], b["sends"])
-        m["conv_pct"] = 0 if zero else _pct(b["converted"], b["sends"])
-        # Chris 2026-09-15: same idea as Clicks per open, for outcomes. Blank
-        # (not 0) when nobody opened, so an unopened row can't read as 0%.
-        m["ret_opened_pct"] = 0 if zero else _pct(b["ret_opened"], b["opens"])
-        m["conv_opened_pct"] = 0 if zero else _pct(b["conv_opened"], b["opens"])
+        # every other rate from the shared rule (clicks per open; the outcome
+        # rates over MATURE emails only, Block 15). Blank, never 0, when the
+        # bottom is 0, so an unopened or too-new row cannot read as 0%.
+        for k, v in _outcome_rates(b).items():
+            m[k] = 0 if zero else v
         m["note"] = ("no sends yet" if zero else
                      f"small sample (under {SMALL_N}), directional only"
                      if b["sends"] < SMALL_N else "")
@@ -928,6 +1141,14 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     stage(f"collect done ({len(auto_rows)} automation rows, "
           f"{len(var_rows)} variant rows, {len(measured)} sends cached)")
     SEND_RECORDS[:] = records
+    # the Scorecard tab's numbers; guarded so a scorecard bug can never cost
+    # the Data / Dashboard / History push, and loud (rule 5) when it breaks
+    SCORECARD.clear()
+    try:
+        SCORECARD.update(engine.build_scorecard(ds, client))
+    except Exception:
+        print("  allgyms: Scorecard build FAILED (tab left as it was): "
+              + traceback.format_exc())
     return auto_rows, var_rows
 
 
@@ -954,7 +1175,8 @@ def _hex(h: str) -> dict:
 def _data_row(r: dict, stamp: str) -> list:
     return ([r["gym"], r["name"]] + [r["m"][k] for k in METRIC_KEYS]
             + [r["level"], r["section"], r["tag"], stamp,
-               GYM_ORDER.get(r["gym"], 9)])
+               GYM_ORDER.get(r["gym"], 9)]
+            + [r["m"].get(k) or 0 for k in _MAT_KEYS])
 
 
 def _normalize_row(row: list) -> list:
@@ -990,7 +1212,7 @@ def _combined_rows(per_gym: list[list], stamp: str) -> list[list]:
         if len({r[0] for r in rows_g}) < 2:
             continue
         t = {k: sum(r[_mi(k)] for r in rows_g if isinstance(r[_mi(k)], int))
-             for k in _COUNT_KEYS}
+             for k in _SUM_KEYS}
         # a gym without delivery tracking contributes its sends to the
         # open-rate denominator; Delivered shows only the tracked part
         have_deliv = any(isinstance(r[I_DELIV], int) for r in rows_g)
@@ -1009,7 +1231,8 @@ def _combined_rows(per_gym: list[list], stamp: str) -> list[list]:
                      f"small sample (under {SMALL_N}), directional only"
                      if t["sends"] < SMALL_N else "")
         out.append([COMBINED, name] + [m[k] for k in METRIC_KEYS]
-                   + ["automation", section, "", stamp, 0])
+                   + ["automation", section, "", stamp, 0]
+                   + [m[k] for k in _MAT_KEYS])
     return out
 
 
@@ -1018,11 +1241,35 @@ def _data_migrate(row: list, old_header: list | None) -> list:
     on a previous layout, or this one before a redeploy) is re-laid by column
     NAME into the current DATA_HEADER, blank where a column is new. Rows under
     the current header pass through. Added 2026-09-14 with the two 'opened
-    first' columns; _normalize_row then rebuilds the numbers and GymOrder."""
+    first' columns; _normalize_row then rebuilds the numbers and GymOrder.
+    A heading renamed on 2026-09-24 (RENAMED_HEADERS) is read under its new
+    name, so the other gym's 60-day join numbers survive the rename."""
     if old_header and old_header != DATA_HEADER and "Gym" in old_header:
-        vals = dict(zip(old_header, row))
-        return [vals.get(h, "") for h in DATA_HEADER]
+        return [_layout_vals(old_header, row, "GymOrder").get(h, "")
+                for h in DATA_HEADER]
     return list(row)
+
+
+def _layout_vals(old_header: list, row: list, last: str) -> dict:
+    """heading -> value for a row read back under a header that is not the
+    current one. Mixed-layout guard (fresh-eyes finding, 2026-09-24): the
+    older writer clears only its own narrower width, so after it runs, the
+    wider layout's columns from the day before are still at the right edge
+    of the header row AND of every row. Only the columns up to the first
+    `last` heading (the older layout's final column) are trusted; the stale
+    tail is dropped (a maturity count read as blank = 0 until that gym's cron
+    rewrites its rows), and a heading renamed on 2026-09-24 (RENAMED_HEADERS)
+    keeps its value under the new name."""
+    cut = old_header.index(last) + 1 if last in old_header else len(old_header)
+    vals: dict = {}
+    for h, v in zip(old_header[:cut], row[:cut]):
+        h = str(h).strip()
+        for pre in (HIST_MONTH_PREFIX, HIST_TOTAL_PREFIX, ""):
+            if h.startswith(pre) and h[len(pre):] in RENAMED_HEADERS:
+                h = pre + RENAMED_HEADERS[h[len(pre):]]
+                break
+        vals.setdefault(h, v)
+    return vals
 
 
 def _merge_data(svc, own_rows: list[dict], stamp: str) -> list[list]:
@@ -1158,10 +1405,17 @@ def _build_stats_tab(tab: str, merged: list[list], stamp: str,
     grid.append([])
     head = (["Gym", "Email version", "Tag"] if variant_tab
             else ["Gym", "Automation"]) + METRIC_HEADERS
+
+    def _pct_notes(row: int) -> None:
+        # which emails are in each rate (Block 15 maturity), on every header
+        for k, text in PCT_NOTES.items():
+            meta["header_notes"].append(
+                (row, lead_cols + METRIC_KEYS.index(k), text))
     if not variant_tab:
         grid.append(head)
         meta["headers"].append(len(grid))
         meta["header_notes"].append((len(grid), 0, DASH_HOWTO))
+        _pct_notes(len(grid))
         meta["totals"] = len(grid) + 1
         grid.append([None, '="Everything combined ("&$B$2&")"']
                     + _totals_formulas())
@@ -1172,6 +1426,7 @@ def _build_stats_tab(tab: str, merged: list[list], stamp: str,
         grid.append(head)
         meta["headers"].append(len(grid))
         meta["header_notes"].append((len(grid), 1, _glossary(sec)))
+        _pct_notes(len(grid))
         start = len(grid) + 1
         alloc = max(counts.get(sec, 0), 1)
         for i in range(alloc):
@@ -1348,7 +1603,9 @@ _HIST_LASTCOL = _a1col(max(HISTORY_NCOLS, 26) - 1)
 HISTORY_NOTES = {
     0: ("One row per gym per month. Every row is rebuilt on each run from the "
         "emails sent, so a month's numbers can still move until its outcome "
-        "windows close (30 days for returns and redemptions, 60 for joins). "
+        "windows close (30 days for returns and redemptions, 60 and 90 for "
+        "joins). Each % only counts the emails whose window has closed, as on "
+        "the Dashboard. "
         "The current month is marked '(so far)'. Before 2026-09-18 each row "
         "was a frozen snapshot of the running total under the counting rule "
         "of that day."),
@@ -1391,13 +1648,16 @@ def _months_through(first: str, last: str) -> list[str]:
 
 
 def _history_rows(records: list[dict], stamp: str,
-                  month_now: str | None = None) -> list[list]:
+                  month_now: str | None = None, today=None) -> list[list]:
     """This gym's History rows from collect()'s per-send records (SEND_RECORDS):
     one row per month from the first send through the current month, the
     current one labelled '(so far)'. A member-survey send (ftv False) counts on
     the send / delivered / open / click / response columns only, as its Data
-    row does; the first-timer outcomes are blank there and are not summed."""
+    row does; the first-timer outcomes are blank there and are not summed.
+    Each send goes through _bucket_add, the same call the Data rows use, so
+    the rates are over mature emails only (Block 15)."""
     month_now = month_now or datetime.now(timezone.utc).strftime("%Y-%m")
+    today = today or MATURE_ASOF[0] or datetime.now(timezone.utc).date()
     by_month: dict[str, dict] = defaultdict(lambda: defaultdict(int))
     odd = 0
     for r in records:
@@ -1405,22 +1665,7 @@ def _history_rows(records: list[dict], stamp: str,
         if not re.fullmatch(r"\d{4}-\d{2}", month):
             odd += 1  # a hand-edited log row must not take the whole push down
             continue
-        b = by_month[month]
-        cr = r.get("credits") or {}
-        b["sends"] += 1
-        b["delivered"] += bool(r.get("delivered"))
-        b["opens"] += bool(r.get("opened"))
-        b["clicks"] += bool(r.get("clicked"))
-        b["unsubs"] += bool(r.get("unsubscribed"))
-        b["taps"] += bool(r.get("tapped"))
-        b["responses"] += bool(r.get("responded"))
-        if r.get("ftv", True):
-            b["redeems"] += bool(cr.get("redeemed"))
-            b["purchases"] += bool(cr.get("purchased"))
-            b["returned"] += bool(cr.get("returned"))
-            b["ret_opened"] += bool(cr.get("returned_opened"))
-            b["converted"] += bool(cr.get("converted"))
-            b["conv_opened"] += bool(cr.get("converted_opened"))
+        _bucket_add(by_month[month], r, today)
     if odd:
         print(f"  allgyms: History skipped {odd} send(s) with a non-ISO sent_date")
     if not by_month:
@@ -1430,8 +1675,8 @@ def _history_rows(records: list[dict], stamp: str,
     out = []
     for m in _months_through(months[0], max(month_now, months[-1])):
         b = by_month.get(m) or {}
-        this = {k: b.get(k, 0) for k in _COUNT_KEYS}
-        for k in _COUNT_KEYS:
+        this = {k: b.get(k, 0) for k in _SUM_KEYS}
+        for k in _SUM_KEYS:
             running[k] += this[k]
         label = f"{m} (so far)" if m == month_now else m
         out.append([label, GYM] + _history_metrics(this)
@@ -1452,7 +1697,8 @@ def _history_migrate(row: list, old_header: list | None = None) -> list:
     """
     row = list(row)
     if old_header and old_header != HISTORY_HEADER and "Month" in old_header:
-        vals = dict(zip(old_header, row))
+        # up to the older layout's own "Updated" only; renamed headings kept
+        vals = _layout_vals(old_header, row, "Updated")
         out = []
         for h in HISTORY_HEADER:
             v = vals.get(h, "")
@@ -1567,6 +1813,174 @@ def _history_fmt_requests(sheet_id: int, existing_cf: int) -> list:
                 "condition": {"type": "CUSTOM_FORMULA",
                               "values": [{"userEnteredValue":
                                           f'=$B2="{gym}"'}]},
+                "format": {"backgroundColor": _hex(base)}}}}})
+    return reqs
+
+
+# --------------------------------------------------------------------------
+# Scorecard tab (ROADMAP Block 15, 2026-09-24; gym-agnostic, keep identical)
+# --------------------------------------------------------------------------
+# The Pilot scorecard from each gym's site, onto the sheet, so Chris reads the
+# same numbers in both places: each cron writes its OWN gym's two rows (the
+# pilot, and the same calendar dates a year earlier) from engine.
+# build_scorecard, the exact call the site's Insights "Pilot scorecard" slide
+# makes, and keeps the other gym's rows as they are (like History). The two
+# questions stay apart on purpose (Luke 2026-09-24): the Dashboard is about
+# EMAILS (clocked from the email), this tab is about PAID FIRST-TIMERS
+# (clocked from the first paid visit), so the two cannot be the same number.
+SCORECARD_TAB = "Scorecard"
+SCORECARD_HEADER = [
+    "Gym", "Group", "First paid visit between", "Paid first-timers",
+    "Came back within 30 days", "Came back: out of (30 days passed)", "Came back %",
+    "Goal: came back",
+    "Joined within 30 days", "Joined: out of (30 days passed)", "Join % (30 days)",
+    "Joined within 60 days", "Joined: out of (60 days passed)", "Join % (60 days)",
+    "Joined within 90 days", "Joined: out of (90 days passed)", "Join % (90 days)",
+    "Goal: joined (90 days)", "Data through", "Updated"]
+SCORECARD_NCOLS = len(SCORECARD_HEADER)
+_SC_LASTCOL = _a1col(max(SCORECARD_NCOLS, 26) - 1)
+_SC_PCT_COLS = [SCORECARD_HEADER.index(h) for h in
+                ("Came back %", "Join % (30 days)", "Join % (60 days)",
+                 "Join % (90 days)")]
+SCORECARD_NOTES = {
+    0: ("Pilot scorecard: the same numbers as the 'Pilot scorecard' slide on "
+        "each gym's Send It page, written by each gym's morning run. One row "
+        "for the pilot so far and one for the same calendar dates a year "
+        "earlier, counted the same way. The Dashboard tab is about emails; "
+        "this tab is about paid first-timers, so the two are different "
+        "questions and different numbers."),
+    3: ("Paid first-timers: first paid entry was a day pass or a trial "
+        "(SHIFT: Day Pass, 2-Week Trial, 30-Day Trial; ABC: day pass), not a "
+        "youth pass, not staff, checked in at least once, first paid visit "
+        "inside the dates shown, and would have passed the email screens (own "
+        "email on file, not shared with another climber, did not join or buy "
+        "a trial within 2 days)."),
+    4: ("Came back = a check-in on a later day within 30 days of the first "
+        "paid visit. Check-ins before that visit never count."),
+    5: ("Only people whose 30 days have passed are in the bottom of the %, so "
+        "someone who visited last week is never counted as a miss."),
+    SCORECARD_HEADER.index("Joined within 30 days"): (
+        "Joined = the first paid membership that is not a youth plan, started "
+        "0 to 30 days after the first paid visit. Only people whose 30 days "
+        "have passed are in the bottom of the %."),
+    SCORECARD_HEADER.index("Joined within 60 days"): (
+        "Same as the 30-day join, with 60 days."),
+    SCORECARD_HEADER.index("Joined within 90 days"): (
+        "Same as the 30-day join, with 90 days. The goal is set on this one. "
+        "Only people whose 90 days have passed are in the bottom of the %."),
+}
+
+
+def _sc_ratio(n, of):
+    """A Scorecard rate, NOT pre-rounded: the tab shows one decimal (0.0%), and
+    rounding to 4 places first double-rounds (51 of 247 = 20.648% read 20.7%
+    here while the site slide said 20.6%; simulation finding, 2026-09-24)."""
+    return n / of if isinstance(n, int) and isinstance(of, int) and of else ""
+
+
+def _scorecard_rows(sc: dict, stamp: str) -> list[list]:
+    """This gym's two Scorecard rows from engine.build_scorecard's result
+    (none when the gym has no scorecard switched on)."""
+    if not sc or not sc.get("enabled"):
+        return []
+    goals = sc.get("goals") or {}
+    out = []
+    for pilot, part, lo, hi in (
+            (True, sc["pilot"]["all"], sc["start"], sc["data_through"]),
+            (False, sc["baseline"]["all"], sc["baseline_start"],
+             sc["baseline_through"])):
+        r, j60, j90 = part["ret"], part["join_early"], part["join"]
+        j30 = part.get("join30") or {"n": "", "of": ""}
+        out.append([
+            GYM, "Pilot" if pilot else f"Same dates in {str(lo)[:4]}",
+            f"{lo} to {hi}", part["n"],
+            r["n"], r["of"], _sc_ratio(r["n"], r["of"]),
+            goals.get("return", "") if pilot else "",
+            j30["n"], j30["of"], _sc_ratio(j30["n"], j30["of"]),
+            j60["n"], j60["of"], _sc_ratio(j60["n"], j60["of"]),
+            j90["n"], j90["of"], _sc_ratio(j90["n"], j90["of"]),
+            goals.get("join", "") if pilot else "",
+            sc["data_through"], stamp])
+    return out
+
+
+def _maintain_scorecard(svc, sc: dict, stamp: str) -> None:
+    """Rewrite this gym's Scorecard rows, keep every other gym's (read back
+    unformatted and re-laid by header name, like History)."""
+    _widen_tab(svc, SCORECARD_TAB, SCORECARD_NCOLS)
+    got = svc.spreadsheets().values().get(
+        spreadsheetId=ALLGYMS_SHEET_ID, range=f"{SCORECARD_TAB}!A1:{_SC_LASTCOL}100",
+        valueRenderOption="UNFORMATTED_VALUE",
+        ).execute(num_retries=_NUM_RETRIES).get("values", [])
+    old_header = [str(x).strip() for x in (got[0] if got else [])]
+    kept = []
+    for r in got[1:]:
+        if not r or not str(r[0]).strip() or str(r[0]).strip() == GYM:
+            continue
+        vals = dict(zip(old_header, r))
+        kept.append([vals.get(h, "") for h in SCORECARD_HEADER])
+    out = kept + _scorecard_rows(sc, stamp)
+    out.sort(key=lambda r: (GYM_ORDER.get(str(r[0]), 9),
+                            0 if str(r[1]) == "Pilot" else 1))
+    svc.spreadsheets().values().clear(
+        spreadsheetId=ALLGYMS_SHEET_ID,
+        range=f"{SCORECARD_TAB}!A:{_SC_LASTCOL}").execute(num_retries=_NUM_RETRIES)
+    svc.spreadsheets().values().update(
+        spreadsheetId=ALLGYMS_SHEET_ID, range=f"{SCORECARD_TAB}!A1",
+        valueInputOption="RAW",
+        body={"values": [SCORECARD_HEADER] + out}).execute(num_retries=_NUM_RETRIES)
+
+
+def _scorecard_fmt_requests(sheet_id: int, existing_cf: int) -> list:
+    reqs = [{"deleteConditionalFormatRule": {"sheetId": sheet_id, "index": 0}}
+            for _ in range(existing_cf)]
+    reqs.append({"repeatCell": {"range": {"sheetId": sheet_id}, "cell": {},
+                 "fields": "userEnteredFormat,note"}})
+    reqs.append({"updateSheetProperties": {
+        "properties": {"sheetId": sheet_id,
+                       "gridProperties": {"frozenRowCount": 1,
+                                          "frozenColumnCount": 2}},
+        "fields": "gridProperties.frozenRowCount,"
+                  "gridProperties.frozenColumnCount"}})
+    reqs.append({"repeatCell": {
+        "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1},
+        "cell": {"userEnteredFormat": {"textFormat": {"bold": True},
+                                       "backgroundColor": _hex(HEADER_BG),
+                                       "wrapStrategy": "WRAP",
+                                       "horizontalAlignment": "CENTER"}},
+        "fields": "userEnteredFormat.textFormat,"
+                  "userEnteredFormat.backgroundColor,"
+                  "userEnteredFormat.wrapStrategy,"
+                  "userEnteredFormat.horizontalAlignment"}})
+    reqs.append({"repeatCell": {
+        "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 100,
+                  "startColumnIndex": 3, "endColumnIndex": SCORECARD_NCOLS},
+        "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
+        "fields": "userEnteredFormat.horizontalAlignment"}})
+    for c in _SC_PCT_COLS:
+        reqs.append({"repeatCell": {
+            "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 100,
+                      "startColumnIndex": c, "endColumnIndex": c + 1},
+            "cell": {"userEnteredFormat": {
+                "numberFormat": {"type": "PERCENT", "pattern": "0.0%"}}},
+            "fields": "userEnteredFormat.numberFormat"}})
+    for cidx, text in SCORECARD_NOTES.items():
+        reqs.append({"updateCells": {
+            "rows": [{"values": [{"note": text}]}], "fields": "note",
+            "start": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": cidx}}})
+    for i, w in enumerate([70, 150, 190] + [110] * (SCORECARD_NCOLS - 3)):
+        reqs.append({"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS",
+                      "startIndex": i, "endIndex": i + 1},
+            "properties": {"pixelSize": w}, "fields": "pixelSize"}})
+    for gym, (base, _alt) in GYM_FILLS.items():
+        reqs.append({"addConditionalFormatRule": {"rule": {
+            "ranges": [{"sheetId": sheet_id, "startRowIndex": 1,
+                        "endRowIndex": 100, "startColumnIndex": 0,
+                        "endColumnIndex": SCORECARD_NCOLS}],
+            "booleanRule": {
+                "condition": {"type": "CUSTOM_FORMULA",
+                              "values": [{"userEnteredValue": f'=$A2="{gym}"'}]},
                 "format": {"backgroundColor": _hex(base)}}}}})
     return reqs
 
@@ -1785,7 +2199,7 @@ def push(slug: str = "shift") -> None:
     meta0 = svc.spreadsheets().get(
         spreadsheetId=ALLGYMS_SHEET_ID, fields=fields).execute(num_retries=_NUM_RETRIES)
     have = {s["properties"]["title"] for s in meta0["sheets"]}
-    add = [t for t in ("Dashboard", "Variants", "History", "Data")
+    add = [t for t in ("Dashboard", SCORECARD_TAB, "Variants", "History", "Data")
            if t not in have]
     if add:
         svc.spreadsheets().batchUpdate(
@@ -1822,8 +2236,12 @@ def push(slug: str = "shift") -> None:
     fmt_reqs: list = []
     for tab, variant_tab in (("Dashboard", False), ("Variants", True)):
         grid, m = _build_stats_tab(tab, merged, stamp, picks[tab], variant_tab)
+        # the two 90-day join columns (2026-09-24) took Variants past column
+        # Z: grow the grid first, or the FILTER spill has nowhere to land
+        _widen_tab(svc, tab, m["ncols"])
         svc.spreadsheets().values().clear(
-            spreadsheetId=ALLGYMS_SHEET_ID, range=f"{tab}!A:Z").execute(num_retries=_NUM_RETRIES)
+            spreadsheetId=ALLGYMS_SHEET_ID,
+            range=f"{tab}!A:{_a1col(max(m['ncols'], 26) - 1)}").execute(num_retries=_NUM_RETRIES)
         svc.spreadsheets().values().update(
             spreadsheetId=ALLGYMS_SHEET_ID, range=f"{tab}!A1",
             valueInputOption="USER_ENTERED", body={"values": grid}).execute(num_retries=_NUM_RETRIES)
@@ -1844,6 +2262,23 @@ def push(slug: str = "shift") -> None:
     reclaim()
     fmt_reqs += _history_fmt_requests(sheet_ids["History"],
                                       cf_counts.get("History", 0))
+    # Scorecard tab (Block 15): guarded so it can never cost the rest of the
+    # push, and loud when it breaks (CLAUDE.md rule 5)
+    try:
+        if SCORECARD.get("enabled"):
+            _maintain_scorecard(svc, SCORECARD, stamp)
+            fmt_reqs += _scorecard_fmt_requests(sheet_ids[SCORECARD_TAB],
+                                                cf_counts.get(SCORECARD_TAB, 0))
+            stage("Scorecard tab maintained")
+        else:
+            # no scorecard this run (switched off, or its build FAILED above):
+            # this gym's rows stay exactly as the last good run wrote them
+            stage("Scorecard tab: no scorecard this run, rows untouched")
+    except Exception:
+        print("  allgyms: Scorecard tab FAILED (stats push unaffected):\n"
+              + traceback.format_exc())
+        stage("Scorecard tab FAILED (stats push unaffected)")
+    reclaim()
     # Data tab: format reset + freeze + light header styling
     did = sheet_ids["Data"]
     fmt_reqs += [
@@ -1863,8 +2298,9 @@ def push(slug: str = "shift") -> None:
             "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
             "fields": "userEnteredFormat.textFormat"}},
     ]
-    # tab order: Dashboard, Variants, History, Data
-    for i, t in enumerate(("Dashboard", "Variants", "History", "Data")):
+    # tab order: Dashboard, Scorecard, Variants, History, Data
+    for i, t in enumerate(("Dashboard", SCORECARD_TAB, "Variants", "History",
+                           "Data")):
         fmt_reqs.append({"updateSheetProperties": {
             "properties": {"sheetId": sheet_ids[t], "index": i},
             "fields": "index"}})

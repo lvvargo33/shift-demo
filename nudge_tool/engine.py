@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from types import SimpleNamespace
 
-from . import attribution, ingest, templates
+from . import attribution, definitions, ingest, templates
 from .config import ClientConfig
 from .ingest import Climber, Dataset
 from .triggers import Trigger
@@ -746,18 +746,23 @@ def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
                 and c.visit_count >= 1 and lo <= c.ftv_date <= hi
                 and emailable(c) and not keyword_out(c)]
 
+    # came back / joined = the shared definitions (Block 15, 2026-09-24): the
+    # sheet's Scorecard tab and this slide read the same functions, and a
+    # youth plan is never a join (join_date skips it; the email screen above
+    # keeps membership_created because the SENDER stops on any membership)
     def back_within(c: Climber, days: int) -> bool:
-        fd = dd(c.ftv_date)
-        hi = fd + timedelta(days=days)
-        return any(fd < dd(v) <= hi for v in c.visit_days)
+        return definitions.came_back_within(c.visit_days, c.ftv_date, days)
 
     def joined_within(c: Climber, days: int) -> bool:
-        return bool(c.reporting_converted and c.membership_created
-                    and 0 <= (dd(c.membership_created) - dd(c.ftv_date)).days <= days)
+        return definitions.joined_within(c.join_date, c.ftv_date, days)
 
     def bars(grp: list, shift: int) -> dict:
         out: dict = {"n": len(grp)}
         for key, days, fn in (("ret", ret_days, back_within),
+                              # 30-day join (Luke 2026-09-24: joins read at
+                              # 30 / 60 / 90 everywhere; the sheet's Scorecard
+                              # tab shows it, the site slide ignores the key)
+                              ("join30", definitions.JOIN_DAYS_SHORT, joined_within),
                               ("join_early", early_days, joined_within),
                               ("join", join_days, joined_within)):
             cut = (data_end - timedelta(days=days + shift)).isoformat()
@@ -979,8 +984,8 @@ def build_sent_log(sent_rows: list | None, ds: Dataset) -> list[dict]:
 # at >= 50% off (ingest flags those purchases). Opens and clicks come from the
 # Mailchimp activity feed when the caller supplies it; the clicked URL tells
 # the offer's buy link apart from the survey form link.
-_BUY_LINK_MARKERS = ("purchase-a-pass", "sendmoregetbeta")
-_SURVEY_LINK_MARKERS = ("docs.google.com/forms", "forms.gle")
+_BUY_LINK_MARKERS = definitions.BUY_LINK_MARKERS
+_SURVEY_LINK_MARKERS = definitions.SURVEY_LINK_MARKERS  # incl. /s links (Block 15)
 
 # Outreach-log rows that are NOT first-time-visitor outreach (2026-09-10,
 # ported from ABC, where these trigger names exist; SHIFT never logs them,

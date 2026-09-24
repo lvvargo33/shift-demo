@@ -37,12 +37,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+from . import definitions
+
 # outcome -> days after the send inside which the event still credits it
+# (the day counts live in definitions.py since 2026-09-24, Block 15, so the
+# sheet, the site and the experiments cannot drift apart)
 WINDOWS = {
-    "returned": 30,
-    "converted": 60,
-    "responded": 14,
-    "redeemed": 30,
+    "returned": definitions.RETURN_DAYS,
+    "converted": definitions.JOIN_DAYS,
+    "responded": definitions.ANSWER_DAYS,
+    "redeemed": definitions.REDEEM_DAYS,
     "purchased": 30,
 }
 # outcomes whose event may fall ON the send date (the rest need a later day)
