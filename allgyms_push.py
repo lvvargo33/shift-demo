@@ -1985,6 +1985,108 @@ def _scorecard_fmt_requests(sheet_id: int, existing_cf: int) -> list:
     return reqs
 
 
+# The Definitions tab (Block 15 session 4, 2026-09-25): the rules in plain
+# words, from definitions.tab_rows (the text sits next to the rules and reads
+# their windows, so it cannot drift). Not per gym: each cron rewrites the whole
+# tab with the same text, the last run's stamp wins.
+DEFINITIONS_TAB = "Definitions"
+_DEF_LASTCOL = _a1col(definitions.DEF_TAB_COLS - 1)
+
+
+def _definitions_grid(stamp: str) -> tuple[list[list], list[str]]:
+    """(values, kind per row), every row padded to DEF_TAB_COLS cells."""
+    rows = definitions.tab_rows(stamp)
+    n = definitions.DEF_TAB_COLS
+    return ([(list(c) + [""] * n)[:n] for _k, c in rows], [k for k, _c in rows])
+
+
+def _definitions_stamp(stamp: str) -> str:
+    """The note's stamp names the gym whose run wrote the tab (both crons
+    write it; a gym still on older code never touches it)."""
+    return f"{stamp} by the {GYM} run"
+
+
+def _maintain_definitions(svc, stamp: str) -> list[str]:
+    """Rewrite the whole Definitions tab; returns the kind of each row for the
+    formatting pass."""
+    values, kinds = _definitions_grid(_definitions_stamp(stamp))
+    svc.spreadsheets().values().clear(
+        spreadsheetId=ALLGYMS_SHEET_ID,
+        range=f"{DEFINITIONS_TAB}!A:Z").execute(num_retries=_NUM_RETRIES)
+    svc.spreadsheets().values().update(
+        spreadsheetId=ALLGYMS_SHEET_ID, range=f"{DEFINITIONS_TAB}!A1",
+        valueInputOption="RAW",
+        body={"values": values}).execute(num_retries=_NUM_RETRIES)
+    return kinds
+
+
+def _definitions_fmt_requests(sheet_id: int, kinds: list[str],
+                              existing_cf: int) -> list:
+    n = definitions.DEF_TAB_COLS
+    reqs = [{"deleteConditionalFormatRule": {"sheetId": sheet_id, "index": 0}}
+            for _ in range(existing_cf)]
+    # the tab is cron-owned: anything a person merged there is undone
+    reqs.append({"unmergeCells": {"range": {"sheetId": sheet_id}}})
+    reqs.append({"repeatCell": {"range": {"sheetId": sheet_id}, "cell": {},
+                 "fields": "userEnteredFormat,note"}})
+    reqs.append({"updateSheetProperties": {
+        "properties": {"sheetId": sheet_id,
+                       "gridProperties": {"frozenRowCount": 0,
+                                          "frozenColumnCount": 0}},
+        "fields": "gridProperties.frozenRowCount,"
+                  "gridProperties.frozenColumnCount"}})
+    reqs.append({"repeatCell": {
+        "range": {"sheetId": sheet_id, "startRowIndex": 0,
+                  "endRowIndex": len(kinds), "startColumnIndex": 0,
+                  "endColumnIndex": n},
+        "cell": {"userEnteredFormat": {"wrapStrategy": "WRAP",
+                                       "verticalAlignment": "TOP"}},
+        "fields": "userEnteredFormat.wrapStrategy,"
+                  "userEnteredFormat.verticalAlignment"}})
+    style = {
+        "title": {"textFormat": {"bold": True, "fontSize": 14},
+                  "wrapStrategy": "OVERFLOW_CELL"},
+        "note": {"textFormat": {"italic": True,
+                                "foregroundColor": _hex(NOTE_FG)},
+                 "wrapStrategy": "OVERFLOW_CELL"},
+        "band": {"textFormat": {"bold": True, "foregroundColor": _hex(BAND_FG)},
+                 "backgroundColor": _hex(BAND_BG),
+                 "wrapStrategy": "OVERFLOW_CELL"},
+        "header": {"textFormat": {"bold": True},
+                   "backgroundColor": _hex(HEADER_BG)},
+        "row": {},
+    }
+    for i, k in enumerate(kinds):
+        fmt = dict(style.get(k) or {})
+        if k == "row":  # the term itself reads bold
+            reqs.append({"repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": i,
+                          "endRowIndex": i + 1, "startColumnIndex": 0,
+                          "endColumnIndex": 1},
+                "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+                "fields": "userEnteredFormat.textFormat"}})
+            continue
+        # a band colours the whole width; a title / note only its own cell
+        # (it overflows into the empty cells to its right)
+        width = n if k in ("band", "header") else 1
+        reqs.append({"repeatCell": {
+            "range": {"sheetId": sheet_id, "startRowIndex": i,
+                      "endRowIndex": i + 1, "startColumnIndex": 0,
+                      "endColumnIndex": width},
+            "cell": {"userEnteredFormat": fmt},
+            "fields": ",".join(f"userEnteredFormat.{f}" for f in fmt)}})
+    for i, w in enumerate([190, 470, 300, 300][:n]):
+        reqs.append({"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS",
+                      "startIndex": i, "endIndex": i + 1},
+            "properties": {"pixelSize": w}, "fields": "pixelSize"}})
+    # after the widths, so each wrapped row is as tall as its longest cell
+    reqs.append({"autoResizeDimensions": {"dimensions": {
+        "sheetId": sheet_id, "dimension": "ROWS", "startIndex": 0,
+        "endIndex": len(kinds)}}})
+    return reqs
+
+
 # --------------------------------------------------------------------------
 # Experiments tab auto-fill (S40, gym-agnostic; keep identical in both repos)
 # --------------------------------------------------------------------------
@@ -2279,6 +2381,29 @@ def push(slug: str = "shift") -> None:
               + traceback.format_exc())
         stage("Scorecard tab FAILED (stats push unaffected)")
     reclaim()
+    # Definitions tab (Block 15 session 4): guarded and loud, like the
+    # Scorecard; its formatting goes in its OWN batch, so a bad request there
+    # can never cost the other tabs' formatting below. The tab is created
+    # here too, inside the guard, so even a failed create cannot stop the push
+    try:
+        if DEFINITIONS_TAB not in sheet_ids:
+            rep = svc.spreadsheets().batchUpdate(
+                spreadsheetId=ALLGYMS_SHEET_ID,
+                body={"requests": [{"addSheet": {"properties": {
+                    "title": DEFINITIONS_TAB}}}]}).execute(num_retries=_NUM_RETRIES)
+            sheet_ids[DEFINITIONS_TAB] = (
+                rep["replies"][0]["addSheet"]["properties"]["sheetId"])
+        kinds = _maintain_definitions(svc, stamp)
+        svc.spreadsheets().batchUpdate(
+            spreadsheetId=ALLGYMS_SHEET_ID,
+            body={"requests": _definitions_fmt_requests(
+                sheet_ids[DEFINITIONS_TAB], kinds,
+                cf_counts.get(DEFINITIONS_TAB, 0))}).execute(num_retries=_NUM_RETRIES)
+        stage(f"Definitions tab rewritten ({len(kinds)} rows)")
+    except Exception:
+        print("  allgyms: Definitions tab FAILED (stats push unaffected):\n"
+              + traceback.format_exc())
+        stage("Definitions tab FAILED (stats push unaffected)")
     # Data tab: format reset + freeze + light header styling
     did = sheet_ids["Data"]
     fmt_reqs += [
@@ -2298,9 +2423,11 @@ def push(slug: str = "shift") -> None:
             "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
             "fields": "userEnteredFormat.textFormat"}},
     ]
-    # tab order: Dashboard, Scorecard, Variants, History, Data
-    for i, t in enumerate(("Dashboard", SCORECARD_TAB, "Variants", "History",
-                           "Data")):
+    # tab order: Dashboard, Scorecard, Definitions, Variants, History, Data
+    # (Definitions only when it exists: its create above is guarded)
+    for i, t in enumerate(t for t in ("Dashboard", SCORECARD_TAB, DEFINITIONS_TAB,
+                                      "Variants", "History", "Data")
+                          if t in sheet_ids):
         fmt_reqs.append({"updateSheetProperties": {
             "properties": {"sheetId": sheet_ids[t], "index": i},
             "fields": "index"}})
