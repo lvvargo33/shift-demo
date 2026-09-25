@@ -548,49 +548,68 @@ function safetyBanner() {
 // entirely client-side.
 let REPORT_PERIOD = 'all';
 let REPORT_METRIC = 'count';   // 'count' or 'pct' — Insights chart toggle
-const PERIOD_OPTS = [['r:30','Last 30 days'],['r:90','Last 90 days'],['r:180','Last 6 months'],['r:365','Last year'],['all','All time']];
+const PERIOD_OPTS_BASE = [['r:30','Last 30 days'],['r:90','Last 90 days'],['r:180','Last 6 months'],['r:365','Last year'],['all','All time']];
 function reportingOn() { return !!(DATA.reporting && DATA.reporting.enabled); }
 function allFtvs() { return (DATA.reporting && DATA.reporting.ftvs) || []; }
 function entryLabels() { return (DATA.reporting && DATA.reporting.entry_labels) || {}; }
+// One group, one set of rules (Block 15 session 3, 2026-09-24): with a Pilot
+// scorecard configured, every record here is a person in the scorecard's
+// group (same screens, engine._scorecard_screen), so the tiles and charts
+// count the same people the scorecard does, and "Since the pilot started"
+// gives exactly the scorecard's numbers.
+function groupIsScorecard() { return !!(DATA.reporting && DATA.reporting.group === 'scorecard'); }
+function pilotStart() { return (DATA.reporting && DATA.reporting.scorecard_start) || ''; }
+function periodOpts() { return pilotStart() ? [['pilot', 'Since the pilot started']].concat(PERIOD_OPTS_BASE) : PERIOD_OPTS_BASE; }
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function monthName(m) { const p = (m||'').split('-'); return p.length === 2 ? MONTHS[+p[1]-1] + ' ' + p[0] : m; }
-function periodMonths() { return [...new Set(allFtvs().map(f => f.m))].sort().reverse(); }
-function periodYears() { return [...new Set(allFtvs().map(f => f.m.slice(0,4)))].sort().reverse(); }
 function defaultPeriod() {
+  if (pilotStart()) return 'pilot';
   return allFtvs().length ? 'r:90' : 'all';   // rolling last 90 days
 }
-function rollingCutoff(days) {
-  const asof = (DATA.reporting && DATA.reporting.as_of) || '';
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(asof)) return null;
-  const d = new Date(asof); d.setDate(d.getDate() - days);
+// the last day of check-in data (the scorecard's clock), else the as-of day
+function dataEnd() { const r = DATA.reporting || {}; return r.data_through || r.as_of || DATA.as_of || ''; }
+function addDays(iso, n) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return '';
+  const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
-function filterFtvs() {
-  const p = REPORT_PERIOD, all = allFtvs();
-  if (p === 'all') return all;
-  if (p.startsWith('r:')) { const c = rollingCutoff(+p.slice(2)); return c ? all.filter(f => (f.d || '') >= c) : all; }
-  if (p.startsWith('y:')) return all.filter(f => f.m.slice(0,4) === p.slice(2));
-  if (p.startsWith('m:')) return all.filter(f => f.m === p.slice(2));
-  return all;
+// First-visit dates [lo, hi] counted for a number whose window is n days
+// (n = 0: a plain count). A rate only counts people who have had n days
+// (maturity, the scorecard's rule). "Since the pilot started" and "All time"
+// keep their start and stop n days before the data ends (so they equal the
+// scorecard's cut); a rolling period moves back by n days, so "Last 90 days"
+// still has a join rate: the people whose 90 days ended in the last 90 days.
+// Before 2026-09-24 a rolling period cut both ends and read "n/a" (audit S3).
+function periodRange(n) {
+  const end = dataEnd(), p = REPORT_PERIOD;
+  const hi = addDays(end, -n);
+  if (p === 'pilot') return [pilotStart(), hi];
+  if (p.startsWith('r:')) return [addDays(end, -(+p.slice(2)) - n + 1), hi];
+  if (p.startsWith('y:')) { const e = p.slice(2) + '-12-31'; return [p.slice(2) + '-01-01', e < hi ? e : hi]; }
+  if (p.startsWith('m:')) { const e = p.slice(2) + '-31'; return [p.slice(2) + '-01', e < hi ? e : hi]; }
+  return ['', hi];
 }
+function inPeriod(f, n) { const r = periodRange(n || 0), d = f.d || ''; return d >= r[0] && d <= r[1]; }
+function filterFtvs(n) { return allFtvs().filter(f => inPeriod(f, n || 0)); }
 function periodLabel() {
-  const hit = PERIOD_OPTS.find(o => o[0] === REPORT_PERIOD);
+  const hit = periodOpts().find(o => o[0] === REPORT_PERIOD);
   return hit ? hit[1] : '';
 }
-// is the selected period recent enough that conversion is still maturing?
-function periodIsRecent() {
-  const asof = (DATA.reporting && DATA.reporting.as_of) || '';
-  if (!asof) return false;
-  if (REPORT_PERIOD.startsWith('r:')) return +REPORT_PERIOD.slice(2) <= 90;
-  return false;
+function shortDate(iso) {
+  const p = (iso || '').split('-');
+  return p.length === 3 ? MONTHS[+p[1] - 1] + ' ' + (+p[2]) + ', ' + p[0] : iso;
+}
+// "Jun 19, 2026 to Aug 25, 2026": the first-visit dates behind a number
+function rangeText(n) {
+  const r = periodRange(n || 0);
+  const lo = r[0] || (DATA.reporting && DATA.reporting.post_opening_date) || '';
+  return shortDate(lo) + ' to ' + shortDate(r[1]);
 }
 function periodSelectHtml() {
-  let o = PERIOD_OPTS.map(([v, l]) =>
+  const o = periodOpts().map(([v, l]) =>
     '<option value="' + v + '"' + (REPORT_PERIOD === v ? ' selected' : '') + '>' + l + '</option>').join('');
-  let note = periodIsRecent()
-    ? '<span class="period-note">Recent window: most members join within about 8 weeks of a first visit, so this is still filling in.</span>' : '';
   return '<div class="period-toggle"><span class="period-label">Showing</span>' +
-    '<select class="period-select" onchange="setReportPeriod(this.value)">' + o + '</select>' + note + '</div>';
+    '<select class="period-select" onchange="setReportPeriod(this.value)">' + o + '</select></div>';
 }
 function setReportPeriod(v) {
   REPORT_PERIOD = v;
@@ -610,55 +629,67 @@ function persistInsightsState() {
 function restoreInsightsState() {
   try {
     const p = sessionStorage.getItem('shiftReportPeriod');
-    if (p && PERIOD_OPTS.some(o => o[0] === p)) REPORT_PERIOD = p;
+    if (p && periodOpts().some(o => o[0] === p)) REPORT_PERIOD = p;
     const mt = sessionStorage.getItem('shiftReportMetric');
     if (mt === 'count' || mt === 'pct') REPORT_METRIC = mt;
     const s = parseInt(sessionStorage.getItem('shiftInsightsSlide') || '', 10);
     if (!isNaN(s) && s >= 0) INSIGHTS_SLIDE = s;
   } catch (e) {}
 }
-function agg(ftvs) {
-  const n = ftvs.length;
-  const conv = ftvs.filter(f => f.conv).length;
-  const v1 = ftvs.filter(f => f.v1).length;
-  const ret = ftvs.filter(f => f.ret).length;
-  // Windowed (2026-09-22, same rules as the Pilot scorecard): came back within
-  // 30 days / joined within 90 days, each out of the people who have had that
-  // many days. Records without the flags (older payloads) fall back to 0.
-  const m30 = ftvs.filter(f => f.m30).length, ret30 = ftvs.filter(f => f.m30 && f.ret30).length;
-  const m90 = ftvs.filter(f => f.m90).length, j90 = ftvs.filter(f => f.m90 && f.j90).length;
-  return { n, conv, v1, ret, m30, ret30, m90, j90,
-    convPct: n ? 100 * conv / n : 0, retPct: n ? 100 * ret / n : 0, v1Pct: n ? 100 * v1 / n : 0,
-    ret30Pct: m30 ? 100 * ret30 / m30 : 0, j90Pct: m90 ? 100 * j90 / m90 : 0 };
+// windows from the payload: came back within return_days; joined within
+// join_days[0..2] (30 / 60 / 90), read from the records' j30 / j60 / j90
+const JOIN_KEYS = ['j30', 'j60', 'j90'];
+function reportWindows() {
+  const w = (DATA.reporting && DATA.reporting.windows) || {};
+  const j = Array.isArray(w.join_days) ? w.join_days : [30, 60, w.join_days || 90];
+  return { return_days: w.return_days || 30, join_days: j };
 }
-function reportWindows() { return (DATA.reporting && DATA.reporting.windows) || { return_days: 30, join_days: 90 }; }
+// one rate for the picked period: n of `of` people, every one of whom has had
+// `days` days since their first visit
+function periodRate(key, days) {
+  const grp = filterFtvs(days);
+  return { n: grp.filter(f => f[key]).length, of: grp.length, days: days };
+}
+// the join window the Insights charts read (the scorecard's headline: 90 days)
+function chartJoin() { const j = reportWindows().join_days; return { key: JOIN_KEYS[2], days: j[2] }; }
 // visit days on/after the paid first visit (falls back to all visit days for older payloads)
 function visitsAfter(f) { return f.nva != null ? f.nva : f.nv; }
+// chart helpers: `ftvs` = people who have had the chart's join window
 function byEntry(ftvs) {
-  const labels = entryLabels(), map = {};
-  ftvs.forEach(f => { const k = f.cat || 'OTHER'; (map[k] = map[k] || { n: 0, conv: 0 }); map[k].n++; if (f.conv) map[k].conv++; });
+  const J = chartJoin(), labels = entryLabels(), map = {};
+  ftvs.forEach(f => { const k = f.cat || 'OTHER'; (map[k] = map[k] || { n: 0, conv: 0 }); map[k].n++; if (f[J.key]) map[k].conv++; });
   return Object.entries(map).map(([k, v]) => ({ cat: k, label: labels[k] || k, n: v.n, conv: v.conv, pct: v.n ? 100 * v.conv / v.n : 0 }))
     .sort((a, b) => b.n - a.n);
 }
 function byVisits(ftvs) {
+  const J = chartJoin();
   const buckets = [
     { k: '1 visit', lo: 1, hi: 1 },
     { k: '2 visits', lo: 2, hi: 2 }, { k: '3 visits', lo: 3, hi: 3 },
     { k: '4–5 visits', lo: 4, hi: 5 }, { k: '6+ visits', lo: 6, hi: 999 } ];
   return buckets.map(b => {
     const sub = ftvs.filter(f => visitsAfter(f) >= b.lo && visitsAfter(f) <= b.hi);
-    const conv = sub.filter(f => f.conv).length;
+    const conv = sub.filter(f => f[J.key]).length;
     return { k: b.k, n: sub.length, conv, pct: sub.length ? 100 * conv / sub.length : 0 };
   }).filter(b => b.n > 0);
 }
+// when joiners joined: days from the first visit to the join (the reporting
+// join: a paid membership that is not a youth plan), every joiner in the period
 function byTiming(ftvs) {
   const buckets = [
     { k: 'Within 1 week', lo: 0, hi: 7 }, { k: '1–2 weeks', lo: 8, hi: 14 },
     { k: '2–4 weeks', lo: 15, hi: 30 }, { k: '1–2 months', lo: 31, hi: 60 },
     { k: '2–3 months', lo: 61, hi: 90 }, { k: '3+ months', lo: 91, hi: 99999 } ];
-  const conv = ftvs.filter(f => f.conv && f.dtc != null);
+  const conv = ftvs.filter(f => f.dtc != null);
   return buckets.map(b => ({ k: b.k, n: conv.filter(f => f.dtc >= b.lo && f.dtc <= b.hi).length }))
     .filter(b => b.n > 0);
+}
+// who the tiles and charts count, in one sentence (Dashboard + Insights)
+function groupCaption() {
+  if (groupIsScorecard()) {
+    return 'Paid first-timers the emails could have reached: the same people the Pilot scorecard counts (their own first purchase was a day pass or a trial, not a youth pass; own email on file; not a member within 2 days). Joined = a paid membership that is not a youth plan. Each rate only counts people who have had that many days, so it looks at first visits that far back. Pick “Since the pilot started” to see the scorecard’s own numbers.';
+  }
+  return 'Everyone whose first purchase was a pass, trial, punch pass, class, or event. Joined = a paid membership that is not a youth plan. Each rate only counts people who have had that many days.';
 }
 
 /* ============================ MODAL + SEND ============================ */
@@ -738,6 +769,22 @@ function confirmSendBulk() {
 }
 
 /* ============================ DASHBOARD ============================ */
+// a Dashboard rate tile: the scorecard's display rule (a group under SC_MIN_N
+// people shows "n of m", never a percent) and the first-visit dates it covers
+function rateTile(label, b) {
+  let value, sub;
+  if (!b.of) {
+    value = 'n/a';
+    sub = 'Nobody in this period has had ' + b.days + ' days yet';
+  } else if (b.of < SC_MIN_N) {
+    value = b.n + ' of ' + b.of;
+    sub = 'First visit ' + rangeText(b.days) + '. Under ' + SC_MIN_N + ' people, so no % yet';
+  } else {
+    value = (100 * b.n / b.of).toFixed(1) + '%';
+    sub = b.n.toLocaleString() + ' of ' + b.of.toLocaleString() + ', first visit ' + rangeText(b.days);
+  }
+  return statTile(label, value, escapeHtml(sub));
+}
 function renderDashboard() {
   const m = DATA.metrics, s = DATA.summary, dw = DATA.data_window;
   let h = pageHeader("Here's who to send to today",
@@ -772,19 +819,19 @@ function renderDashboard() {
     surveyTilesHtml() +
   '</div>';
 
-  // period-scoped first-timer + conversion numbers
+  // period-scoped first-timer + conversion numbers (Block 15 session 3): the
+  // Pilot scorecard's group and rules, so "Since the pilot started" shows the
+  // scorecard's own numbers; joins at 30 / 60 / 90 days (Luke 2026-09-24)
   if (reportingOn()) {
-    const a = agg(filterFtvs());
     const w = reportWindows();
+    const plain = filterFtvs(0);
     h += '<div style="margin-top:24px;"><div class="card-title" style="margin-bottom:2px;">' + icon('funnel') + 'First-timers & conversion</div>' +
-      '<div class="card-description" style="margin-bottom:12px;">Everyone whose first purchase was a pass, trial, punch pass, class, or event, and what they did next. A wider group than the Pilot scorecard, counted the same way: a return within ' + w.return_days + ' days, a membership within ' + w.join_days + ' days, each out of the people who have had that long.</div>';
+      '<div class="card-description" style="margin-bottom:12px;">' + escapeHtml(groupCaption()) + '</div>';
     h += periodSelectHtml();
     h += '<div class="stats-grid-3">' +
-      statTile('First-timers', a.n.toLocaleString(), periodLabel()) +
-      statTile('Came back within ' + w.return_days + ' days', a.m30 ? a.ret30Pct.toFixed(1) + '%' : 'n/a',
-        a.ret30.toLocaleString() + ' of ' + a.m30.toLocaleString() + ' who have had ' + w.return_days + ' days') +
-      statTile('Became a member within ' + w.join_days + ' days', a.m90 ? a.j90Pct.toFixed(1) + '%' : 'n/a',
-        a.j90.toLocaleString() + ' of ' + a.m90.toLocaleString() + ' who have had ' + w.join_days + ' days') +
+      statTile('First-timers', plain.length.toLocaleString(), escapeHtml('First visit ' + rangeText(0))) +
+      rateTile('Came back within ' + w.return_days + ' days', periodRate('ret30', w.return_days)) +
+      w.join_days.map((d, i) => rateTile('Joined within ' + d + ' days', periodRate(JOIN_KEYS[i], d))).join('') +
     '</div></div>';
   }
 
@@ -1262,11 +1309,20 @@ function surveyTilesHtml() {
   if (!surveyOn()) return '';
   const rows = surveyAllRows();
   const n = rows.length;
-  const sent = ((DATA.engagement || {}).surveys || {}).sent || 0;
-  const sub1 = n === 0 ? 'No responses yet'
-    : (sent > 0 ? (100 * n / sent).toFixed(1) + '% of ' + sent.toLocaleString() + ' survey emails sent'
-                : 'From the feedback survey');
-  let h = statTile('Survey responses', n, sub1);
+  // Block 15 S5 (2026-09-24): the rate used to divide EVERY answer row
+  // (unmatched and repeat answers included) by the people emailed. Now the
+  // All Gyms sheet's own survey numbers when the page has them.
+  const g = erGroup('surveys'), e = erData();
+  let h;
+  if (g && e && e.available && g.sends) {
+    const w = (e.windows || {}).answer || 14;
+    const rate = g.m_sends14 ? erPct(g.m_resp14, g.m_sends14) + ' of the ' + g.m_sends14.toLocaleString() +
+      ' survey emails sent ' + w + ' or more days ago' : 'No survey email is ' + w + ' days old yet';
+    h = statTile('Survey answers', g.responses.toLocaleString(),
+      escapeHtml('Answered within ' + w + ' days of a survey email. ' + rate + '. Same count as the All Gyms sheet.'));
+  } else {
+    h = statTile('Survey answers', n, n === 0 ? 'No responses yet' : 'Every answer received, from the feedback survey');
+  }
   const t = topIssue(rows);
   if (!t) {
     h += statTile('Top survey issue', n ? 'None reported' : '&ndash;',
@@ -1286,11 +1342,13 @@ function cameBackBadge(cb) {
   if (cb === 'member') return '<span class="badge badge-success">MEMBER</span>';
   if (cb === 'yes') return 'Yes';
   if (cb === 'no') return 'No';
+  // answered under 30 days ago and not back yet: not a "No" (audit S2)
+  if (cb === 'too_early') return '<span style="color:var(--fg-hint);">Too early</span>';
   return '<span style="color:var(--fg-hint);">Unknown</span>';
 }
 function renderSurveys() {
   let h = pageHeader('All Survey Responses',
-    'Every completed survey since the pilot started, newest first. “Came back?” shows what each person did after answering, from check-in data: Yes = checked in again within 30 days of answering, MEMBER = joined within 90 days of answering.');
+    'Every completed survey since the pilot started, newest first. “Came back?” shows what each person did after answering, from check-in data: Yes = checked in again within 30 days of answering, MEMBER = joined a paid membership (not a youth plan; a trial does not count) within 90 days of answering, Too early = answered less than 30 days ago and not back yet.');
   const rows = surveyAllRows();
   if (!rows.length) {
     h += '<div class="card"><div class="empty-state"><div class="empty-state-icon">📭</div>' +
@@ -1426,20 +1484,30 @@ function metricToggleHtml() {
     '<button class="mt-btn' + (REPORT_METRIC === 'count' ? ' active' : '') + '" onclick="setInsightsMetric(\'count\')">Counts</button>' +
     '<button class="mt-btn' + (REPORT_METRIC === 'pct' ? ' active' : '') + '" onclick="setInsightsMetric(\'pct\')">%</button></div>';
 }
-// conversion bar: count mode shows volume, % mode shows the conversion rate
+// conversion bar: count mode shows volume, % mode shows the join rate.
+// Joined = the one rule (a paid membership, not a youth plan) within the
+// charts' join window, out of people who have had that window.
 function convBarM(label, n, conv, pct, maxN, maxPct) {
+  const jd = chartJoin().days;
   if (metricIsPct()) {
+    // the scorecard's rule: under SC_MIN_N people, no % (one person is not 100%)
+    if (n < SC_MIN_N) {
+      return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
+        '<div class="bar-count">' + conv + ' of ' + n + ' (under ' + SC_MIN_N + ' people, no % yet)</div></div>' +
+        '<div class="bar-track"></div>' +
+        '<div class="bar-sub">' + conv.toLocaleString() + ' of ' + n.toLocaleString() + ' joined within ' + jd + ' days</div></div>';
+    }
     const w = maxPct > 0 ? Math.round(100 * pct / maxPct) : 0;
     return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
       '<div class="bar-count">' + pct.toFixed(1) + '%</div></div>' +
       '<div class="bar-track"><div class="bar-fill bar-green" style="width:' + Math.max(w, 2) + '%;"></div></div>' +
-      '<div class="bar-sub">' + conv.toLocaleString() + ' of ' + n.toLocaleString() + ' became members</div></div>';
+      '<div class="bar-sub">' + conv.toLocaleString() + ' of ' + n.toLocaleString() + ' joined within ' + jd + ' days</div></div>';
   }
   const w = maxN > 0 ? Math.round(100 * n / maxN) : 0;
   return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
     '<div class="bar-count">' + n.toLocaleString() + '</div></div>' +
     '<div class="bar-track"><div class="bar-fill" style="width:' + Math.max(w, 2) + '%;"></div></div>' +
-    '<div class="bar-sub">' + conv.toLocaleString() + ' became members (' + pct.toFixed(1) + '%)</div></div>';
+    '<div class="bar-sub">' + conv.toLocaleString() + ' joined within ' + jd + ' days (' + pct.toFixed(1) + '%)</div></div>';
 }
 // plain count bar: % mode shows each item's share of the total
 function countBarM(label, n, total, maxN) {
@@ -1492,16 +1560,19 @@ const ENG_INFO = {
     title: 'About the Pilot scorecard',
     body:
       '<h4>Who is counted</h4>' +
-      '<p>Adults whose own first purchase was a day pass, a 2-week trial, or a 30-day trial, who actually came in to climb, starting June 19, 2026, the day the email pilot switched on. Each person is counted once, and the window stays open: every new first-timer joins the count the next morning.</p>' +
-      '<p>One more filter: only people the emails could have reached. That means their own email address is on file, the address isn’t shared with other climbers (a parent and kids on one address), and they didn’t become a member, or add a trial on top of their first pass, within two days of the first visit. Those people never got a follow-up email, so the pilot can’t take credit for them.</p>' +
-      '<p>Not counted: guests and comps who came in on a pass someone else bought, youth day passes (the kid climbs, the parent gets the email), staff, people who bought a membership on their first visit, classes and camps, events, punch passes, and one-off nights like College Night.</p>' +
+      '<p>People whose own first paid entry was a day pass, a 2-week trial, or a 30-day trial, who actually came in to climb, starting June 19, 2026, the day the email pilot switched on. Each person is counted once, and the window stays open: every new first-timer joins the count the next morning.</p>' +
+      '<p>Adults only, checked on the very first purchase of any kind: if it included a youth item (a youth day pass, say), the kid climbed and the parent gets the email, so that person is left out.</p>' +
+      '<p>One more filter: only people the emails could have reached. That means their own email address is on file, the address isn’t shared with other climbers (a parent and kids on one address), and they didn’t become a member, or add a trial on top of their first pass, within two days of the first visit. Those people never got a follow-up email, so they are out of every bar, not just the members bars.</p>' +
+      '<p>Not counted: guests and comps who came in on a pass someone else bought, staff, people who bought a membership on their first visit, classes and camps, events, punch passes, and one-off nights like College Night.</p>' +
       '<h4>What the bars mean</h4>' +
       '<p><strong>Came back within 30 days</strong>: a second check-in day after the first visit, within 30 days of it. Only people whose 30 days have already passed are in the percentage, so a first-timer from last week is neither a hit nor a miss yet. That is why this bar’s percentage is out of a smaller number than the first bar. Visits from before the first paid visit (a guest visit last year, say) never count as a return.</p>' +
-      '<p><strong>Became members within 90 days</strong>: a membership started within 90 days of the first visit, again only for people who have had 90 days. While that group is under 20 people the bar shows a plain count instead of a percentage. People who joined within two days of their first visit are not in this bar: they never got an email.</p>' +
+      '<p><strong>Joined within 30, 60 and 90 days</strong>: a paid membership that is not a youth plan (a trial or a punch pass is not a membership), started within that many days of the first visit, again only for people who have had that many days. While a group is under 20 people the bar shows a plain count instead of a percentage.</p>' +
+      '<h4>The same numbers elsewhere</h4>' +
+      '<p>The All Gyms sheet’s Scorecard tab shows these same rows. The Dashboard’s first-timer tiles and the other Insights charts count the same group of people; pick “Since the pilot started” and the tiles show this slide’s numbers.</p>' +
       '<h4>How last summer is compared</h4>' +
       '<p>The 2025 figures are the same calendar dates one year earlier, counted with the same filters and the same stopwatch: a 2025 first-timer only counts toward a 30-day number once the same date one year later has also had 30 days. That keeps the two summers honest. Last summer’s figure moves a little each day as more of this summer matures.</p>' +
       '<h4>The goals</h4>' +
-      '<p>Came back within 30 days, goal 20 to 23%. Became a member within 90 days, goal 4 to 5%. The original June 18, 2026 goals (30 to 33% back, 4 to 5% joined) were set against last summer’s full season using an older, looser count (23% back, 2.9% joined). The come-back goal was reset on September 22, 2026 to fit this page’s count, where the same dates in 2025 read 18.7%. The 2025 figures on the slide are recomputed daily with this page’s filters and the matching dates, so last summer’s membership figure can sit above the goal while the 2025 group is small.</p>' +
+      '<p>Came back within 30 days, goal 20 to 23%. Joined within 90 days, goal 4 to 5%. The original June 18, 2026 goals (30 to 33% back, 4 to 5% joined) were set against last summer’s full season using an older, looser count (23% back, 2.9% joined). The come-back goal was reset on September 22, 2026 to fit this page’s count, where the same dates in 2025 read 18.7%. The 2025 figures on the slide are recomputed daily with this page’s filters and the matching dates, so last summer’s membership figure can sit above the goal while the 2025 group is small.</p>' +
       '<h4>Where the data comes from</h4>' +
       '<p>Purchases from the register system and check-ins from the front-desk sign-in, refreshed daily. Last summer’s numbers come from the same records.</p>',
   },
@@ -1517,6 +1588,27 @@ const ENG_INFO = {
       '<p>Two jobs: hear how the first visit went while it’s fresh, and route each person to the right follow-up. Someone who names a specific hang-up (price, crowding, difficulty) gets a come-back email written to that exact concern.</p>' +
       '<h4>Where the data comes from</h4>' +
       '<p>The email system reports sends, opens, and clicks; answers come from the survey form. Updates through the day.</p>',
+  },
+  emails: {
+    title: 'About the email results',
+    body:
+      '<h4>Where these numbers come from</h4>' +
+      '<p>They are the All Gyms sheet’s own numbers for Shift, read from the sheet after each morning run. The page does not count them again, so the sheet and this page always agree. They change once a day.</p>' +
+      '<h4>Which emails are in each group</h4>' +
+      '<p><strong>Survey emails</strong>: the first-visit survey, 1 to 2 days after a first visit, to first-timers with their own email on file who have not answered yet. Guests who checked in under their own email get it too; a guest on someone else’s email does not. Nobody is emailed after unsubscribing, and an email address shared by several climbers is never emailed.</p>' +
+      '<p><strong>Come-back offers</strong>: the 50%-off offer, 5 to 7 days after the first visit, to people who have not come back and did not answer the survey; its reminder at 9 to 10 days if they still have not come back; and, for people who did answer, a round-two invite (they said they are likely to come back) or an email written to the issue they named (price, crowding and so on).</p>' +
+      '<p><strong>Membership and trial offers</strong>: 2 to 3 days after a second visit that came within 30 days of the first. West Michigan residents who never had a trial are split at random between a membership offer and a 2-week trial offer; everyone else gets the membership offer.</p>' +
+      '<p><strong>Day-pass regulars</strong>: the Membership Lite offer, to people who bought 2 or more day passes in 30 days and are not members, within 14 days of their last day pass.</p>' +
+      '<h4>How each number is counted</h4>' +
+      '<p>Everything is per email: someone who got the survey and then the offer counts in both. Test sends are left out.</p>' +
+      '<p><strong>Opened</strong>: this exact email was opened, counted for 14 days after it went out. Apple Mail opens every email automatically, so opens read a little high, the same for every email. <strong>Clicked a link</strong>: a link in this exact email, the survey rating buttons included, out of the emails that were opened.</p>' +
+      '<p><strong>Answered the survey</strong>: an answer within 14 days of a survey email. <strong>Came back</strong>: a check-in on a later day within 30 days of the email. <strong>Joined</strong>: a paid membership that is not a youth plan, within 30, 60 or 90 days of the email. <strong>Redeemed</strong>: a day pass or punch pass bought at half off or more within 30 days (the register never records which code was used, so the front desk must ring it as a discount).</p>' +
+      '<h4>One credit per person</h4>' +
+      '<p>Each person’s return, join or redemption counts once, for the LAST email they got before it, and only inside that email’s window. A return 45 days after someone’s only email counts for nobody.</p>' +
+      '<h4>Why a % can be out of fewer emails than the count</h4>' +
+      '<p>A % only counts the emails old enough to judge: an answer needs 14 days, a return 30, a join 30, 60 or 90. An email sent last week is not a miss yet, so it is left out of the % but is in the count beside it. Under 30 emails in a %, read it as a direction, not a result.</p>' +
+      '<h4>Why membership offers are judged on joining</h4>' +
+      '<p>They go to people who already came back a second time, so “came back” would say nothing about the email. What matters is whether they joined.</p>',
   },
   offer: {
     title: 'About Offer email results',
@@ -1561,12 +1653,24 @@ function scRate(b) {
   if (b.of < SC_MIN_N) return b.n + ' of ' + b.of + ' (too early)';
   return (100 * b.n / b.of).toFixed(1) + '% (' + b.n + ' of ' + b.of + ')';
 }
-function scPctOnly(b) { return b && b.of >= SC_MIN_N ? (100 * b.n / b.of).toFixed(1) + '%' : (b && b.of ? b.n + ' of ' + b.of : 'n/a'); }
+// a figure inside a caption (last year's, say). Follows the Counts / % toggle
+// like the bars do (audit S7: captions printed a % in Counts mode).
+function scFig(b) {
+  if (!b || !b.of) return 'n/a';
+  if (b.of < SC_MIN_N) return b.n + ' of ' + b.of;
+  const pct = (100 * b.n / b.of).toFixed(1) + '%';
+  return metricIsPct() ? pct + ' (' + b.n + ' of ' + b.of + ')' : b.n + ' of ' + b.of + ' (' + pct + ')';
+}
 function scCount(b, plain) {
   // the count shown on the bar itself: always carries its own denominator.
-  // plain = no "(too early)" tag on a small group (Luke 9/22, the members bar)
-  if (!b.of) return plain ? '0 of 0' : '0 of 0 (too early)';
-  if (b.of < SC_MIN_N) return b.n + ' of ' + b.of + (plain ? '' : ' (too early)');
+  // plain = no "(too early)" tag on a small group (Luke 9/22, the members bar).
+  // In % mode a small group says why there is no % (audit S7: a bare
+  // "1 of 11" in % mode read as a bug).
+  if (!b.of) return 'nobody has had enough days yet';
+  if (b.of < SC_MIN_N) {
+    if (metricIsPct()) return b.n + ' of ' + b.of + ' (under ' + SC_MIN_N + ' people, no % yet)';
+    return b.n + ' of ' + b.of + (plain ? '' : ' (too early)');
+  }
   const pct = (100 * b.n / b.of).toFixed(1) + '%';
   return metricIsPct() ? pct + ' (' + b.n + ' of ' + b.of + ')' : b.n + ' of ' + b.of + ' (' + pct + ')';
 }
@@ -1586,13 +1690,22 @@ function scorecardSlideV2(sc) {
 
   inner += engBarM('Came back within ' + rd + ' days', p.ret.n, p.ret.of, false,
     'First-timers who came back within ' + rd + ' days of their first visit. ' +
-    lastYear + ': ' + scPctOnly(b.ret) + '.' + goal(goals.return),
+    lastYear + ': ' + scFig(b.ret) + '.' + goal(goals.return),
     scCount(p.ret), p.ret.of < SC_MIN_N);
 
-  inner += engBarM('Became members within ' + jd + ' days', p.join.n, p.join.of, false,
-    'First-timers who became members within ' + jd + ' days of their first visit. ' +
-    lastYear + ': ' + scPctOnly(b.join) + '.' + goal(goals.join),
-    scCount(p.join, true), p.join.of < SC_MIN_N);
+  // joins at 30 / 60 / 90 days (Luke 2026-09-24, the same three the sheet's
+  // Scorecard tab shows); joined = a paid membership that is not a youth plan
+  const ed = w.join_early_days || 60;
+  const joinBars = [['join30', 30, 'A paid membership, not a youth plan, within 30 days of the first visit. '],
+                    ['join_early', ed, 'The same within ' + ed + ' days. '],
+                    ['join', jd, 'The same within ' + jd + ' days, the pilot’s membership measure. ']];
+  joinBars.forEach(([k, d, lead]) => {
+    const pb = p[k], bb = b[k];
+    if (!pb) return;  // an older payload without the 30-day bar
+    inner += engBarM('Joined within ' + d + ' days', pb.n, pb.of, false,
+      lead + lastYear + ': ' + scFig(bb) + '.' + (k === 'join' ? goal(goals.join) : ''),
+      scCount(pb, true), pb.of < SC_MIN_N);
+  });
 
   inner += engInfoBtn('scorecard');
   return { title: 'Pilot scorecard', pilot: true,
@@ -1600,44 +1713,159 @@ function scorecardSlideV2(sc) {
       '), and what they did next, beside the same dates in ' + yr + '.',
     html: inner };
 }
+/* ---- Email results (Block 15 session 3, 2026-09-24) ----
+   The All Gyms sheet's own rows for this gym (nudge_tool/email_results.py
+   reads the Data tab; the page never recounts). Per EMAIL, one credit per
+   person to the last email before the outcome, inside that email's window;
+   every % over only the emails old enough to judge (the sheet's maturity).
+   Replaces the older per-person "Survey engagement" / "Offer email results"
+   funnels, which counted a different way (audit M4-M6). */
+const OFFER_EMAILS_HAVE_LINKS = true;   // SHIFT's offers carry a buy-a-pass link
+const MEMBERSHIP_SLIDE_TITLE = 'Membership and trial offers';
+const ER_SMALL_N = 30;                  // the sheet's "small sample" line (allgyms_push.SMALL_N)
+function erData() { return DATA.email_results || null; }
+function erGroup(k) { const e = erData(); return e ? ((e.groups || []).find(g => g.key === k) || null) : null; }
+function erPct(a, b) { return b > 0 ? (100 * a / b).toFixed(1) + '%' : ''; }
+// One bar. count = the sheet's count column (every email). num / den = the
+// sheet's % (an outcome: only the emails at least `days` old). noRate = a
+// count with no % on the sheet (redemptions): no bar fill.
+function erBar(label, count, num, den, sub, days, noRate) {
+  let countTxt, w = 0, note = '';
+  if (noRate) {
+    countTxt = count.toLocaleString();
+    if (metricIsPct() && label !== 'Emails sent') note = ' A count only: the All Gyms sheet has no % for this.';
+  } else if (!den) {
+    countTxt = count.toLocaleString() + (days ? ' (no email is ' + days + ' days old yet)' : '');
+  } else {
+    const pct = erPct(num, den);
+    w = 100 * num / den;
+    countTxt = metricIsPct()
+      ? pct + ' (' + num.toLocaleString() + ' of ' + den.toLocaleString() + ')'
+      : count.toLocaleString() + ' (' + pct + ')';
+    if (days) note = ' The % counts only the ' + den.toLocaleString() + ' emails sent ' + days +
+      ' or more days ago (' + num.toLocaleString() + ' of them); the count includes every email.';
+    if (den < ER_SMALL_N) note += ' Small sample (under ' + ER_SMALL_N + '), directional only.';
+  }
+  const fill = !noRate && num > 0
+    ? '<div class="bar-fill' + (metricIsPct() ? ' bar-green' : '') + '" style="width:' + Math.max(Math.round(w), 2) + '%;"></div>'
+    : '';
+  const text = (sub || '') + note;
+  return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
+    '<div class="bar-count">' + escapeHtml(countTxt) + '</div></div>' +
+    '<div class="bar-track">' + fill + '</div>' +
+    (text ? '<div class="bar-sub">' + escapeHtml(text.trim()) + '</div>' : '') + '</div>';
+}
+function emailResultSlides() {
+  const e = erData();
+  if (!e) return null;   // a demo client: no row on the All Gyms sheet
+  const src = e.updated ? ' Numbers from the All Gyms sheet, updated ' + e.updated + '.' : ' Numbers from the All Gyms sheet.';
+  const per = ' Counted per email; each person’s return or join counts once, for the last email before it.';
+  if (!e.available) {
+    const why = e.reason === 'layout'
+      ? 'These numbers come from the All Gyms sheet, which has not been rewritten with its new columns yet. That happens at the next 11 AM run; these slides fill in within 10 minutes after it.'
+      : 'These numbers come from the All Gyms sheet, and the page could not read it just now. They come back on the next refresh (every 10 minutes).';
+    return [{ title: 'Email results', pilot: true, desc: 'How each group of emails is doing.' + src,
+      html: noData(why) + engInfoBtn('emails') }];
+  }
+  const W = e.windows || { answer: 14, return: 30, join: [30, 60, 90] };
+  const J = W.join || [30, 60, 90];
+  const head = g => erBar('Emails sent', g.sends, 0, 0, 'Includes: ' + g.emails.join(', ') + '.', 0, true);
+  const opened = g => erBar('Opened', g.opens, g.opens, g.deliv_den,
+    'Out of the emails delivered. Reads a little high: some mail apps open every email automatically.', 0);
+  const clicked = g => erBar('Clicked a link', g.clicks, g.clicks, g.opens,
+    'Out of the emails that were opened. A click on a link in this email, the survey rating buttons included.', 0);
+  const joins = g => J.map((d, i) => erBar('Joined within ' + d + ' days',
+    g[['converted30', 'converted', 'converted90'][i]], g[['m_conv30', 'm_conv60', 'm_conv90'][i]],
+    g[['m_sends30', 'm_sends60', 'm_sends90'][i]],
+    i === 0 ? 'Joined = a paid membership that is not a youth plan, with this as the last email before it.' : '', d)).join('');
+  const out = [];
+  let g = erGroup('surveys');
+  if (g && g.sends) {
+    const inner = head(g) + opened(g) + clicked(g) +
+      erBar('Answered the survey', g.responses, g.m_resp14, g.m_sends14,
+        'Answered within ' + W.answer + ' days of a survey email, credited to the last survey email before the answer.', W.answer);
+    out.push({ title: 'Survey emails', pilot: true,
+      desc: 'The first-visit survey email and what came of it.' + per + src, html: inner + engInfoBtn('emails') });
+  }
+  g = erGroup('comeback');
+  if (g && g.sends) {
+    let inner = head(g) + opened(g);
+    if (OFFER_EMAILS_HAVE_LINKS) inner += clicked(g);
+    inner += erBar('Came back within ' + W.return + ' days', g.returned, g.m_ret30, g.m_sends30,
+      'Checked in on a later day within ' + W.return + ' days of the email, with or without the code.', W.return);
+    inner += erBar('Redeemed the 50% offer', g.redeems, 0, 0,
+      'Bought a day pass or punch pass at half off or more within ' + (W.redeem || 30) + ' days of the email. The front desk must ring it as a discount to count.', 0, true);
+    out.push({ title: 'Come-back offers', pilot: true,
+      desc: 'The 50% come-back offer, its reminder, and the emails written to survey answers, for first-timers who had not come back.' + per + src,
+      html: inner + engInfoBtn('emails') });
+  }
+  g = erGroup('membership');
+  if (g && g.sends) {
+    let inner = head(g) + opened(g);
+    if (OFFER_EMAILS_HAVE_LINKS) inner += clicked(g);
+    inner += joins(g);
+    out.push({ title: MEMBERSHIP_SLIDE_TITLE, pilot: true,
+      desc: 'Offers sent after a second visit. These go to people who already came back, so they are judged on joining, not on coming back.' + per + src,
+      html: inner + engInfoBtn('emails') });
+  }
+  g = erGroup('regulars');
+  if (g && g.sends) {
+    let inner = head(g) + opened(g);
+    if (OFFER_EMAILS_HAVE_LINKS) inner += clicked(g);
+    inner += joins(g);
+    out.push({ title: 'Day-pass regulars', pilot: true,
+      desc: 'The offer for people who bought 2 or more day passes in 30 days. They already come often, so it is judged on joining.' + per + src,
+      html: inner + engInfoBtn('emails') });
+  }
+  return out;
+}
 function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
   const slides = [];
   if (hasReport) {
-    const ftvs = filterFtvs();
-    const bv = byVisits(ftvs);
+    // Block 15 session 3 (2026-09-24): the Pilot scorecard's group (the wider
+    // "every first-timer type" group is gone) and the one join rule: a paid
+    // membership that is not a youth plan, within the charts' join window,
+    // out of the people who have had that window (maturity).
+    const J = chartJoin();
+    const matured = filterFtvs(J.days);   // people who have had the join window
+    const plain = filterFtvs(0);          // everyone whose first visit is in the period
+    const joinNote = ' Joined = a paid membership (not a youth plan) within ' + J.days +
+      ' days of the first visit, counting only people who have had ' + J.days + ' days (first visits ' + rangeText(J.days) + ').';
+    const tooNew = noData('Nobody in this period has had ' + J.days + ' days yet. Pick a longer period.');
+    const bv = byVisits(matured);
     let inner = bv.length
       ? bv.map(b => convBarM(b.k, b.n, b.conv, b.pct, Math.max.apply(null, bv.map(x => x.n)) || 1, Math.max.apply(null, bv.map(x => x.pct)) || 1)).join('')
-      : noData('No check-in data for this period.');
-    // These four slides cover every first-timer type (a wider group than the
-    // Pilot scorecard) and count memberships ever, not within 90 days; the
-    // note says so. Visits are counted from the paid first visit on.
-    const wide = ' Covers every first-timer type, a wider group than the Pilot scorecard.';
-    slides.push({ title: 'Conversion by return visits', desc: 'The single biggest driver: how many times a first-timer came back after their first paid visit, and how that changes the odds of becoming a member.' + wide, html: inner });
+      : tooNew;
+    slides.push({ title: 'Conversion by return visits', desc: 'The single biggest driver: how many times a first-timer came back after their first paid visit, and how that changes the odds of joining.' + joinNote, html: inner });
 
-    const be = byEntry(ftvs);
+    const be = byEntry(matured);
     inner = be.length
       ? be.map(e => convBarM(e.label, e.n, e.conv, e.pct, Math.max.apply(null, be.map(x => x.n)) || 1, Math.max.apply(null, be.map(x => x.pct)) || 1)).join('')
-      : noData('No data for this period.');
-    slides.push({ title: 'Conversion by entry product', desc: 'How the product someone first walks in on changes their odds of converting.' + wide, html: inner });
+      : tooNew;
+    slides.push({ title: 'Conversion by entry product', desc: 'How the product someone first walks in on changes their odds of joining.' + joinNote, html: inner });
 
-    const months = [...new Set(ftvs.map(f => f.m))].sort();
-    if (months.length > 1) {
-      const fS = months.map(mm => ftvs.filter(f => f.m === mm).length);
-      const mS = months.map(mm => ftvs.filter(f => f.m === mm && f.conv).length);
+    const months = [...new Set(plain.map(f => f.m))].sort();
+    const mm = [...new Set(matured.map(f => f.m))].sort();   // % mode: the shifted period, like the tiles
+    if (months.length > 1 || mm.length > 1) {
       if (metricIsPct()) {
-        const pS = months.map((mm, i) => fS[i] > 0 ? 100 * mS[i] / fS[i] : 0);
-        slides.push({ title: 'Conversion rate over time', desc: 'The share of each month’s first-timers who went on to become members.' + wide, html: pctLineChart(months.map(monthName), pS, 'Conversion rate') });
+        // the months of the people who have had the join window (a rolling
+        // period moves back by the window, as the tiles do)
+        const pS = mm.map(m => { const g = matured.filter(f => f.m === m); return 100 * g.filter(f => f[J.key]).length / g.length; });
+        slides.push({ title: 'Conversion rate over time', desc: 'The share of each month’s first-timers who joined within ' + J.days + ' days, counting only people who have had ' + J.days + ' days (first visits ' + rangeText(J.days) + ').',
+          html: mm.length > 1 ? pctLineChart(mm.map(monthName), pS, 'Joined within ' + J.days + ' days') : noData('Fewer than two months have people who have had ' + J.days + ' days. Pick a longer period.') });
       } else {
-        slides.push({ title: 'First-timers and new members over time', desc: 'How many first-timers arrived each month, and how many of them went on to become members.' + wide, html: trendChart(months.map(monthName), fS, mS, 'First-timers', 'Became members') });
+        const fS = months.map(m => plain.filter(f => f.m === m).length);
+        const mS = months.map(m => plain.filter(f => f.m === m && f[J.key]).length);
+        slides.push({ title: 'First-timers and new members over time', desc: 'How many first-timers arrived each month, and how many of them joined within ' + J.days + ' days. The newest months are still filling in.', html: months.length < 2 ? noData('This period covers one month. Pick a longer period to see a trend.') : trendChart(months.map(monthName), fS, mS, 'First-timers', 'Joined within ' + J.days + ' days') });
       }
     }
 
-    const bt = byTiming(ftvs);
+    const bt = byTiming(plain);
     const totT = bt.reduce((s, b) => s + b.n, 0);
     inner = bt.length
       ? bt.map(b => countBarM(b.k, b.n, totT, Math.max.apply(null, bt.map(x => x.n)) || 1)).join('')
-      : noData('No conversions in this period yet.');
-    slides.push({ title: 'When members join', desc: 'Days from a first visit to signing up. Tells you when a follow-up still has a chance.' + wide, html: inner });
+      : noData('No one whose first visit is in this period has joined yet.');
+    slides.push({ title: 'When members join', desc: 'Days from a first visit to joining (a paid membership, not a youth plan), for everyone in this period who joined. Tells you when a follow-up still has a chance.', html: inner });
   }
   if (hasSurvey) {
     // include zero bars for every issue the form CAN name, so "nobody said
@@ -1653,7 +1881,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       inner += '<div style="color:var(--fg-subtle);font-size:11.5px;margin-top:10px;">Early read: only ' +
         responses.length + (responses.length === 1 ? ' survey' : ' surveys') + ' answered so far.</div>';
     }
-    slides.push({ title: 'Why first-timers hesitate', desc: 'The blocker each respondent named. This is what each recovery message answers.', html: inner });
+    slides.push({ title: 'Why first-timers hesitate', fixed: true, desc: 'The blocker each respondent named, every answer so far. This is what each recovery message answers.', html: inner });
 
     const intents = { high: 0, medium: 0, low: 0 };
     responses.forEach(r => { if (r.intent && intents[r.intent] != null) intents[r.intent]++; });
@@ -1661,12 +1889,14 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
     inner = totI
       ? ['high', 'medium', 'low'].filter(k => intents[k]).map(k => countBarM(intentLabel(k), intents[k], totI, Math.max(intents.high, intents.medium, intents.low))).join('')
       : noData('No intent answers yet.');
-    slides.push({ title: 'How likely to become regulars', desc: 'Self-reported intent. High-intent first-timers get the round-two invite.', html: inner });
+    slides.push({ title: 'How likely to become regulars', fixed: true, desc: 'Self-reported intent, every answer so far. High-intent first-timers get the round-two invite.', html: inner });
   }
   // Pilot engagement funnels (survey + offer emails). These read the send log,
   // so they cover the whole pilot and ignore the period picker above.
-  if (engagementOn()) {
-    const eng = DATA.engagement;
+  // the scorecard and the sheet's email slides do not read the send log, so
+  // they show even when the log is empty or its pull failed (tester 9/24)
+  if (engagementOn() || erData() || (DATA.scorecard || {}).enabled) {
+    const eng = DATA.engagement || {};
     const av = !!eng.activity_available;
     const pilotDay0 = eng.visit_floor || eng.pilot_start;  // go-live date (first eligible first visit)
     let dayNote = '';
@@ -1699,13 +1929,16 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       const pcohort = (DATA.reporting.ftvs || []).filter(f => f.d >= pilotDay0);
       const pN = pcohort.length;
       if (pN > 0) {
-        const pRet = pcohort.filter(f => f.ret).length;
-        const pConv = pcohort.filter(f => f.conv).length;
+        // demo clients only (no reporting.scorecard): the records' windowed
+        // flags since Block 15 session 3 (came back within 30 days, joined
+        // within 90), not yet cut to the people who have had that long
+        const pRet = pcohort.filter(f => f.ret30).length;
+        const pConv = pcohort.filter(f => f.j90).length;
         let inner = engBarM('Paid first-timers since the pilot started', pN, pN, true,
           'Everyone who bought their own first pass and checked in during the pilot, emailed or not. Guests on someone else’s pass aren’t counted here (the survey still reaches them).');
-        inner += engBarM('Came back for a 2nd visit', pRet, pN, false,
+        inner += engBarM('Came back within 30 days', pRet, pN, false,
           'The pilot’s main goal: 30 to 33% back within 30 days (last summer: 23%). Reads low early; the newest first-timers haven’t had time to come back yet.');
-        inner += engBarM('Became members', pConv, pN, false,
+        inner += engBarM('Joined within 90 days', pConv, pN, false,
           'The pilot goal: 4 to 5% within 90 days of the first visit (last summer: 2.9%). Day-pass buyers average about 3 months to join, so this reads low until late in the pilot.');
         inner += engInfoBtn('scorecard');
         slides.push({ title: 'Pilot scorecard', pilot: true,
@@ -1713,7 +1946,12 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
           html: inner });
       }
     }
-    const s = eng.surveys || {};
+    // Email results = the All Gyms sheet's own rows (Block 15 session 3). The
+    // older per-person funnels below now show only for a demo client, which
+    // has no row on the sheet.
+    const er = emailResultSlides();
+    if (er) er.forEach(x => slides.push(x));
+    const s = er ? {} : (eng.surveys || {});
     if ((s.sent || 0) > 0) {
       const paidN = s.sent_paid_ftv || 0;
       const paidSplit = paidN > 0
@@ -1732,7 +1970,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       inner += engInfoBtn('survey');
       slides.push({ title: 'Survey engagement', pilot: true, desc: 'How first-timers engage with the feedback survey.' + engNote, html: inner });
     }
-    const o = eng.offers || {};
+    const o = er ? {} : (eng.offers || {});
     if ((o.sent || 0) > 0) {
       let inner = engBarM('Sent the come-back offer', o.sent, o.sent, true,
         'Only goes to first-timers who had not come back about a week after their visit. Fast returners never need it.');
@@ -1763,7 +2001,7 @@ function renderInsights() {
   let h = pageHeader('Insights',
     'What ' + DATA.client + '’s first-visit data is telling us. Pick a period, then step through each chart.');
 
-  if (!hasReport && !hasSurvey && !engagementOn()) {
+  if (!hasReport && !hasSurvey && !engagementOn() && !erData()) {
     h += '<div class="card"><div class="empty-state"><div class="empty-state-icon">📊</div>' +
       '<div class="empty-state-title">No data yet</div>' +
       '<div class="empty-state-msg">Insights populate from your visit data and the survey.</div></div></div>';
@@ -1776,9 +2014,10 @@ function renderInsights() {
   const cur = slides[INSIGHTS_SLIDE] || { title: '', desc: '', html: '' };
 
   // fixed controls (period + counts/%) stay pinned above the carousel. The
-  // pilot slides always cover the whole pilot, so the period picker is hidden
-  // on them (it would change nothing and only invite confusion).
-  h += '<div class="insights-controls">' + (hasReport && !cur.pilot ? periodSelectHtml() : '') + metricToggleHtml() + '</div>';
+  // pilot slides always cover the whole pilot and the survey-answer slides
+  // every answer (`fixed`, audit S8), so the period picker is hidden on them
+  // (it would change nothing and only invite confusion).
+  h += '<div class="insights-controls">' + (hasReport && !cur.pilot && !cur.fixed ? periodSelectHtml() : '') + metricToggleHtml() + '</div>';
   h += '<div class="carousel">' +
     '<div class="carousel-head"><div class="card-title">' + icon('sparkles') + escapeHtml(cur.title) + '</div>' +
       '<div class="card-description">' + escapeHtml(cur.desc) + '</div></div>' +

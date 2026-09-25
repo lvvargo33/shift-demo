@@ -559,14 +559,15 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
     """Workbook-aligned reporting slice (Dashboard tiles / Funnel / Insights).
 
     Ships one compact record per FTV in the cohort so the dashboard can re-scope
-    by period (all-time / year / month) entirely client-side. Definitions mirror
-    SHIFT_Analysis/scripts/01_data_prep.py (see DASHBOARD_REVAMP_SPEC):
-      - cohort  = climbers with an FTV-qualifying first purchase, NOT staff, on
-                  or after reporting.post_opening_date (PRESALE founders excluded),
-                  who ALSO checked in at least once (a purchase with zero check-ins
-                  is not counted as a first-time visitor).
-      - convert = reporting_converted (a real Memberships row).
-      - period  = bucketed by FTV first-visit month.
+    by period entirely client-side.
+      - cohort  = with reporting.scorecard: the scorecard's screened group
+                  (_scorecard_screen) at any first-visit date on or after
+                  reporting.post_opening_date; without it (demo clients): every
+                  FTV-qualifying first purchase outside exclude_from_cohort.
+                  Not staff, checked in at least once, either way.
+      - joined  = the reporting join date (definitions.first_join: youth plans
+                  never count), within 30 / 60 / 90 days of the first visit.
+      - period  = picked on the page from the first-visit date `d`.
     Returns enabled:false when no reporting config is present (older clients)."""
     rep = client.reporting or {}
     if not rep.get("ftv_qualifying_categories"):
@@ -579,27 +580,36 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
     # from the dashboard tiles / funnel / insights (the Recovery Queue is
     # unaffected; it skips members already). Config-driven, no code per client.
     excluded_cats = set(rep.get("exclude_from_cohort", []))
-    # Windowed flags (2026-09-22, consistency with the Pilot scorecard): the
-    # Dashboard tiles and the return-visit slide used to count check-ins from
-    # BEFORE the paid first visit and had no clock. Each record now also
-    # carries: nva = check-in days on/after the paid first visit; ret30 = a
-    # second check-in day within return_days after it; m30 = that many days
-    # have elapsed (as of the latest check-in in the data); j90 / m90 = the
-    # same for joining within join_days. Window lengths come from
-    # reporting.scorecard when present, else 30 / 90.
+    # One group, one set of rules (Block 15 session 3, Luke 2026-09-24): with
+    # a Pilot scorecard configured, the Dashboard tiles and Insights charts
+    # count the SCORECARD's group (paid adult first-timers the emails could
+    # have reached, same screens), at any first-visit date since opening; the
+    # period picker sets the dates and the pilot start applies only when that
+    # period is picked. A client without a scorecard keeps the wider group.
+    # Each record carries: nva = check-in days on/after the paid first visit;
+    # ret30 = came back within return_days (definitions.came_back_within);
+    # j30 / j60 / j90 = joined within 30 / 60 / 90 days, where joined = the
+    # REPORTING join date (definitions: first priced membership that is not
+    # a youth plan); dtc = days from the first visit to that join. Maturity
+    # (who has had N days) is worked out on the page from `d` and
+    # data_through, the same cut the scorecard makes.
     sc = rep.get("scorecard") or {}
-    ret_days = int(sc.get("return_days", 30))
-    join_days = int(sc.get("join_days", 90))
+    screen = _scorecard_screen(ds, client)
+    ret_days = int(sc.get("return_days", definitions.RETURN_DAYS))
+    join_windows = [definitions.JOIN_DAYS_SHORT,
+                    int(sc.get("join_early_days", definitions.JOIN_DAYS)),
+                    int(sc.get("join_days", definitions.JOIN_DAYS_LONG))]
     data_end = (date.fromisoformat(ds.sessions_max_date[:10])
                 if ds.sessions_max_date else asof)
-    cut_ret = (data_end - timedelta(days=ret_days)).isoformat()
-    cut_join = (data_end - timedelta(days=join_days)).isoformat()
     ftvs = []
     for c in ds.climbers.values():
         fd = c.ftv_date
         if not fd or c.is_staff:
             continue
-        if c.ftv_category in excluded_cats:
+        if screen is not None:
+            if not screen(c):
+                continue
+        elif c.ftv_category in excluded_cats:
             continue
         if opening and fd < opening:
             continue
@@ -610,31 +620,27 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
         # Recovery Queue is unaffected (it has its own visit-based rules).
         if c.visit_count < 1:
             continue
-        dtc = None
-        if c.reporting_converted and c.membership_created and c.membership_created >= fd:
-            dtc = ingest.days_between(fd, date.fromisoformat(c.membership_created))
-        ret_hi = (date.fromisoformat(fd) + timedelta(days=ret_days)).isoformat()
-        ftvs.append({
+        jd = c.join_date
+        dtc = ingest.days_between(fd, date.fromisoformat(jd)) if jd and jd >= fd else None
+        rec = {
             "m": fd[:7],                 # YYYY-MM cohort month
             "d": fd,                     # full FTV date (for rolling windows)
             "cat": c.ftv_category,       # entry product
-            "nv": min(c.visit_count, 99),  # distinct check-in days (capped)
             "nva": min(sum(1 for v in c.visit_days if v >= fd), 99),  # on/after the paid first visit
-            "v1": c.visit_count >= 1,    # checked in at least once
-            "ret": c.visit_count >= 2,   # came back (2+ visits, any time; legacy)
-            "ret30": any(fd < v <= ret_hi for v in c.visit_days),  # back within return_days
-            "m30": fd <= cut_ret,        # return_days have elapsed
-            "conv": bool(c.reporting_converted),
-            "j90": dtc is not None and dtc <= join_days,  # joined within join_days
-            "m90": fd <= cut_join,       # join_days have elapsed
-            "dtc": dtc,                  # days from FTV to becoming a member (or null)
-        })
+            "ret30": definitions.came_back_within(c.visit_days, fd, ret_days),
+            "dtc": dtc,                  # days from the first visit to joining (or null)
+        }
+        for key, days in zip(("j30", "j60", "j90"), join_windows):
+            rec[key] = definitions.joined_within(jd, fd, days)
+        ftvs.append(rec)
     return {
         "enabled": True,
+        "group": "scorecard" if screen is not None else "wide",
         "post_opening_date": opening,
+        "scorecard_start": (sc.get("start") or None) if screen is not None else None,
         "as_of": asof.isoformat(),
         "data_through": data_end.isoformat(),
-        "windows": {"return_days": ret_days, "join_days": join_days},
+        "windows": {"return_days": ret_days, "join_days": join_windows},
         "entry_labels": rep.get("entry_product_labels", {}),
         "ftvs": ftvs,
     }
@@ -690,28 +696,20 @@ def build_scorecard(ds: Dataset, client: ClientConfig) -> dict:
     return parts["result"]
 
 
-def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
-    """The scorecard's cohorts and result in one pass (shared by
-    build_scorecard and scorecard_pilot_ids)."""
-    rep = client.reporting or {}
-    cfg = rep.get("scorecard") or {}
-    start = cfg.get("start")
+def _scorecard_screen(ds: Dataset, client: ClientConfig):
+    """The scorecard's WHO rule with no date window, as a predicate on a
+    Climber, or None when the client has no scorecard (Block 15 session 3:
+    the scorecard, the Dashboard tiles and the Insights charts all count this
+    one group; the dates are each caller's). See build_scorecard for the
+    rule in words."""
+    cfg = (client.reporting or {}).get("scorecard") or {}
     # getattr: the verify suites hand build_engagement a bare stand-in dataset
-    smax = getattr(ds, "sessions_max_date", None)
-    if not cfg.get("enabled") or not start or not smax:
+    if not cfg.get("enabled") or not cfg.get("start") \
+            or not getattr(ds, "sessions_max_date", None):
         return None
     cats = set(cfg.get("categories") or [])
-    trial_cats = set(cfg.get("trial_categories") or [])
     excl_kw = [str(k).lower() for k in cfg.get("exclude_first_item_keywords", []) if k]
     screen_days = int(cfg.get("converted_within_days", 2))
-    ret_days = int(cfg.get("return_days", 30))
-    early_days = int(cfg.get("join_early_days", 60))
-    join_days = int(cfg.get("join_days", 90))
-    data_end = date.fromisoformat(smax[:10])
-    start_d = date.fromisoformat(start[:10])
-    base_lo = _shift_year(start_d, -1)
-    base_hi = _shift_year(data_end, -1)
-    base_shift = (data_end - base_hi).days
 
     counts: dict[str, int] = {}
     for c in ds.climbers.values():
@@ -740,11 +738,37 @@ def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
     def keyword_out(c: Climber) -> bool:
         return any(k in n for n in c.first_tx_items for k in excl_kw)
 
+    def screen(c: Climber) -> bool:
+        return bool(c.ftv_date and not c.is_staff and c.ftv_category in cats
+                    and c.visit_count >= 1 and emailable(c) and not keyword_out(c))
+    return screen
+
+
+def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
+    """The scorecard's cohorts and result in one pass (shared by
+    build_scorecard and scorecard_pilot_ids)."""
+    rep = client.reporting or {}
+    cfg = rep.get("scorecard") or {}
+    screen = _scorecard_screen(ds, client)
+    if screen is None:
+        return None
+    start = cfg.get("start")
+    smax = ds.sessions_max_date
+    cats = set(cfg.get("categories") or [])
+    trial_cats = set(cfg.get("trial_categories") or [])
+    screen_days = int(cfg.get("converted_within_days", 2))
+    ret_days = int(cfg.get("return_days", 30))
+    early_days = int(cfg.get("join_early_days", 60))
+    join_days = int(cfg.get("join_days", 90))
+    data_end = date.fromisoformat(smax[:10])
+    start_d = date.fromisoformat(start[:10])
+    base_lo = _shift_year(start_d, -1)
+    base_hi = _shift_year(data_end, -1)
+    base_shift = (data_end - base_hi).days
+
     def cohort(lo: str, hi: str) -> list:
         return [c for c in ds.climbers.values()
-                if c.ftv_date and not c.is_staff and c.ftv_category in cats
-                and c.visit_count >= 1 and lo <= c.ftv_date <= hi
-                and emailable(c) and not keyword_out(c)]
+                if screen(c) and lo <= c.ftv_date <= hi]
 
     # came back / joined = the shared definitions (Block 15, 2026-09-24): the
     # sheet's Scorecard tab and this slide read the same functions, and a
@@ -760,8 +784,8 @@ def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
         out: dict = {"n": len(grp)}
         for key, days, fn in (("ret", ret_days, back_within),
                               # 30-day join (Luke 2026-09-24: joins read at
-                              # 30 / 60 / 90 everywhere; the sheet's Scorecard
-                              # tab shows it, the site slide ignores the key)
+                              # 30 / 60 / 90 everywhere, on the sheet's
+                              # Scorecard tab and the site slide alike)
                               ("join30", definitions.JOIN_DAYS_SHORT, joined_within),
                               ("join_early", early_days, joined_within),
                               ("join", join_days, joined_within)):
@@ -882,14 +906,16 @@ def _within_inbox_window(answered_at: str) -> bool:
 
 
 def _came_back(r, ds) -> str:
-    """What a survey responder DID after answering, on the Pilot scorecard's
-    clocks (2026-09-22): 'member' if a membership started on/after the answer
-    date and within 90 days of it, 'yes' if they checked in again after the
-    answer date and within 30 days of it, 'no' otherwise, '' when we can't
-    tell (unmatched email, no dataset, no answer date). Before 9/22 this was
-    'member' = ever converted and 'yes' = 2+ check-in days at any time (even
-    before the survey), which read stated feedback against the wrong window.
-    Feeds the All Surveys table's "Came back?" column."""
+    """What a survey responder DID after answering, on the shared definitions
+    (Block 15 session 3, 2026-09-24): 'member' if they joined (the reporting
+    join date: a priced membership that is not a youth plan; a trial or a
+    punch pass is NOT a join) on/after the answer date and within 90 days of
+    it; 'yes' if they checked in again on a later day within 30 days of
+    answering; 'too_early' when neither has happened yet and 30 days have
+    not passed since the answer (as of the latest check-in in the data), so
+    yesterday's answer never reads as a miss; 'no' otherwise; '' when we
+    can't tell (unmatched email, no dataset, no answer date). Feeds the All
+    Surveys table's "Came back?" column."""
     if ds is None or not getattr(r, "matched", False):
         return ""
     c = ds.climbers.get(getattr(r, "climber_id", "") or "")
@@ -897,15 +923,17 @@ def _came_back(r, ds) -> str:
     if c is None or not answered:
         return ""
     try:
-        a = date.fromisoformat(answered)
+        date.fromisoformat(answered)
     except ValueError:
         return ""
-    join_hi = (a + timedelta(days=90)).isoformat()
-    ret_hi = (a + timedelta(days=attribution.WINDOWS["returned"])).isoformat()
-    joined = c.membership_created or c.conversion_date
-    if joined and answered <= joined[:10] <= join_hi:
+    if definitions.joined_within(c.join_date, answered, definitions.JOIN_DAYS_LONG):
         return "member"
-    return "yes" if any(answered < v <= ret_hi for v in c.visit_days) else "no"
+    if definitions.came_back_within(c.visit_days, answered, definitions.RETURN_DAYS):
+        return "yes"
+    smax = getattr(ds, "sessions_max_date", None)
+    if smax and not definitions.window_passed(answered, definitions.RETURN_DAYS, smax):
+        return "too_early"
+    return "no"
 
 
 def _survey_block(client: ClientConfig, survey_result, ds=None) -> dict:
@@ -1223,9 +1251,16 @@ def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
                   survey_result=None, suppressed_out: list | None = None,
                   sent_rows: list | None = None,
                   activity_by_email: dict | None = None,
-                  journey_campaign_ids: set | None = None) -> dict:
+                  journey_campaign_ids: set | None = None,
+                  email_results: dict | None = None) -> dict:
+    """email_results (Block 15 session 3) = email_results.snapshot(): the All
+    Gyms sheet's own email-results rows for this gym, grouped. The site's
+    email slides show exactly those numbers. None (demo clients, the static
+    build) leaves the key out and the page keeps its older engagement slides."""
     survey_block = _survey_block(client, survey_result, ds)
+    extra = {} if email_results is None else {"email_results": email_results}
     return {
+        **extra,
         "client": client.client_name,
         "generated_at": generated_at,
         "mode": mode,

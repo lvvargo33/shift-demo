@@ -36,7 +36,7 @@ from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from nudge_tool import config, engine, ingest, livesend, outreach, survey
+from nudge_tool import config, email_results, engine, ingest, livesend, outreach, survey
 from nudge_tool.config import DASHBOARD_TEMPLATE, load_client, load_settings
 
 DEFAULT_CLIENT = "shift_demo_live"
@@ -159,10 +159,15 @@ _activity_map: dict | None = None
 _journey_ids: set | None = None       # campaign_ids that are journey/automation emails
 _campaign_type_cache: dict = {}       # campaign_id -> Mailchimp campaign type
 _activity_lock = threading.Lock()
+# Unsubscribed + cleaned addresses, refreshed on the same pass (Block 15 S9,
+# 2026-09-24): the page's queue used to be built with no unsubscribe list, so
+# an unsubscribed climber showed as "queued" while the Send button (which
+# reads the list itself) would refuse them. None until the first read lands.
+_unsub_set: set | None = None
 
 
 def _refresh_activity_once(client_slug: str) -> None:
-    global _activity_map, _journey_ids
+    global _activity_map, _journey_ids, _unsub_set
     client = load_client(client_slug)
     try:
         settings = load_settings(client, require=True)
@@ -180,6 +185,14 @@ def _refresh_activity_once(client_slug: str) -> None:
         if (r.get("mode") or "").strip() != "test" and (r.get("email") or "").strip()
     })
     mc = MailchimpClient(settings)
+    # the unsubscribe list first (one list read) and published at once, so a
+    # restart shows it within seconds, not after the whole sweep below
+    try:
+        unsub = mc.suppressed_emails()
+        with _activity_lock:
+            _unsub_set = unsub
+    except Exception as exc:  # noqa: BLE001 (display only: never cost the activity pass)
+        print(f"  unsubscribe list read failed (keeping the last one): {exc}")
     fetched: dict = {}
     for e in emails:
         try:
@@ -304,19 +317,21 @@ def render(client_slug: str, asof: date) -> str:
     log = outreach.load(client)
     outreach.tighten_survey_sent(ds, log)
 
-    suppressed_out: list = []
-    queue = engine.build_queue(ds, client, asof, log=log,
-                               unsubscribed=set(), suppressed_out=suppressed_out,
-                               dedup_email=True, own_email_guard=True)
-    generated_at = datetime.now().isoformat(timespec="seconds")
     with _activity_lock:
         activity = _activity_map
         journeys = _journey_ids
+        unsub = set(_unsub_set or ())
+    suppressed_out: list = []
+    queue = engine.build_queue(ds, client, asof, log=log,
+                               unsubscribed=unsub, suppressed_out=suppressed_out,
+                               dedup_email=True, own_email_guard=True)
+    generated_at = datetime.now().isoformat(timespec="seconds")
     payload = engine.build_payload(ds, queue, client, asof, "dry-run",
                                    generated_at, survey_result, suppressed_out,
                                    sent_rows=outreach.load_rows(client),
                                    activity_by_email=activity,
-                                   journey_campaign_ids=journeys)
+                                   journey_campaign_ids=journeys,
+                                   email_results=email_results.snapshot(client_slug))
 
     payload["send_enabled"] = _send_enabled(client)
 
@@ -604,6 +619,10 @@ def main() -> None:
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     httpd.default_client = args.client
     threading.Thread(target=_activity_refresher, args=(args.client,),
+                     daemon=True).start()
+    # the All Gyms sheet's email results for the Insights email slides
+    # (Block 15 session 3); a no-op thread for a demo client
+    threading.Thread(target=email_results.refresher, args=(args.client,),
                      daemon=True).start()
     url = f"http://{args.host}:{args.port}/"
     print("Live dashboard server (additive, read-only)")
