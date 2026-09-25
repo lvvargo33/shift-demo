@@ -251,7 +251,7 @@ button, input, textarea, select { font-family: inherit; }
 .bar-label { font-weight: 600; color: var(--fg); }
 .bar-count { color: var(--fg-muted); font-weight: 600; white-space: nowrap; }
 .bar-track { height: 22px; background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: 6px; overflow: hidden; }
-.bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary) 0%, #A53D22 100%); min-width: 2px; transition: width var(--t-norm); }
+.bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary) 0%, #A53D22 100%); transition: width var(--t-norm); }
 .bar-fill.bar-green { background: linear-gradient(90deg, #16A34A 0%, #15803D 100%); }
 .bar-sub { font-size: 11px; color: var(--fg-hint); margin-top: 2px; }
 
@@ -547,7 +547,7 @@ function safetyBanner() {
 // Reporting (DATA.reporting). Numbers re-scope by first-visit cohort period
 // entirely client-side.
 let REPORT_PERIOD = 'all';
-let REPORT_METRIC = 'count';   // 'count' or 'pct' — Insights chart toggle
+let REPORT_METRIC = 'pct';     // 'count' or 'pct' — Insights chart toggle (default % since 2026-09-25, Luke)
 const PERIOD_OPTS_BASE = [['r:30','Last 30 days'],['r:90','Last 90 days'],['r:180','Last 6 months'],['r:365','Last year'],['all','All time']];
 function reportingOn() { return !!(DATA.reporting && DATA.reporting.enabled); }
 function allFtvs() { return (DATA.reporting && DATA.reporting.ftvs) || []; }
@@ -769,19 +769,16 @@ function confirmSendBulk() {
 }
 
 /* ============================ DASHBOARD ============================ */
-// a Dashboard rate tile: the scorecard's display rule (a group under SC_MIN_N
-// people shows "n of m", never a percent) and the first-visit dates it covers
+// a Dashboard rate tile: one number, the % (Luke 2026-09-25: no "n of m"
+// anywhere, small groups included), and the first-visit dates it covers
 function rateTile(label, b) {
   let value, sub;
   if (!b.of) {
     value = 'n/a';
     sub = 'Nobody in this period has had ' + b.days + ' days yet';
-  } else if (b.of < SC_MIN_N) {
-    value = b.n + ' of ' + b.of;
-    sub = 'First visit ' + rangeText(b.days) + '. Under ' + SC_MIN_N + ' people, so no % yet';
   } else {
     value = (100 * b.n / b.of).toFixed(1) + '%';
-    sub = b.n.toLocaleString() + ' of ' + b.of.toLocaleString() + ', first visit ' + rangeText(b.days);
+    sub = 'First visit ' + rangeText(b.days);
   }
   return statTile(label, value, escapeHtml(sub));
 }
@@ -1316,8 +1313,8 @@ function surveyTilesHtml() {
   let h;
   if (g && e && e.available && g.sends) {
     const w = (e.windows || {}).answer || 14;
-    const rate = g.m_sends14 ? erPct(g.m_resp14, g.m_sends14) + ' of the ' + g.m_sends14.toLocaleString() +
-      ' survey emails sent ' + w + ' or more days ago' : 'No survey email is ' + w + ' days old yet';
+    const rate = g.m_sends14 ? erPct(g.m_resp14, g.m_sends14) + ' of survey emails sent ' + w +
+      ' or more days ago answered' : 'No survey email is ' + w + ' days old yet';
     h = statTile('Survey answers', g.responses.toLocaleString(),
       escapeHtml('Answered within ' + w + ' days of a survey email. ' + rate + '. Same count as the All Gyms sheet.'));
   } else {
@@ -1329,7 +1326,7 @@ function surveyTilesHtml() {
       n ? 'No one has named an issue yet' : 'No responses yet');
   } else {
     h += statTile('Top survey issue', escapeHtml(blockerLabel(t.blocker)),
-      t.n + ' of ' + n + ' responses' +
+      'Named in ' + t.n + (t.n === 1 ? ' response' : ' responses') +
       (t.tiedWith.length ? ', tied with ' + escapeHtml(blockerLabel(t.tiedWith[0])) : ''));
   }
   return h;
@@ -1378,18 +1375,25 @@ function renderSurveys() {
 }
 
 /* ============================ INSIGHTS (reporting + survey) ============================ */
+// A bar's fill (Luke 2026-09-25): a value of 0 (or 0.0%) draws NO fill at all;
+// any other value at least a 2% sliver so it can be seen. `cls` = extra class.
+function fillHtml(value, w, cls) {
+  if (!(value > 0)) return '';
+  return '<div class="bar-fill' + (cls ? ' ' + cls : '') + '" style="width:' +
+    Math.min(100, Math.max(Math.round(w), 2)) + '%;"></div>';
+}
 function bar(label, n, max) {
   const pct = max > 0 ? Math.round(100 * n / max) : 0;
   return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
     '<div class="bar-count">' + n + '</div></div>' +
-    '<div class="bar-track"><div class="bar-fill" style="width:' + Math.max(pct, 2) + '%;"></div></div></div>';
+    '<div class="bar-track">' + fillHtml(n, pct) + '</div></div>';
 }
 function convBar(label, n, conv, pct, maxPct) {
   const w = maxPct > 0 ? Math.round(100 * pct / maxPct) : 0;
   return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
     '<div class="bar-count">' + pct.toFixed(1) + '%</div></div>' +
-    '<div class="bar-track"><div class="bar-fill bar-green" style="width:' + Math.max(w, 2) + '%;"></div></div>' +
-    '<div class="bar-sub">' + conv.toLocaleString() + ' of ' + n.toLocaleString() + ' became members</div></div>';
+    '<div class="bar-track">' + fillHtml(pct, w) + '</div>' +
+    '<div class="bar-sub">Became members</div></div>';
 }
 function chartCard(title, desc, inner) {
   return '<div class="card"><div class="card-header"><div class="card-title">' + icon('sparkles') + escapeHtml(title) + '</div>' +
@@ -1489,25 +1493,20 @@ function metricToggleHtml() {
 // charts' join window, out of people who have had that window.
 function convBarM(label, n, conv, pct, maxN, maxPct) {
   const jd = chartJoin().days;
+  // Luke 2026-09-25: one number per bar, the % in % mode and the count in
+  // Counts mode, small groups included (the old under-20 "n of m" is gone)
   if (metricIsPct()) {
-    // the scorecard's rule: under SC_MIN_N people, no % (one person is not 100%)
-    if (n < SC_MIN_N) {
-      return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
-        '<div class="bar-count">' + conv + ' of ' + n + ' (under ' + SC_MIN_N + ' people, no % yet)</div></div>' +
-        '<div class="bar-track"></div>' +
-        '<div class="bar-sub">' + conv.toLocaleString() + ' of ' + n.toLocaleString() + ' joined within ' + jd + ' days</div></div>';
-    }
-    const w = maxPct > 0 ? Math.round(100 * pct / maxPct) : 0;
+    const w = maxPct > 0 ? 100 * pct / maxPct : 0;
     return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
       '<div class="bar-count">' + pct.toFixed(1) + '%</div></div>' +
-      '<div class="bar-track"><div class="bar-fill bar-green" style="width:' + Math.max(w, 2) + '%;"></div></div>' +
-      '<div class="bar-sub">' + conv.toLocaleString() + ' of ' + n.toLocaleString() + ' joined within ' + jd + ' days</div></div>';
+      '<div class="bar-track">' + fillHtml(pct, w) + '</div>' +
+      '<div class="bar-sub">Joined within ' + jd + ' days</div></div>';
   }
-  const w = maxN > 0 ? Math.round(100 * n / maxN) : 0;
+  const w = maxN > 0 ? 100 * n / maxN : 0;
   return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
     '<div class="bar-count">' + n.toLocaleString() + '</div></div>' +
-    '<div class="bar-track"><div class="bar-fill" style="width:' + Math.max(w, 2) + '%;"></div></div>' +
-    '<div class="bar-sub">' + conv.toLocaleString() + ' joined within ' + jd + ' days (' + pct.toFixed(1) + '%)</div></div>';
+    '<div class="bar-track">' + fillHtml(n, w) + '</div>' +
+    '<div class="bar-sub">' + conv.toLocaleString() + ' joined within ' + jd + ' days</div></div>';
 }
 // plain count bar: % mode shows each item's share of the total
 function countBarM(label, n, total, maxN) {
@@ -1517,32 +1516,31 @@ function countBarM(label, n, total, maxN) {
     const w = maxShare > 0 ? Math.round(100 * share / maxShare) : 0;
     return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
       '<div class="bar-count">' + share.toFixed(1) + '%</div></div>' +
-      '<div class="bar-track"><div class="bar-fill" style="width:' + Math.max(w, 2) + '%;"></div></div></div>';
+      '<div class="bar-track">' + fillHtml(share, w) + '</div></div>';
   }
   const w = maxN > 0 ? Math.round(100 * n / maxN) : 0;
   return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
     '<div class="bar-count">' + n.toLocaleString() + '</div></div>' +
-    '<div class="bar-track"><div class="bar-fill" style="width:' + Math.max(w, 2) + '%;"></div></div></div>';
+    '<div class="bar-track">' + fillHtml(n, w) + '</div></div>';
 }
 // engagement funnel bar: bar scaled to the funnel top (the "sent" row). The
-// count shows both the number and its % of sent (the Counts/% toggle flips
-// which leads); the grey sub line is a plain-language source/meaning note.
+// count shows ONE number: its % of sent in % mode, the count in Counts mode
+// (Luke 2026-09-25); the grey sub line is a plain-language source/meaning note.
 // A zero value draws NO fill at all, so an empty stage never shows a sliver.
-function engBarM(label, n, base, isTop, sub, countOverride, noFill) {
-  // countOverride (2026-09-22, scorecard v2): replaces the count text (e.g.
-  // "49 of 241 (20.3%)" so the denominator travels with the number); noFill
-  // draws no bar, for a group too small for a percent to mean anything
-  // ("1 of 11 (too early)").
+function engBarM(label, n, base, isTop, sub, countOverride, noFill, countScale) {
+  // countOverride (2026-09-22, scorecard v2): replaces the count text (one
+  // number since 2026-09-25); noFill draws no bar.
   const pct = base > 0 ? 100 * n / base : 0;
   let countHtml;
   if (countOverride) countHtml = escapeHtml(countOverride);
   else if (isTop) countHtml = n.toLocaleString();
-  else if (metricIsPct()) countHtml = pct.toFixed(1) + '% (' + n.toLocaleString() + ')';
-  else countHtml = n.toLocaleString() + ' (' + pct.toFixed(1) + '%)';
-  const w = Math.round(pct);
-  const fill = n > 0 && !noFill
-    ? '<div class="bar-fill' + (!isTop && metricIsPct() ? ' bar-green' : '') + '" style="width:' + Math.max(w, 2) + '%;"></div>'
-    : '';
+  else if (metricIsPct()) countHtml = pct.toFixed(1) + '%';
+  else countHtml = n.toLocaleString();
+  // one colour in both modes (Luke 2026-09-25). Counts mode: the fill is the
+  // count against countScale (the top bar's count) when given, so a count of
+  // 4 always shows a bar; % mode: the fill is the %.
+  const w = !metricIsPct() && countScale > 0 ? 100 * n / countScale : pct;
+  const fill = noFill ? '' : fillHtml(n, w);
   return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
     '<div class="bar-count">' + countHtml + '</div></div>' +
     '<div class="bar-track">' + fill + '</div>' +
@@ -1566,7 +1564,7 @@ const ENG_INFO = {
       '<p>Not counted: guests and comps who came in on a pass someone else bought, staff, people who bought a membership on their first visit, classes and camps, events, punch passes, and one-off nights like College Night.</p>' +
       '<h4>What the bars mean</h4>' +
       '<p><strong>Came back within 30 days</strong>: a second check-in day after the first visit, within 30 days of it. Only people whose 30 days have already passed are in the percentage, so a first-timer from last week is neither a hit nor a miss yet. That is why this bar’s percentage is out of a smaller number than the first bar. Visits from before the first paid visit (a guest visit last year, say) never count as a return.</p>' +
-      '<p><strong>Joined within 30, 60 and 90 days</strong>: a paid membership that is not a youth plan (a trial or a punch pass is not a membership), started within that many days of the first visit, again only for people who have had that many days. While a group is under 20 people the bar shows a plain count instead of a percentage.</p>' +
+      '<p><strong>Joined within 30, 60 and 90 days</strong>: a paid membership that is not a youth plan (a trial or a punch pass is not a membership), started within that many days of the first visit, again only for people who have had that many days.</p>' +
       '<h4>The same numbers elsewhere</h4>' +
       '<p>The All Gyms sheet’s Scorecard tab shows these same rows. The Dashboard’s first-timer tiles and the other Insights charts count the same group of people; pick “Since the pilot started” and the tiles show this slide’s numbers.</p>' +
       '<h4>How last summer is compared</h4>' +
@@ -1644,35 +1642,17 @@ function engagementOn() {
   return !!e.enabled && (((e.offers || {}).sent || 0) > 0 || ((e.surveys || {}).sent || 0) > 0);
 }
 // Pilot scorecard v2 helpers (2026-09-22). A bar is {n, of}: n people did the
-// thing out of the `of` people who have had enough days for it to count. A
-// percent is only printed once the group has SC_MIN_N people; below that the
-// slide says "x of y (too early)" so one person can never read as 9%.
-const SC_MIN_N = 20;
-function scRate(b) {
-  if (!b || !b.of) return 'nobody has had enough time yet';
-  if (b.of < SC_MIN_N) return b.n + ' of ' + b.of + ' (too early)';
-  return (100 * b.n / b.of).toFixed(1) + '% (' + b.n + ' of ' + b.of + ')';
-}
-// a figure inside a caption (last year's, say). Follows the Counts / % toggle
-// like the bars do (audit S7: captions printed a % in Counts mode).
+// thing out of the `of` people who have had enough days for it to count.
+// Until 2026-09-25 a group under 20 showed "x of y" instead of a %. Luke 2026-09-25: ONE number, like every other bar: the % in % mode, the
+// count in Counts mode. No "x of y" and no small-group exception any more.
 function scFig(b) {
+  // a figure inside a caption (last year's, say); follows the toggle
   if (!b || !b.of) return 'n/a';
-  if (b.of < SC_MIN_N) return b.n + ' of ' + b.of;
-  const pct = (100 * b.n / b.of).toFixed(1) + '%';
-  return metricIsPct() ? pct + ' (' + b.n + ' of ' + b.of + ')' : b.n + ' of ' + b.of + ' (' + pct + ')';
+  return metricIsPct() ? (100 * b.n / b.of).toFixed(1) + '%' : b.n.toLocaleString();
 }
-function scCount(b, plain) {
-  // the count shown on the bar itself: always carries its own denominator.
-  // plain = no "(too early)" tag on a small group (Luke 9/22, the members bar).
-  // In % mode a small group says why there is no % (audit S7: a bare
-  // "1 of 11" in % mode read as a bug).
+function scCount(b) {
   if (!b.of) return 'nobody has had enough days yet';
-  if (b.of < SC_MIN_N) {
-    if (metricIsPct()) return b.n + ' of ' + b.of + ' (under ' + SC_MIN_N + ' people, no % yet)';
-    return b.n + ' of ' + b.of + (plain ? '' : ' (too early)');
-  }
-  const pct = (100 * b.n / b.of).toFixed(1) + '%';
-  return metricIsPct() ? pct + ' (' + b.n + ' of ' + b.of + ')' : b.n + ' of ' + b.of + ' (' + pct + ')';
+  return metricIsPct() ? (100 * b.n / b.of).toFixed(1) + '%' : b.n.toLocaleString();
 }
 function scorecardSlideV2(sc) {
   const p = sc.pilot.all, b = sc.baseline.all;
@@ -1691,7 +1671,7 @@ function scorecardSlideV2(sc) {
   inner += engBarM('Came back within ' + rd + ' days', p.ret.n, p.ret.of, false,
     'First-timers who came back within ' + rd + ' days of their first visit. ' +
     lastYear + ': ' + scFig(b.ret) + '.' + goal(goals.return),
-    scCount(p.ret), p.ret.of < SC_MIN_N);
+    scCount(p.ret), false, p.n);
 
   // joins at 30 / 60 / 90 days (Luke 2026-09-24, the same three the sheet's
   // Scorecard tab shows); joined = a paid membership that is not a youth plan
@@ -1704,7 +1684,7 @@ function scorecardSlideV2(sc) {
     if (!pb) return;  // an older payload without the 30-day bar
     inner += engBarM('Joined within ' + d + ' days', pb.n, pb.of, false,
       lead + lastYear + ': ' + scFig(bb) + '.' + (k === 'join' ? goal(goals.join) : ''),
-      scCount(pb, true), pb.of < SC_MIN_N);
+      scCount(pb), false, p.n);
   });
 
   inner += engInfoBtn('scorecard');
@@ -1729,26 +1709,40 @@ function erPct(a, b) { return b > 0 ? (100 * a / b).toFixed(1) + '%' : ''; }
 // One bar. count = the sheet's count column (every email). num / den = the
 // sheet's % (an outcome: only the emails at least `days` old). noRate = a
 // count with no % on the sheet (redemptions): no bar fill.
-function erBar(label, count, num, den, sub, days, noRate) {
-  let countTxt, w = 0, note = '';
-  if (noRate) {
+// full = the group's "Emails sent" bar: always drawn full (it is the base
+// the other bars are measured against; Luke 2026-09-25).
+// Luke 2026-09-25: one number per bar (the % in % mode, the count in Counts
+// mode), no "x of y" in the number or the note.
+let ER_BASE = 0;   // this group's emails sent: the Counts-mode scale (set by head)
+function erBar(label, count, num, den, sub, days, noRate, full) {
+  let countTxt, w = 0, note = '', val = 0;
+  // Counts mode (Luke 2026-09-25): every bar's fill is its count against the
+  // group's emails sent, so a count of 4 always shows a bar
+  const cw = ER_BASE > 0 ? 100 * count / ER_BASE : 0;
+  if (full) {
     countTxt = count.toLocaleString();
-    if (metricIsPct() && label !== 'Emails sent') note = ' A count only: the All Gyms sheet has no % for this.';
+    w = 100; val = count;
+  } else if (noRate) {
+    // no % on the All Gyms sheet (redemptions): the count in both modes, as the
+    // sheet shows it (Luke 2026-09-25: keep every number the sheet's way); the
+    // fill is the count against emails sent, so a 4 always shows a bar
+    countTxt = count.toLocaleString();
+    w = cw; val = count;
+    if (metricIsPct()) note = ' A count only: the All Gyms sheet has no % for this.';
   } else if (!den) {
-    countTxt = count.toLocaleString() + (days ? ' (no email is ' + days + ' days old yet)' : '');
+    countTxt = metricIsPct() ? 'n/a' : count.toLocaleString();
+    if (!metricIsPct()) { w = cw; val = count; }
+    if (days) note = ' No email is ' + days + ' days old yet, so there is no % yet.';
   } else {
-    const pct = erPct(num, den);
-    w = 100 * num / den;
-    countTxt = metricIsPct()
-      ? pct + ' (' + num.toLocaleString() + ' of ' + den.toLocaleString() + ')'
-      : count.toLocaleString() + ' (' + pct + ')';
-    if (days) note = ' The % counts only the ' + den.toLocaleString() + ' emails sent ' + days +
-      ' or more days ago (' + num.toLocaleString() + ' of them); the count includes every email.';
+    w = metricIsPct() ? 100 * num / den : cw;
+    val = metricIsPct() ? num : count;
+    countTxt = metricIsPct() ? erPct(num, den) : count.toLocaleString();
+    if (days) note = metricIsPct()
+      ? ' The % counts only emails sent ' + days + ' or more days ago.'
+      : ' The count includes every email; the % view counts only emails sent ' + days + ' or more days ago.';
     if (den < ER_SMALL_N) note += ' Small sample (under ' + ER_SMALL_N + '), directional only.';
   }
-  const fill = !noRate && num > 0
-    ? '<div class="bar-fill' + (metricIsPct() ? ' bar-green' : '') + '" style="width:' + Math.max(Math.round(w), 2) + '%;"></div>'
-    : '';
+  const fill = fillHtml(val, w);
   const text = (sub || '') + note;
   return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
     '<div class="bar-count">' + escapeHtml(countTxt) + '</div></div>' +
@@ -1769,7 +1763,7 @@ function emailResultSlides() {
   }
   const W = e.windows || { answer: 14, return: 30, join: [30, 60, 90] };
   const J = W.join || [30, 60, 90];
-  const head = g => erBar('Emails sent', g.sends, 0, 0, 'Includes: ' + g.emails.join(', ') + '.', 0, true);
+  const head = g => { ER_BASE = g.sends; return erBar('Emails sent', g.sends, 0, 0, 'Includes: ' + g.emails.join(', ') + '.', 0, true, true); };
   const opened = g => erBar('Opened', g.opens, g.opens, g.deliv_den,
     'Out of the emails delivered. Reads a little high: some mail apps open every email automatically.', 0);
   const clicked = g => erBar('Clicked a link', g.clicks, g.clicks, g.opens,
