@@ -2108,6 +2108,7 @@ EXP_METRIC_FIELDS = {
     "Membership Conversion Rate": "converted",
 }
 EXP_MANUAL_METRIC = "Retention Rate"  # not computable from Send It data
+POOL_GYMS = ("ABC", "SHIFT")  # every gym whose cron writes the Experiments tab
 
 
 def _update_experiments(svc, tests: dict, var_rows: list[dict]) -> None:
@@ -2200,7 +2201,14 @@ def _update_experiments_v2(svc, client, records: list[dict], var_rows: list[dict
     of Chris's own (added to the header once, with hover notes). Rows the
     registry does not name are never touched. With no registry entries for
     this gym the S40 dropdown-text auto-fill above runs instead, so nothing
-    regresses. Fail-soft like v1: the caller wraps this in try/except."""
+    regresses. Fail-soft like v1: the caller wraps this in try/except.
+
+    Pooled tests (Block 14, 2026-09-28): an active entry with a `pooled`
+    block also writes its per-arm counts into the row's `Pool data` cell,
+    then reads every other gym's cell with the same pooled id off the rows
+    read at the start and writes the pooled row (`pooled.sheet_id`, Gym
+    "Both"). The `Pool data` header is added only once such an entry is
+    active, so nothing on the tab changes before a pooled test starts."""
     registry, notes = experiments.load_registry(client.client_dir)
     mine = [e for e in registry if e.get("gym") == GYM and e.get("active", True)]
     for n in notes:
@@ -2208,6 +2216,7 @@ def _update_experiments_v2(svc, client, records: list[dict], var_rows: list[dict
     if not mine:
         _update_experiments(svc, experiment_tests(client), var_rows)
         return
+    pooled_mine = [e for e in mine if e.get("pooled")]
     got = svc.spreadsheets().values().get(
         spreadsheetId=ALLGYMS_SHEET_ID,
         range=f"{EXP_TAB}!A1:AZ1000").execute(num_retries=_NUM_RETRIES).get("values", [])
@@ -2216,7 +2225,8 @@ def _update_experiments_v2(svc, client, records: list[dict], var_rows: list[dict
     if "Experiment ID" not in header:
         print("  allgyms: experiments v2 skipped (no 'Experiment ID' header)")
         return
-    missing = [h for h in experiments.V2_HEADERS if h not in header]
+    wanted = experiments.V2_HEADERS + ([experiments.POOL_HEADER] if pooled_mine else [])
+    missing = [h for h in wanted if h not in header]
     if missing:
         header = header + missing
         if sheet_id is not None:
@@ -2254,6 +2264,7 @@ def _update_experiments_v2(svc, client, records: list[dict], var_rows: list[dict
     next_free = used + 1
     today = datetime.now(timezone.utc).date()
     data, filled = [], 0
+    own_pool: dict[str, dict] = {}
     for exp in mine:
         res = experiments.evaluate(exp, records, today)
         notes += res["notes"]
@@ -2265,6 +2276,10 @@ def _update_experiments_v2(svc, client, records: list[dict], var_rows: list[dict
             cells["Experiment ID"] = exp["sheet_id"]
             if exp.get("started"):
                 cells["Date"] = exp["started"]
+        if exp.get("pooled"):
+            text = experiments.pool_cell(res, GYM, exp["pooled"]["id"], today)
+            cells[experiments.POOL_HEADER] = text
+            own_pool[exp["exp_id"]] = experiments.parse_pool_cell(text)
         for name, v in cells.items():
             c = col.get(name)
             if c is not None:
@@ -2272,15 +2287,66 @@ def _update_experiments_v2(svc, client, records: list[dict], var_rows: list[dict
         filled += 1
         print(f"  allgyms: experiments {exp['sheet_id']} ({exp['exp_id']}): "
               f"{res['health']}; {res['result']}; {res['cells']['Progress']}")
+    # pooled rows: this run's own cell + every other gym's cell read above
+    partner_cells: list[dict] = []
+    bad_cells = 0
+    for row in rows:
+        text = cell(row, experiments.POOL_HEADER)
+        if not text:
+            continue
+        try:
+            pc = experiments.parse_pool_cell(text)
+        except Exception:  # a cell must never stop the per-gym rows
+            pc = None
+        if pc is None:
+            bad_cells += 1
+        elif pc["gym"] != GYM:
+            partner_cells.append(pc)
+    if bad_cells:
+        notes.append(f"{bad_cells} unreadable Pool data cell(s) ignored")
+    for exp in pooled_mine:
+        pid, psheet = exp["pooled"]["id"], exp["pooled"]["sheet_id"]
+        mine_cell = own_pool.get(exp["exp_id"])
+        found = [pc for pc in partner_cells if pc["pooled_id"] == pid]
+        try:
+            pres = experiments.pool(([mine_cell] if mine_cell else []) + found, today, exp,
+                                    expect_gyms=POOL_GYMS)
+        except Exception as exc:  # never lose the per-gym rows over the pooled one
+            notes.append(f"{psheet} ({pid}): pooled row FAILED ({exc}), skipped")
+            continue
+        notes += [f"{psheet} ({pid}): {n}" for n in pres["notes"]]
+        rn = by_id.get(psheet)
+        cells = dict(pres["cells"])
+        if rn is None and pres.get("waiting"):
+            # no partner numbers yet: report it, add no row (both crons run
+            # minutes apart; appending on day one could race the partner's
+            # own first row onto the same free line)
+            print(f"  allgyms: experiments {psheet} ({pid}): {pres['health']}; "
+                  f"no row until then")
+            continue
+        if rn is None:
+            rn = next_free
+            next_free += 1
+            by_id[psheet] = rn  # two entries naming one pooled row write it once
+            cells["Experiment ID"] = psheet
+        for name, v in cells.items():
+            c = col.get(name)
+            if c is not None:
+                data.append({"range": f"{EXP_TAB}!{_a1col(c)}{rn}", "values": [[v]]})
+        partner_asof = ", ".join(f"{g} {d}" for g, d in sorted(pres["asof"].items())
+                                 if g != GYM) or "none yet"
+        print(f"  allgyms: experiments {psheet} ({pid}): {pres['health']}; "
+              f"{pres['result'] or '-'}; {pres['progress'] or '-'}; partner asof {partner_asof}")
     if data:
         svc.spreadsheets().values().batchUpdate(
             spreadsheetId=ALLGYMS_SHEET_ID,
             body={"valueInputOption": "RAW", "data": data}).execute(num_retries=_NUM_RETRIES)
     if sheet_id is not None:
+        hover = dict(experiments.V2_NOTES, **{experiments.POOL_HEADER: experiments.POOL_NOTE})
         note_reqs = [{"updateCells": {
-            "rows": [{"values": [{"note": experiments.V2_NOTES[h]}]}], "fields": "note",
+            "rows": [{"values": [{"note": hover[h]}]}], "fields": "note",
             "start": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": col[h]}}}
-            for h in experiments.V2_HEADERS if h in col]
+            for h in wanted if h in col]
         if note_reqs:
             svc.spreadsheets().batchUpdate(
                 spreadsheetId=ALLGYMS_SHEET_ID,

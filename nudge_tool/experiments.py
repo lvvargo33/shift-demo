@@ -36,6 +36,15 @@ along on that person's record list, so a response credited to the reminder
 still counts for the person. The outcome clock is the person's FIRST
 population send (both arms judged "within N days of the first email").
 
+Pooled tests (Tasks step 1.4, roadmap Block 14, 2026-09-28). When both gyms
+run the same test, each registry entry carries the same explicit
+`"pooled": {"id": "survey_reminder_01", "sheet_id": "P-006"}`. Each gym's
+cron writes its per-arm counts as JSON into the test row's `Pool data` cell
+(`pool_cell`), reads the other gym's cell off the same tab, and writes one
+pooled row (Gym "Both") from the two (`pool`): a Mantel-Haenszel risk
+difference across the gyms, so neither gym's mix can fake a lift. Nothing
+pools by accident: no `pooled` block, no pooled row.
+
 Pure functions plus one JSON reader; the sheet writer lives in
 allgyms_push.py. Shared by both gyms (CLAUDE.md rule 4): keep this file
 byte-identical in ABC/Automation and SHIFT/SHIFT_Automation.
@@ -174,7 +183,32 @@ def load_registry(client_dir: Path) -> tuple[list[dict], list[str]]:
         e.setdefault("mwe", DEFAULT_MWE)
         e.setdefault("categories", [])
         e.setdefault("active", True)
+        if "pooled" in e:
+            p = e["pooled"]
+            if (isinstance(p, dict) and isinstance(p.get("id"), str) and p["id"].strip()
+                    and isinstance(p.get("sheet_id"), str) and p["sheet_id"].strip()):
+                e["pooled"] = {"id": p["id"].strip(), "sheet_id": p["sheet_id"].strip()}
+            else:
+                notes.append(f"{e['exp_id']}: pooled needs {{'id': '...', 'sheet_id': '...'}} "
+                             f"(both text), not pooled")
+                e.pop("pooled")
         out.append(e)
+    # a pooled row must never land on a per-gym row, and one pooled row
+    # belongs to one pooled id
+    own_ids = {e["sheet_id"] for e in out}
+    owner: dict[str, str] = {}
+    for e in out:
+        p = e.get("pooled")
+        if not p:
+            continue
+        if p["sheet_id"] in own_ids:
+            notes.append(f"{e['exp_id']}: pooled sheet_id {p['sheet_id']} is also a test's own "
+                         f"Experiment ID, not pooled")
+            e.pop("pooled")
+        elif owner.setdefault(p["sheet_id"], p["id"]) != p["id"]:
+            notes.append(f"{e['exp_id']}: pooled sheet_id {p['sheet_id']} already belongs to "
+                         f"pooled id {owner[p['sheet_id']]}, not pooled")
+            e.pop("pooled")
     return out, notes
 
 
@@ -449,3 +483,260 @@ def evaluate(exp: dict, records: list[dict], today: date) -> dict:
     return {"exp": exp, "outcome": outcome, "arms": stats, "needed": needed,
             "readable": readable, "test": tp, "split_p": split_p, "health": health,
             "result": result, "cells": cells, "notes": notes}
+
+
+# --- pooled tests (Tasks step 1.4, roadmap Block 14, 2026-09-28) ------------
+
+POOL_HEADER = "Pool data"
+POOL_NOTE = ("Machine-readable, do not edit. For a test both gyms run, each gym's morning "
+             "run writes its own per-arm counts here and reads the other gym's to fill "
+             "the pooled row (Gym 'Both').")
+POOL_GYM = "Both"
+POOL_STALE_DAYS = 3
+_POOL_KEYS = ("n_all", "n_mature", "successes", "opened_first", "recent")
+# the pooled row's measurement cells (blanked when the row cannot be computed)
+POOL_NUMBER_CELLS = ("Sample Size A", "Sample Size B", "Result A", "Result B",
+                     "Primary outcome", "Baseline / MWE", "Needed per arm", "All people A / B",
+                     "Lift (B - A), 95% CI", "Opened first A / B", "Split check",
+                     "Progress", "Weeks to readable", "Statistical result")
+
+
+def pool_cell(res: dict, gym: str, pooled_id: str, asof: date) -> str:
+    """The `Pool data` cell for one gym's evaluated test: its per-arm counts
+    plus what the partner needs to check it is the same test."""
+    exp, outcome = res["exp"], res["outcome"]
+    cell = {"pooled_id": pooled_id, "gym": gym, "asof": asof.isoformat(),
+            "outcome": outcome, "window": OUTCOMES[outcome][2],
+            "baseline": exp.get("baseline"), "mwe": float(exp.get("mwe", DEFAULT_MWE)),
+            "started": str(exp.get("started") or "")[:10]}
+    for arm in ("A", "B"):
+        cell[arm] = {k: int(res["arms"][arm][k]) for k in _POOL_KEYS}
+    return json.dumps(cell, sort_keys=True)
+
+
+def _iso_day(v) -> bool:
+    """Exactly YYYY-MM-DD and a real date (no numbers, no trailing junk)."""
+    if not isinstance(v, str) or len(v) != 10:
+        return False
+    try:
+        date.fromisoformat(v)
+    except ValueError:
+        return False
+    return True
+
+
+def _rate(v, lo: float, hi: float) -> float | None:
+    """A finite number in [lo, hi] (a bool, NaN or Infinity is not one)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    v = float(v)
+    return v if math.isfinite(v) and lo <= v <= hi else None
+
+
+def parse_pool_cell(text: str) -> dict | None:
+    """A `Pool data` cell back into a dict, or None when it is not one we
+    wrote (blank, hand-edited, cut off, NaN / Infinity, odd types): a bad cell
+    is ignored, never trusted, and never raises."""
+    try:
+        c = json.loads(text)
+    except (TypeError, ValueError, RecursionError):
+        return None
+    if (not isinstance(c, dict) or not isinstance(c.get("pooled_id"), str)
+            or not isinstance(c.get("gym"), str) or c.get("outcome") not in OUTCOMES
+            or not _iso_day(c.get("asof"))):
+        return None
+    for arm in ("A", "B"):
+        raw = c.get(arm)
+        if not isinstance(raw, dict):
+            return None
+        a = {}
+        for k in _POOL_KEYS:
+            v = raw.get(k)
+            if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 10_000_000:
+                return None
+            a[k] = v
+        if a["n_mature"] > a["n_all"] or a["successes"] > a["n_mature"]:
+            return None
+        c[arm] = a
+    c["mwe"] = _rate(c.get("mwe"), 0.0001, 1.0)
+    if c["mwe"] is None:
+        return None
+    if c.get("baseline") is not None:
+        c["baseline"] = _rate(c["baseline"], 0.0, 1.0)
+        if c["baseline"] is None:
+            return None
+    c["started"] = c.get("started") if _iso_day(c.get("started")) else ""
+    return c
+
+
+def mh_diff(tables: list[tuple[int, int, int, int]]) -> dict | None:
+    """Mantel-Haenszel risk difference B - A across strata (one per gym),
+    each stratum (successes A, people A, successes B, people B), weights
+    n_A * n_B / N, with the Greenland-Robins variance for the 95% CI and the
+    z-test. One stratum = the plain difference and its Wald CI. None when no
+    stratum has people in both arms."""
+    tables = [t for t in tables if t[1] > 0 and t[3] > 0]
+    if not tables:
+        return None
+    wsum = num = var_num = 0.0
+    for xa, na, xb, nb in tables:
+        n = na + nb
+        wsum += na * nb / n
+        num += (xb * na - xa * nb) / n
+        var_num += (xa * (na - xa) * nb ** 3 + xb * (nb - xb) * na ** 3) / (na * nb * n ** 2)
+    diff = num / wsum
+    se = math.sqrt(var_num) / wsum
+    z = diff / se if se > 0 else 0.0
+    return {"diff": diff, "lo": diff - Z_ALPHA * se, "hi": diff + Z_ALPHA * se,
+            "se": se, "z": z, "p": _p_two_sided(z) if se > 0 else 1.0}
+
+
+def _pooled_descriptive(exp: dict, cells: list[dict]) -> dict:
+    prefix = f"{exp['gym']} - "
+    name = exp["name"]
+    short = name[len(prefix):] if name.startswith(prefix) else name
+    out = {"Gym": POOL_GYM, "Send It Test": f"Both gyms - {short}",
+           "Audience": exp.get("audience", ""), "Experiment Type": exp.get("type", ""),
+           "Category": ", ".join(exp.get("categories") or []),
+           "Variant A": exp.get("variant_a", ""), "Variant B": exp.get("variant_b", "")}
+    starts = [c.get("started") for c in cells if c.get("started")]
+    if exp.get("started"):
+        starts.append(str(exp["started"])[:10])
+    if starts:
+        out["Date"] = min(starts)
+    return {k: v for k, v in out.items() if v}
+
+
+def pool(cells: list[dict], today: date, exp: dict, expect_gyms=()) -> dict:
+    """The pooled row from the gyms' `Pool data` cells for one pooled test
+    (already parsed and matched on pooled_id). exp = this gym's registry
+    entry, for the descriptive columns. expect_gyms = every gym that should
+    have a cell, so a missing one is named."""
+    notes: list[str] = []
+    future = [c for c in cells if c["asof"] > today.isoformat()]
+    if future:
+        notes.append(f"{len(future)} Pool data cell(s) dated after today ignored")
+    by_gym: dict = {}
+    for c in cells:
+        if c in future:
+            continue
+        if c["gym"] not in by_gym or c["asof"] > by_gym[c["gym"]]["asof"]:
+            by_gym[c["gym"]] = c
+    cells = [by_gym[g] for g in sorted(by_gym)]
+    out = {"cells": _pooled_descriptive(exp, cells), "notes": notes, "readable": False,
+           "test": None, "result": "", "progress": "",
+           "asof": {c["gym"]: c["asof"] for c in cells}}
+    own_outcome = exp.get("primary_outcome", DEFAULT_OUTCOME)
+    out["cells"]["Success Metric"] = OUTCOMES[own_outcome][0]
+    if len(cells) < 2 or len({c["outcome"] for c in cells}) > 1:
+        if len(cells) < 2:
+            missing = [g for g in expect_gyms if g not in by_gym] or ["the other gym"]
+            out["health"] = f"Waiting for {' and '.join(missing)}'s numbers"
+            out["waiting"] = True
+        else:
+            out["health"] = ("Not pooled: the gyms judge this test on different outcomes ("
+                             + ", ".join(f"{c['gym']} {c['outcome']}" for c in cells) + ")")
+        # blank every number, so figures from an earlier day never sit next to it
+        out["cells"].update({k: "" for k in POOL_NUMBER_CELLS})
+        out["cells"]["Health"] = out["health"]
+        return out
+    outcome = cells[0]["outcome"]
+    label, base, window = OUTCOMES[outcome]
+    mwe = max(c["mwe"] for c in cells)
+    if len({round(c["mwe"], 6) for c in cells}) > 1:
+        out["notes"].append("the gyms set different MWEs ("
+                            + ", ".join(f"{c['gym']} {100 * c['mwe']:.1f} pts" for c in cells)
+                            + f"); the pooled row uses the larger, {100 * mwe:.1f} pts")
+    A = {k: sum(c["A"][k] for c in cells) for k in _POOL_KEYS}
+    B = {k: sum(c["B"][k] for c in cells) for k in _POOL_KEYS}
+    # baseline: the gyms' shared one (so Needed matches their own rows);
+    # when they differ or are unset, the pooled no-change (A) rate
+    bases = [c.get("baseline") for c in cells]
+    if all(b is not None for b in bases) and len({round(b, 6) for b in bases}) == 1:
+        baseline = bases[0]
+    else:
+        known = [b for b in bases if b is not None]
+        if A["n_mature"]:
+            baseline = A["successes"] / A["n_mature"]
+        else:
+            baseline = sum(known) / len(known) if known else 0.1
+        baseline = max(baseline, 0.01)
+        if known:
+            out["notes"].append("the gyms set different baselines; the pooled row uses "
+                                f"the pooled no-reminder (A) rate, {100 * baseline:.1f}%")
+    needed = needed_per_arm(baseline, mwe)
+    # readiness counts only the gyms that feed the estimate (mature people in
+    # both arms); a gym with an empty arm adds nothing to the lift
+    feeding = [c for c in cells if c["A"]["n_mature"] and c["B"]["n_mature"]]
+    min_mature = min(sum(c["A"]["n_mature"] for c in feeding),
+                     sum(c["B"]["n_mature"] for c in feeding)) if feeding else 0
+    readable = needed > 0 and min_mature >= needed
+    tp = mh_diff([(c["A"]["successes"], c["A"]["n_mature"],
+                   c["B"]["successes"], c["B"]["n_mature"]) for c in cells])
+    n_all = A["n_all"] + B["n_all"]
+    split_p = srm_p(A["n_all"], B["n_all"])
+    split_bad = n_all >= SRM_MIN_N and split_p < SRM_P
+    if split_bad:
+        health, result = "Fail: uneven split", "Invalid (uneven split)"
+    elif not readable:
+        health, result = "Collecting", "Not readable yet"
+    else:
+        health = "Pass"
+        if tp and tp["p"] < 0.05:
+            result = "B wins" if tp["diff"] > 0 else "A wins"
+        elif tp and -mwe <= tp["lo"] and tp["hi"] <= mwe:
+            result = "Equivalent"
+        else:
+            result = "Inconclusive"
+    # opposite directions, each at least the MWE, and each gym past the
+    # early-noise stage (SRM_MIN_N mature people), so week one never flags
+    diffs = [(c["gym"], c["B"]["successes"] / c["B"]["n_mature"]
+              - c["A"]["successes"] / c["A"]["n_mature"])
+             for c in feeding if c["A"]["n_mature"] + c["B"]["n_mature"] >= SRM_MIN_N]
+    if (not split_bad and len(diffs) >= 2 and any(d > 0 for _, d in diffs)
+            and any(d < 0 for _, d in diffs) and all(abs(d) >= mwe - 1e-9 for _, d in diffs)):
+        health += ", gyms disagree: " + ", ".join(f"{g} {100 * d:+.1f} pts" for g, d in diffs)
+    stale = [c for c in cells if (today - _d(c["asof"])).days > POOL_STALE_DAYS]
+    if stale:
+        health += " (" + ", ".join(f"{c['gym']}'s numbers last updated {c['asof']}"
+                                   for c in stale) + ")"
+    pct = int(round(100 * min_mature / needed)) if needed else 100
+    progress = f"{min_mature:,} / {needed:,} per arm ({pct}%)"
+    pace = min(A["recent"], B["recent"]) / (RATE_WINDOW_DAYS / 7)
+    if readable:
+        weeks = "readable now"
+    elif pace <= 0:
+        weeks = "no recent sends"
+    else:
+        weeks = str(int(math.ceil((needed - min_mature) / pace + window / 7)))
+    if split_bad:
+        split = f"UNEVEN (p={split_p:.4f})"
+    elif n_all < SRM_MIN_N:
+        split = f"too early ({n_all} people)"
+    else:
+        split = f"OK (p={split_p:.2f})"
+    lift = (f"{100 * tp['diff']:+.1f} pts ({100 * tp['lo']:+.1f} to {100 * tp['hi']:+.1f})"
+            if tp else "")
+    out["cells"].update({
+        "Success Metric": label,
+        "Sample Size A": A["n_mature"],
+        "Sample Size B": B["n_mature"],
+        "Result A": round(A["successes"] / A["n_mature"], 4) if A["n_mature"] else "",
+        "Result B": round(B["successes"] / B["n_mature"], 4) if B["n_mature"] else "",
+        "Primary outcome": f"{label} ({window}-day window)",
+        "Baseline / MWE": f"{100 * float(baseline):.0f}% / +{100 * mwe:.0f} pts",
+        "Needed per arm": needed,
+        "All people A / B": f"{A['n_all']} / {B['n_all']}",
+        "Lift (B - A), 95% CI": lift,
+        "Opened first A / B": ("n/a" if base in ("opened", "clicked")
+                               else f"{A['opened_first']} / {B['opened_first']}"),
+        "Split check": split,
+        "Health": health,
+        "Progress": progress,
+        "Weeks to readable": weeks,
+        "Statistical result": result,
+    })
+    out.update({"health": health, "result": result, "progress": progress,
+                "readable": readable, "test": tp, "needed": needed,
+                "arms": {"A": A, "B": B}, "split_p": split_p})
+    return out
