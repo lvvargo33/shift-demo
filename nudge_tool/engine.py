@@ -1155,6 +1155,11 @@ def build_engagement(ds: Dataset, sent_rows: list | None,
         sent = (r.get("sent_date") or "").strip()[:10]
         if not email or not sent:
             continue
+        # a send a group visit set off counts nowhere (Block 16, 2026-09-28)
+        gc = ds.climbers.get((r.get("climber_id") or "").strip()) or by_email.get(email)
+        if gc is not None and definitions.group_send(
+                getattr(gc, "group_visit_days", ()), gc.visit_days, sent):
+            continue
         bucket = surveys if "survey" in (r.get("tag") or "") else offers
         cur = bucket.get(email)
         if cur is None or sent < cur["sent"]:

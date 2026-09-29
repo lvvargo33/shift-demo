@@ -219,7 +219,33 @@
         "join": "4 to 5%"
       }
     },
-    "_scorecard_note": "Insights 'Pilot scorecard' slide, v2 definitions locked with Luke 2026-09-22 (ROADMAP Block 12); computed server-side by engine.build_scorecard. WHO: climbers whose own first paid entry (ftv_category) is in `categories`, checked in at least once, not staff, first visit on/after `start` (window stays open), whose earliest purchase has no line item containing an `exclude_first_item_keywords` word (youth passes: the kid climbs, the parent gets the email), and who would have passed the email screens: own email on file, email not shared by 2+ climbers, and no membership or post-first-visit trial within `converted_within_days` of the first visit. OUT: guests/comps (no purchase of their own), day-one members, class/camp/event/punch first-timers, College Night $5 (RETAIL). BARS: came back = a second check-in day within `return_days` of the first visit, denominator = people whose `return_days` have elapsed as of the latest check-in in the data; joined = a Memberships row with a real price created 0..`join_days` days after the first visit, denominator = people with `join_days` elapsed; `join_early_days` is the early read shown until the 90-day group is big enough. BASELINE: the same calendar dates one year earlier, same screens, each person given the same number of days their twin date has had. `trial_categories` drives the day pass vs trials split under the bars. Absent or enabled:false = the slide falls back to the old cohort-only view. UPDATE 2026-09-24 (Block 15 session 3): joined = the REPORTING join date (definitions.first_join: the first priced membership that is not a youth plan; the sender still stops on any membership), read at 30, 60 AND 90 days on the slide, the sheet's Scorecard tab and the Dashboard tiles; `join_early_days` (60) is no longer an early read but one of the three. The same WHO screen (engine._scorecard_screen) also picks the people the Dashboard's first-timer tiles and Insights charts 1-4 count, at any first-visit date since post_opening_date; the page's period 'Since the pilot started' (the default) gives exactly this slide's numbers."
+    "_scorecard_note": "Insights 'Pilot scorecard' slide, v2 definitions locked with Luke 2026-09-22 (ROADMAP Block 12); computed server-side by engine.build_scorecard. WHO: climbers whose own first paid entry (ftv_category) is in `categories`, checked in at least once, not staff, first visit on/after `start` (window stays open), whose earliest purchase has no line item containing an `exclude_first_item_keywords` word (youth passes: the kid climbs, the parent gets the email), and who would have passed the email screens: own email on file, email not shared by 2+ climbers, and no membership or post-first-visit trial within `converted_within_days` of the first visit. OUT: guests/comps (no purchase of their own), day-one members, class/camp/event/punch first-timers, College Night $5 (RETAIL). BARS: came back = a second check-in day within `return_days` of the first visit, denominator = people whose `return_days` have elapsed as of the latest check-in in the data; joined = a Memberships row with a real price created 0..`join_days` days after the first visit, denominator = people with `join_days` elapsed; `join_early_days` is the early read shown until the 90-day group is big enough. BASELINE: the same calendar dates one year earlier, same screens, each person given the same number of days their twin date has had. `trial_categories` drives the day pass vs trials split under the bars. Absent or enabled:false = the slide falls back to the old cohort-only view. UPDATE 2026-09-24 (Block 15 session 3): joined = the REPORTING join date (definitions.first_join: the first priced membership that is not a youth plan; the sender still stops on any membership), read at 30, 60 AND 90 days on the slide, the sheet's Scorecard tab and the Dashboard tiles; `join_early_days` (60) is no longer an early read but one of the three. The same WHO screen (engine._scorecard_screen) also picks the people the Dashboard's first-timer tiles and Insights charts 1-4 count, at any first-visit date since post_opening_date; the page's period 'Since the pilot started' (the default) gives exactly this slide's numbers.",
+    "group_visit": {
+      "min_passes": 10,
+      "pass_words": [
+        "day pass",
+        "homeschool"
+      ],
+      "single_visit_pass_types": [
+        "DAILY",
+        "NONE",
+        ""
+      ],
+      "exclude_words": [
+        "punch",
+        "gift",
+        "member"
+      ],
+      "own_entry_words": [
+        "punch",
+        "trial",
+        "two week",
+        "recurring",
+        "prepaid",
+        "membership"
+      ]
+    },
+    "_group_visit_note": "ROADMAP Block 16 (Luke 2026-09-28): a GROUP VISIT = a check-in on a day when one purchase bought `min_passes`+ day passes (every line whose name holds a `pass_words` word and no `exclude_words` word, summed within the purchase), by a climber who had not paid their own way in on or before that day. Paying their own way in = a day pass (the same pass test) or an `own_entry_words` line (trial, punch pass, membership), a membership start, or a check-in on a pass whose Beta pass_type is NOT in `single_visit_pass_types` (MONTHLY, 14-DAY, SEMIANNUAL, 110-DAY ...: a member, trial or punch pass someone paid for, fresh-eyes 2026-09-29: 33 such people were flagged before); a snack, gear or a rental does NOT count (Luke 2026-09-29: three 9/17 students bought a latte or cookies). A candidate must also ARRIVE WITH THE GROUP (Luke 2026-09-29): 5+ such unpaid first-timers checked in within 30 minutes of them (definitions.GROUP_BURST_*; optional `burst_people` / `burst_minutes` here override), so a friend's guest who came alone the same day is a normal first-timer. After a group visit, every check-in before their first paid one stays out (a free visit as a guest does not start the clock). Only a climber's LEADING check-in days can be group visits; they leave visit_days (ingest -> group_visit_days), so the sender, the scorecard and the sheet all start the clock at the first visit of their own (a fresh first-timer), and sends a group visit set off leave the All Gyms sheet and the site (the outreach log keeps them). On the 2026-09-29 pull: 15 group days since 2025-04; in the pilot 6/30, 7/16 (NEW Youth Day Pass x11), 8/3, 9/10 and 9/17 ($15 Day Pass x68, a Grand Haven school), the pilot's group sends leave the sheet (see ROADMAP Block 16 build record for the count). Remove this block to switch it off."
   },
   "survey": {
     "enabled": true,

@@ -122,6 +122,12 @@ class Climber:
     email: str = ""
     trial_date: str | None = None      # earliest SUCCEEDED trial purchase
     visit_days: set[str] = field(default_factory=set)
+    # Group visits (ROADMAP Block 16, 2026-09-28): when a climber's first
+    # check-in was on a school-trip day (one purchase of 10+ day passes) and
+    # they had not paid their own way in, every check-in before their first
+    # paid one moves OUT of visit_days, so every first-visit rule starts at
+    # that paid visit (definitions.split_group_days).
+    group_visit_days: set[str] = field(default_factory=set)
     daypass_dates: list[str] = field(default_factory=list)  # day-pass/punch buy dates
     # Day-pass buys discounted by >= half the day-pass line price. Beta's export
     # never names the coupon used, so this is the footprint of the 50%-off
@@ -225,6 +231,7 @@ class Dataset:
     tx_max_date: str | None
     sessions_max_date: str | None
     trial_buyer_count: int
+    bulk_days: set = field(default_factory=set)  # group-visit days (Block 16)
 
 
 def load(client: ClientConfig) -> Dataset:
@@ -240,6 +247,24 @@ def load(client: ClientConfig) -> Dataset:
     rep_qualifying = set(rep.get("ftv_qualifying_categories", []))
     staff_tier_kw = [k.lower() for k in rep.get("staff_tier_keywords", [])]
     staff_emails: set[str] = {e.strip().lower() for e in rep.get("staff_emails", []) if e}
+    # Group visits (Block 16): no reporting.group_visit block = feature off
+    grp = rep.get("group_visit") or {}
+    grp_words = [w.lower() for w in grp.get("pass_words", []) if w]
+    grp_excl = [w.lower() for w in grp.get("exclude_words", []) if w]
+    grp_entry = [w.lower() for w in grp.get("own_entry_words", []) if w]
+    grp_min = int(grp.get("min_passes") or definitions.GROUP_MIN_PASSES)
+    # check-in pass types that are ONE visit (a day pass, no pass): a check-in
+    # on any other type (member, trial, punch card) means someone paid this
+    # climber's own way in. Absent = the export has no pass type (ABC).
+    grp_single = grp.get("single_visit_pass_types")
+    if isinstance(grp_single, str):
+        grp_single = [grp_single]  # a bare "DAILY" must not switch the check off
+    grp_single = None if grp_single is None else {str(t).strip().upper() for t in grp_single}
+    grp_burst_n = int(grp.get("burst_people") or definitions.GROUP_BURST_PEOPLE)
+    grp_burst_min = int(grp.get("burst_minutes") or definitions.GROUP_BURST_MINUTES)
+    bulk_days: set[str] = set()                # days with one 10+ day-pass purchase
+    bulk_times: dict[tuple, int] = {}          # (climber_id, bulk day) -> first check-in minute
+    own_buys: dict[str, set] = {}              # climber_id -> days they paid their own way in
 
     def get(cid: str) -> Climber:
         c = climbers.get(cid)
@@ -259,6 +284,15 @@ def load(client: ClientConfig) -> Dataset:
                 continue
             items = row.get("items") or ""
             cid = (row.get("climber_id") or "").strip()
+            if grp_words and d:
+                lines = [(int(m.group(1)), m.group(2))
+                         for m in map(_LINE_RE.match, items.split(";")) if m]
+                # a bulk sale with no customer on it still makes a group day
+                if definitions.group_pass_count(lines, grp_words, grp_excl) >= grp_min:
+                    bulk_days.add(d)
+                if cid and definitions.is_own_entry([n for _q, n in lines], grp_words,
+                                                    grp_excl, grp_entry):
+                    own_buys.setdefault(cid, set()).add(d)
             if not cid:
                 continue
             c = get(cid)
@@ -315,6 +349,19 @@ def load(client: ClientConfig) -> Dataset:
             ses_dates.append(e)
             c = get(cid)
             c.visit_days.add(e)
+            if e in bulk_days:
+                mnt = definitions.minute_of_day(row.get("entry"))
+                if mnt is not None and mnt < bulk_times.get((cid, e), 24 * 60):
+                    bulk_times[(cid, e)] = mnt
+            # a member / trial / punch pass of their OWN (a guest on someone
+            # else's pass has not paid; Beta files punch cards as NONE, so the
+            # pass name is read too), fresh-eyes 2026-09-29
+            if (grp_single is not None and "pass_type" in row
+                    and not (row.get("guest_of") or "").strip()
+                    and ((row.get("pass_type") or "").strip().upper() not in grp_single
+                         or definitions.is_own_entry([row.get("pass") or ""], (), (),
+                                                     grp_entry))):
+                own_buys.setdefault(cid, set()).add(e)
             if not c.name:
                 c.name = (row.get("climber") or "").strip()
             if not c.email:
@@ -356,6 +403,30 @@ def load(client: ClientConfig) -> Dataset:
     for cid, rows in plans.items():
         climbers[cid].join_date = definitions.first_join(rows)
 
+    # group visits (Block 16): candidates = climbers whose FIRST check-in was
+    # on a bulk day with no own entry on or before it (a membership start
+    # counts as their own); a candidate is a group visitor only when they
+    # arrived in the group's burst (definitions.burst_members)
+    if bulk_days:
+        cands: dict[str, tuple] = {}           # climber_id -> (first day, own days)
+        for c in climbers.values():
+            if not c.visit_days or (c.is_member and not c.membership_created):
+                continue  # a member with no start date on file: never a group visitor
+            d0 = min(c.visit_days)
+            own = own_buys.get(c.climber_id, set())
+            if c.membership_created:
+                own = own | {c.membership_created}
+            if d0 in bulk_days and not any(o <= d0 for o in own):
+                cands[c.climber_id] = (d0, own)
+        by_day: dict[str, dict] = {}
+        for cid, (d0, _own) in cands.items():
+            by_day.setdefault(d0, {})[cid] = bulk_times.get((cid, d0))
+        for times in by_day.values():
+            for cid in definitions.burst_members(times, grp_burst_n, grp_burst_min):
+                c, (d0, own) = climbers[cid], cands[cid]
+                c.visit_days, c.group_visit_days = definitions.split_group_days(
+                    c.visit_days, {d0}, own)
+
     # reporting: flag staff/founder climbers (excluded from the FTV cohort)
     if staff_emails:
         for c in climbers.values():
@@ -370,6 +441,7 @@ def load(client: ClientConfig) -> Dataset:
         tx_max_date=max(tx_dates) if tx_dates else None,
         sessions_max_date=max(ses_dates) if ses_dates else None,
         trial_buyer_count=trial_buyers,
+        bulk_days=bulk_days,
     )
 
 

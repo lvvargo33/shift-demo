@@ -819,6 +819,28 @@ SCORECARD: dict = {}
 MATURE_ASOF: list = [None]
 
 
+def _drop_group_sends(sends: list[dict], ds) -> tuple[list[dict], list[dict]]:
+    """-> (kept, dropped). Sends a group visit set off (ROADMAP Block 16,
+    Luke 2026-09-28: school trips get no emails and leave every number) are
+    left out of every count on the sheet; the outreach log keeps them. The
+    climber is the log row's climber_id when there is one, else the first
+    climber on that email, like the outcome lookups below."""
+    by_email: dict[str, object] = {}
+    for x in ds.climbers.values():
+        e = (x.email or "").strip().lower()
+        if e and e not in by_email:
+            by_email[e] = x
+    kept, dropped = [], []
+    for s in sends:
+        c = ds.climbers.get(s.get("mid") or "") or by_email.get(s["email"])
+        if c is not None and definitions.group_send(
+                getattr(c, "group_visit_days", ()), c.visit_days, s["sent"]):
+            dropped.append(s)
+        else:
+            kept.append(s)
+    return kept, dropped
+
+
 def collect(client) -> tuple[list[dict], list[dict]]:
     """This gym's stats -> (automation rows, variant rows), one dict each:
     {gym, name, section, tag, level, m: {metric_key: value}}"""
@@ -845,7 +867,13 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         trig = (r.get("trigger_name") or r.get("trigger") or "").strip()
         tag = (r.get("tag") or "").strip()
         if email and sent and tag:
-            sends.append({"email": email, "sent": sent, "trig": trig, "tag": tag})
+            sends.append({"email": email, "sent": sent, "trig": trig, "tag": tag,
+                          # only _drop_group_sends reads it (Block 16), as ABC's
+                          "mid": (r.get("climber_id") or "").strip()})
+    sends, group_dropped = _drop_group_sends(sends, ds)
+    stage(f"group visits: {len(group_dropped)} send(s) to "
+          f"{len({s['email'] for s in group_dropped})} people left out "
+          f"({len(getattr(ds, 'bulk_days', ()) or ())} group day(s) in the data)")
 
     # Mailchimp activity feeds. Only for people with a send that still needs
     # measuring: inside the fresh window, or older but not in the cache yet
@@ -1137,7 +1165,11 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     # written. Do NOT wrap that loop in a try/except without also gating this
     # call, or one bad Mailchimp day would freeze zeros forever (see ABC's
     # feeds_ok flag, where the ESP failure IS swallowed).
-    _save_engagement_cache(measured, _stamp())
+    # the cache stays as long as the log: a group send's frozen answer is kept
+    # (not re-measured, not counted) so the rule can be reversed for free
+    kept_group = {k: cache[k] for k in ((s["email"], s["sent"], s["tag"])
+                                        for s in group_dropped) if k in cache}
+    _save_engagement_cache({**kept_group, **measured}, _stamp())
     stage(f"collect done ({len(auto_rows)} automation rows, "
           f"{len(var_rows)} variant rows, {len(measured)} sends cached)")
     SEND_RECORDS[:] = records

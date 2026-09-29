@@ -23,6 +23,11 @@ The rules, in plain words (the sheet's Definitions tab says the same):
     counts are never cut.
   * Clicked = a click on a link in the exact email sent, survey form links,
     buy links and the /s survey links (the in-email rating buttons) included.
+  * Group visit = a check-in on a day when one purchase bought 10+ day
+    passes, arriving with the group (5+ unpaid first-timers within 30
+    minutes), by someone who had not paid their own way in (Block 16,
+    2026-09-28): no emails, out of the email results and the scorecard; a
+    fresh first-timer once they pay their own way in.
 
 Pure functions, no I/O. Shared by both gyms (CLAUDE.md rule 4): keep this
 file byte-identical in ABC/Automation and SHIFT/SHIFT_Automation.
@@ -131,6 +136,107 @@ def window_passed(start, days: int, asof) -> bool:
     return s is not None and a is not None and (a - s).days >= days
 
 
+# --- group visits (ROADMAP Block 16, 2026-09-29) ----------------------------------
+# A school trip or party: one purchase buys a stack of day passes and the kids
+# check in on passes they did not buy. On 2026-09-17 one purchase of 68 SHIFT
+# day passes sent 66 students the survey, the day-5 offer and the reminder.
+# Luke's rules (2026-09-28): a GROUP VISIT is a check-in on a day when one
+# purchase bought GROUP_MIN_PASSES+ day passes, by someone who had not paid
+# their own way in (2026-09-29: a snack does not count, see is_own_entry);
+# group visitors get no emails and leave the email results and the
+# scorecard; one who later pays their own way in is a fresh first-timer from
+# that visit.
+GROUP_MIN_PASSES = 10
+# A group arrives together (Luke 2026-09-29): an unpaid first check-in on a
+# group day counts only when GROUP_BURST_PEOPLE+ such first-timers (itself
+# included) checked in within GROUP_BURST_MINUTES of it. SHIFT's pilot groups
+# arrived 10-30 at a time inside ~10 minutes; the unpaid walk-ins the day-only
+# rule also caught (a friend's guest at 2:53 PM on a 7 PM school day) came alone.
+GROUP_BURST_PEOPLE = 5
+GROUP_BURST_MINUTES = 30
+
+_TIME_RE = re.compile(r"[T ](\d{1,2}):(\d{2})")
+
+
+def minute_of_day(ts) -> int | None:
+    """'2026-09-17T08:17:45' / '2026-09-17 08:17:45 -0400' -> 497, else None."""
+    m = _TIME_RE.search(str(ts or ""))
+    return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+
+
+def burst_members(times: dict, people: int = GROUP_BURST_PEOPLE,
+                  minutes: int = GROUP_BURST_MINUTES) -> set:
+    """The keys of `times` (id -> first check-in minute that day, or None)
+    that arrived with a group: at least `people` of them, this one included,
+    checked in within `minutes` of it. A check-in with no readable time is
+    judged on the whole day (it matches every other one)."""
+    out = set()
+    for k, t in times.items():
+        n = sum(1 for u in times.values()
+                if t is None or u is None or abs(u - t) <= minutes)
+        if n >= people:
+            out.add(k)
+    return out
+
+
+def group_pass_count(lines, words, exclude_words=()) -> int:
+    """Day passes bought in ONE purchase: the summed quantity of its line
+    items (qty, name) whose name holds one of `words` and none of
+    `exclude_words` (lowercase). Several day-pass lines in one purchase add
+    up (a 13 + 20 is one purchase of 33)."""
+    n = 0
+    for qty, name in lines or ():
+        s = (name or "").lower()
+        if any(w in s for w in words) and not any(x in s for x in exclude_words):
+            n += int(qty or 0)
+    return n
+
+
+def is_own_entry(names, words, exclude_words=(), entry_words=()) -> bool:
+    """True when one of a purchase's line names (lowercase) paid the buyer's
+    OWN way in: a day pass (a `words` hit with no `exclude_words` hit, the
+    same test as group_pass_count) or an `entry_words` hit (trial, punch
+    pass, membership). A snack, gear or a rental does not (Luke 2026-09-29:
+    three 9/17 students bought a latte or cookies on the school's passes)."""
+    for name in names or ():
+        s = (name or "").lower()
+        if any(w in s for w in entry_words):
+            return True
+        if any(w in s for w in words) and not any(x in s for x in exclude_words):
+            return True
+    return False
+
+
+def split_group_days(visit_days, bulk_days, own_buy_days):
+    """-> (kept, group): a climber's check-in days split into the days that
+    count and the days that do not. `own_buy_days` = the days they paid their
+    own way in (an is_own_entry purchase, a member / trial / punch pass at
+    check-in, a membership start). A climber is a group visitor only when
+    their FIRST check-in was on a bulk day with no own entry on or before it.
+    Then every check-in before their first own-entry day moves out (a later
+    free visit as someone's guest does not start the clock either, fresh-eyes
+    2026-09-29), and the clock starts on that paid day. Anyone else keeps
+    every day, bulk day or not, so a member or a regular never loses one."""
+    days = sorted(set(visit_days or ()))
+    first_buy = min(own_buy_days) if own_buy_days else None
+    if not days or days[0] not in bulk_days or (
+            first_buy is not None and first_buy <= days[0]):
+        return set(days), set()
+    group = {d for d in days if first_buy is None or d < first_buy}
+    return set(days) - group, group
+
+
+def group_send(group_visit_days, visit_days, sent) -> bool:
+    """True when a group visit triggered this send: the climber's first
+    check-ins were group visits and the email went out on or before their
+    first paid visit of their own (or they never paid their own way). Those
+    sends leave the sheet and the site; the outreach log keeps them."""
+    if not group_visit_days:
+        return False
+    own_first = min(visit_days) if visit_days else None
+    return own_first is None or str(sent or "")[:10] <= own_first
+
+
 # --- sections -------------------------------------------------------------------
 # Order = the order the sheet's Dashboard and the site's email slides show them.
 SECTIONS = ["FTV funnel emails", "Day pass regulars", "Blocker nudges", "Surveys"]
@@ -215,6 +321,21 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  "membership of any kind (youth included, as for sending) and "
                  "no trial bought within 2 days.",
                  "", "Pilot scorecard"]),
+        ("row", ["Group visit",
+                 f"A school trip or party: a check-in on a day when one "
+                 f"purchase bought {GROUP_MIN_PASSES} or more day passes, "
+                 f"arriving with the group ({GROUP_BURST_PEOPLE} or more such "
+                 f"first-timers checked in within {GROUP_BURST_MINUTES} "
+                 f"minutes), by someone who had not paid their own way in on or before "
+                 f"that day (a day pass, trial, punch pass or membership of "
+                 f"their own; a snack or a rental does not count). Group "
+                 f"visitors get no emails and are left out of the email "
+                 f"results and the scorecard, and so are the emails a group "
+                 f"visit set off before this rule (from 2026-09-29); their "
+                 f"survey answers still show with the other answers. Someone "
+                 f"who later pays their own way in is a new first-timer from "
+                 f"that visit.",
+                 "", "Both"]),
         ("row", ["Came back",
                  "A check-in on a later calendar day. Check-ins on or before "
                  "the day the clock starts never count.",
