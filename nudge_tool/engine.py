@@ -194,6 +194,41 @@ def _requires_ok(c: Climber, req: dict, asof: date, client: ClientConfig,
             if val and (not c.survey_sent_date
                         or (c.survey_sent_date or "")[:10] < val):
                 return False
+        elif key == "visits_within":
+            # Day-pass regulars (ROADMAP Block 17, Luke 2026-09-29): at least
+            # `visits` different check-in days in the last `days` days as of
+            # asof. Group-visit days never count (Block 16 keeps them out of
+            # visit_days). A bad value fails closed.
+            if not isinstance(val, dict):
+                return False
+            lo = (asof - timedelta(days=int(val.get("days", 30)))).isoformat()
+            hi = asof.isoformat()
+            if sum(1 for v in c.visit_days if lo <= v <= hi) < int(val.get("visits", 3)):
+                return False
+        elif key == "own_daypass_ever":
+            # Block 17: bought a day pass of their own at least once (a
+            # member's guest who never paid is out; rentals do not count).
+            if val and not getattr(c, "own_daypass_days", None):
+                return False
+        elif key == "not_on_member_list":
+            # Block 17: not on the gym's RGP member list in any status (a
+            # member on someone else's plan has no Memberships row of their
+            # own, so is_converted misses them). No list loaded = fail closed.
+            if val and getattr(c, "on_member_list", None) is not False:
+                return False
+        elif key == "no_send_within_days":
+            # Block 17: no email of ANY kind to this inbox in the last `val`
+            # days (a first-timer who just got the membership offer waits).
+            # Needs the log: without one, fail closed like prior_group_send.
+            # An EMPTY log is treated like a missing one: the live run falls
+            # back to a missing local file as an empty log, and "nobody was
+            # ever emailed" would wave everyone through (fresh-eyes 9/29).
+            email = (c.email or "").strip().lower()
+            if log is None or not email or not getattr(log, "total_rows", 0):
+                return False
+            last = log.last_sent_any(email)
+            if last and ingest.days_between(last, asof) < int(val):
+                return False
         else:
             return False
     return True

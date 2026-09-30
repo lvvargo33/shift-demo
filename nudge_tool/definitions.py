@@ -473,6 +473,16 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  "only a rental counts: someone else covered that entry.",
                  "SHIFT's scorecard has a day pass vs trial split; ABC's does "
                  "not."]),
+        ("row", ["Day-pass regulars email",
+                 "Two or more day passes bought in 30 days, not a member; a "
+                 "Membership Lite offer, at most every 30 days.",
+                 "Three or more check-in days in 30 days, a day pass of their "
+                 "own at least once, never a member (incl. RGP's member "
+                 "list), no email of any kind in the last 30 days; a "
+                 "membership email, at most every 90 days.",
+                 "Different rules for the same idea. The sheet's 'Day pass to "
+                 "trial' row and its all-gyms total add both; compare inside "
+                 "one gym."]),
         ("row", ["Survey formats",
                  "Rating buttons in the email (Q1 taps) and link emails.",
                  "Link emails. ABC also surveys current members (the 'Member "

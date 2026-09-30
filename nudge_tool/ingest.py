@@ -128,6 +128,15 @@ class Climber:
     # paid one moves OUT of visit_days, so every first-visit rule starts at
     # that paid visit (definitions.split_group_days).
     group_visit_days: set[str] = field(default_factory=set)
+    # Days this climber bought a day pass themselves (the Block 16 pass words,
+    # rentals / gift certificates out). Backs the day-pass regulars email's
+    # own_daypass_ever rule (ROADMAP Block 17, 2026-09-29).
+    own_daypass_days: set[str] = field(default_factory=set)
+    # On the gym's RGP member list (member_status.csv, any status: OK, FROZEN
+    # or TERMINATED), which also holds members on someone else's plan who
+    # have no Memberships row of their own. None = no list loaded (SHIFT, or
+    # a failed pull): rules that need it fail closed. Block 17 fresh-eyes.
+    on_member_list: bool | None = None
     daypass_dates: list[str] = field(default_factory=list)  # day-pass/punch buy dates
     # Day-pass buys discounted by >= half the day-pass line price. Beta's export
     # never names the coupon used, so this is the footprint of the 50%-off
@@ -290,6 +299,9 @@ def load(client: ClientConfig) -> Dataset:
                 # a bulk sale with no customer on it still makes a group day
                 if definitions.group_pass_count(lines, grp_words, grp_excl) >= grp_min:
                     bulk_days.add(d)
+                # day passes this climber bought (Block 17 own_daypass_ever)
+                if cid and definitions.group_pass_count(lines, grp_words, grp_excl) > 0:
+                    get(cid).own_daypass_days.add(d)
                 if cid and definitions.is_own_entry([n for _q, n in lines], grp_words,
                                                     grp_excl, grp_entry):
                     own_buys.setdefault(cid, set()).add(d)
@@ -402,6 +414,19 @@ def load(client: ClientConfig) -> Dataset:
                     plans.setdefault(cid, []).append((created, prices))
     for cid, rows in plans.items():
         climbers[cid].join_date = definitions.first_join(rows)
+
+    # the RGP member list (ABC only; Block 17 not_on_member_list)
+    ms_path = getattr(client, "member_status_csv", None)
+    if ms_path is not None and hasattr(ms_path, "exists") and ms_path.exists():
+        listed: set[str] = set()
+        with open(ms_path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                k = (row.get("climber_key") or "").strip()
+                if k:
+                    listed.add(k)
+        if listed:
+            for c in climbers.values():
+                c.on_member_list = c.climber_id in listed
 
     # group visits (Block 16): candidates = climbers whose FIRST check-in was
     # on a bulk day with no own entry on or before it (a membership start
