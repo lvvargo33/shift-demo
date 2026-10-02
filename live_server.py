@@ -486,9 +486,29 @@ def _s_redirect_url(slug: str, tap: dict, email: str, q: str, tag: str) -> str:
     return _tap_redirect(tap, email, q) if tap else ""
 
 
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, fmt, *args):  # quieter console
-        print("  " + (fmt % args))
+# Block 18 (2026-10-02): Chris's survey page served from this process. The base
+# class is the real mount only when this service has the Firestore env;
+# otherwise a stdlib stub that answers 503 on the page paths. See
+# nudge_tool/survey_page/__init__.py.
+from nudge_tool import survey_page  # noqa: E402
+
+
+# A survey capability must never reach the log. On the page paths the WHOLE
+# query goes (covers tok%65n=, "token= <x>", any spelling); elsewhere token=.
+_RE = __import__("re")
+_PAGE_QUERY_RE = _RE.compile(r'(/survey[^\s?"]*\?)[^"]*')
+_TOKEN_RE = _RE.compile(r"(token=)[^\s&\"']+")
+
+
+def _redact(line: str) -> str:
+    return _TOKEN_RE.sub(r"\1<redacted>", _PAGE_QUERY_RE.sub(r"\1<redacted>", line))
+
+
+class Handler(survey_page.handler_base()):
+    timeout = 30  # seconds a client may stall a connection (fresh-eyes 10/2: slowloris on the page POST)
+
+    def log_message(self, fmt, *args):  # quieter console; a survey token never reaches the log (Block 18)
+        print("  " + _redact(fmt % args))
 
     def _authed(self) -> bool:
         """True if Basic Auth is off, or the request carries the right creds."""
@@ -505,7 +525,11 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def do_GET(self):
-        parsed = urlparse(self.path)
+        try:
+            parsed = urlparse(self.path)
+        except ValueError:  # e.g. an absolute-form target "http://[x/..." (fresh-eyes 10/2)
+            self._send(400, "text/plain; charset=utf-8", b"bad request")
+            return
         params = parse_qs(parsed.query)
 
         if parsed.path == "/healthz":  # unauthenticated so uptime checks work
@@ -539,6 +563,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, "text/plain; charset=utf-8", b"unknown survey")
             return
 
+        if survey_page.is_page_path(parsed.path):  # Block 18: Chris's survey page, unauthenticated like /s
+            self.page_get()
+            return
+
         if not self._authed():
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="SHIFT live"')
@@ -564,7 +592,14 @@ class Handler(BaseHTTPRequestHandler):
                        _error_page(tb).encode("utf-8"))
 
     def do_POST(self):
-        parsed = urlparse(self.path)
+        try:
+            parsed = urlparse(self.path)
+        except ValueError:  # same malformed-target case as do_GET
+            self._send(400, "text/plain; charset=utf-8", b"bad request")
+            return
+        if survey_page.is_page_path(parsed.path):  # Block 18: the page's own save route (his checks apply)
+            self.page_post()
+            return
         if not self._authed():
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="SHIFT live"')
