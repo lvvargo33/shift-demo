@@ -2,12 +2,17 @@
 <!--
   shift-nudge-tool dashboard. Reuses the "Send It" Lovable skin (CSS verbatim
   from Redesign/Shift_ABC_Prep/New_HTML/ftv_mvp_demo_v2_shift.html). Views built
-  on REAL Beta-export data (FTV_PILOT_SPEC.md section 14): Dashboard, Recovery
-  Queue, Detail, Settings. Inbox + Insights are survey-driven and arrive
-  with the survey loop (S2); they are intentionally absent until then.
+  on REAL Beta-export data (FTV_PILOT_SPEC.md section 14). Since Block 20 R2
+  (2026-10-08): Home (what needs you, what runs by itself, how it is going),
+  Email activity (a log of the automatic emails, opened from Home, nothing to
+  send), Insights, and one survey page (new answers on top). The Dashboard and
+  the Recovery Queue pages are gone.
 
   The tool injects the run's data into the <script id="nudge-data"> tag below
-  (replacing __DATA_JSON__), so this is a single self-contained file: no server,
+  (replacing the DATA JSON placeholder in the nudge-data script tag; the
+  placeholder token must appear ONLY there, or the replace injects the data
+  twice and doubles the page, which it did until 2026-10-08), so this is a
+  single self-contained file: no server,
   no fetch. It is a VIEW of who would be tagged; it never sends anything.
 -->
 <html lang="en">
@@ -343,6 +348,59 @@ button, input, textarea, select { font-family: inherit; }
 .inbox-section-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-hint); font-weight: 700; padding: 8px 2px 2px; }
 .inbox-hidden-note { font-size: 11.5px; color: var(--fg-subtle); margin-top: 10px; line-height: 1.6; }
 .inbox-hidden-note a { color: var(--primary); cursor: pointer; font-weight: 600; }
+
+/* --- Block 20 R2 (2026-10-08): Home, Email activity, the merged survey page and
+   the "How this is counted" links. The same block sits in both gyms' templates
+   (rule 4); the look is the 10/5 mockup's (Send_It_Preview_*.html). --- */
+.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-subtle); font-weight: 700; margin: 26px 0 10px; }
+.section-label span { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--fg-hint); margin-left: 6px; }
+.todo { border-color: var(--primary-soft-2); background: linear-gradient(135deg, var(--primary-tint) 0%, var(--card) 60%); }
+.todo-row, .auto-row { display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-top: 1px solid var(--border-soft); }
+.todo-row:first-child, .auto-row:first-child { border-top: none; }
+.todo-count { width: 44px; text-align: center; font-size: 27px; font-weight: 700; letter-spacing: -0.8px; color: var(--primary); line-height: 1; }
+.todo-main, .auto-main { flex: 1 1 220px; min-width: 0; }   /* on a phone the button drops under the text (tester 2026-10-08) */
+.todo-title { font-size: 14.5px; font-weight: 600; }
+.todo-sub, .auto-sub { font-size: 12.5px; color: var(--fg-subtle); margin-top: 2px; }
+.auto-title { font-size: 13.5px; font-weight: 500; }
+.auto-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); margin: 0 18px; flex-shrink: 0; }
+.auto-dot.off { background: var(--border-strong); }
+.done { display: flex; align-items: center; gap: 14px; padding: 20px; }
+.done-mark { width: 36px; height: 36px; border-radius: 50%; background: var(--success-soft); color: var(--success-fg); display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.two-col .card + .card { margin-top: 0; }
+.mini-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.mini .mini-label { font-size: 11.5px; color: var(--fg-subtle); }
+.mini .mini-value { font-size: 22px; font-weight: 700; letter-spacing: -0.6px; margin-top: 2px; }
+.card-foot { border-top: 1px solid var(--border-soft); padding: 8px 16px; }
+.link-btn { background: none; border: none; padding: 0; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--primary); cursor: pointer; }
+.link-btn:hover { text-decoration: underline; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.back-link { display: inline-block; margin-bottom: 10px; font-size: 12.5px; color: var(--primary); font-weight: 600; cursor: pointer; background: none; border: none; padding: 0; font-family: inherit; }
+.back-link:hover { text-decoration: underline; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-subtle); font-weight: 700; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.tbl td { padding: 8px 8px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl tr.is-new td { background: var(--primary-tint); }
+.tbl .muted { color: var(--fg-hint); font-style: italic; }
+.tbl .sub { font-size: 11px; color: var(--fg-subtle); }
+.tbl .acts { white-space: nowrap; text-align: right; }
+.tbl .acts .link-btn + .link-btn { margin-left: 12px; }
+.preview-row td { background: var(--bg-subtle); }
+.section-gap { margin-top: 14px; }
+details.held > summary { cursor: pointer; list-style: none; padding: 14px 20px; font-size: 13.5px; font-weight: 600; }
+details.held > summary::-webkit-details-marker { display: none; }
+details.held > summary span { font-size: 11.5px; font-weight: 500; color: var(--fg-hint); margin-left: 8px; }
+details.held[open] > summary { border-bottom: 1px solid var(--border-soft); }
+.how-link { background: none; border: none; color: var(--fg-subtle); font-size: 11.5px; font-weight: 600; cursor: pointer; text-decoration: underline; padding: 0; margin-top: 4px; font-family: inherit; }
+.how-text { display: none; margin-top: 8px; font-size: 12px; color: var(--fg-subtle); max-width: 820px; line-height: 1.6; }
+.how-text.open { display: block; }
+.home-foot { font-size: 11.5px; color: var(--fg-hint); margin-top: 18px; line-height: 1.6; }
+@media (max-width: 880px) {
+  .two-col { grid-template-columns: 1fr; }
+  .todo-row { flex-wrap: wrap; }
+  .tbl { min-width: 560px; }   /* the card scrolls sideways instead of squeezing the cells (tester 2026-10-08) */
+}
 </style>
 </head>
 <body>
@@ -361,38 +419,32 @@ button, input, textarea, select { font-family: inherit; }
     </div>
   </div>
   <div class="sidebar-nav">
-    <button class="nav-btn active" data-view="dashboard" onclick="showView('dashboard')">
-      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
-      Dashboard
+    <!-- Block 20 R2 (2026-10-08): Home replaces the Dashboard; the Recovery
+         Queue is now "Email activity", opened from Home only (decision 5); the
+         survey inbox and All Surveys are one page (decision 7a). -->
+    <button class="nav-btn active" data-view="home" onclick="showView('home')">
+      <svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>
+      Home
     </button>
-    <button class="nav-btn" data-view="queue" onclick="showView('queue')">
-      <svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
-      Recovery Queue
-      <span class="nav-badge" id="queue-badge">0</span>
+    <!-- Order (Luke 2026-10-08, decision 22): Home, Survey Responses, Insights; the
+         "Survey loop" section label is gone (one section, no label needed). -->
+    <button class="nav-btn" id="nav-surveys" data-view="surveys">
+      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Survey Responses
+      <span class="nav-badge" id="inbox-badge" style="display:none;" title="New survey answers to read">0</span>
     </button>
     <button class="nav-btn" id="nav-insights" data-view="insights">
       <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
       Insights
-    </button>
-    <div class="nav-section-label" id="survey-nav-label">Survey loop</div>
-    <button class="nav-btn" id="nav-inbox" data-view="inbox">
-      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      Survey Responses
-      <span class="nav-badge" id="inbox-badge" style="display:none;">0</span>
-    </button>
-    <button class="nav-btn" id="nav-surveys" data-view="surveys">
-      <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-      All Surveys
     </button>
   </div>
 </nav>
 
 <main class="main">
   <div class="main-inner">
-    <div id="view-dashboard" class="view active"></div>
-    <div id="view-queue" class="view"></div>
+    <div id="view-home" class="view active"></div>
+    <div id="view-activity" class="view"></div>
     <div id="view-detail" class="view"></div>
-    <div id="view-inbox" class="view"></div>
     <div id="view-surveys" class="view"></div>
     <div id="view-insights" class="view"></div>
   </div>
@@ -419,23 +471,38 @@ function formatEmailBody(s) {
 }
 /* Plain-text version (for clipboard): drop markdown link syntax to "label: url". */
 function mdToPlain(s) { return String(s == null ? '' : s).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1: $2'); }
-function anchorLabel(a) { return ({ first_visit: 'the first visit', trial_purchase: 'the trial purchase', survey_sent: 'the survey send', last_visit: 'the last visit', last_daypass: 'the last day pass' })[a] || a; }
+function anchorLabel(a) { return ({ first_visit: 'the first visit', second_visit: 'the second visit', trial_purchase: 'the trial purchase', survey_sent: 'the survey send', last_visit: 'the last visit', last_daypass: 'the last day pass' })[a] || a; }
+// Plain names for every email the tool sends (Block 20 R2: Email activity
+// shows these, never a raw trigger name). Both gyms' lists are here so the
+// function is identical in both templates (rule 4).
+const TRIGGER_LABELS = {
+  survey_request: 'First-visit survey',
+  survey_reminder: 'Survey reminder',
+  first_visit_reengage: 'Come-back offer',
+  ftv_reminder: 'Come-back offer reminder',
+  nudge_round_two: 'Round-two invite',
+  nudge_pricing: 'Come-back offer (price)',
+  nudge_crowding: 'Come-back offer (crowding)',
+  nudge_too_hard: 'Come-back offer (too hard)',
+  nudge_intimidating: 'Come-back offer (intimidating)',
+  nudge_frontdesk: 'Come-back offer (front desk)',
+  nudge_confusing: 'Come-back offer (confusing)',
+  nudge_routes: 'Come-back offer (routes)',
+  membership_offer: 'Membership offer',
+  membership_offer_control: 'Membership offer',
+  trial_offer: '2-week trial offer',
+  daypass_to_trial: 'Day-pass regulars offer',
+  comeback_soft: 'Trial win-back',
+  MANUAL: 'Manager call (safety)'
+};
 function triggerLabel(name) {
-  return ({
-    survey_request: 'First-visit survey',
-    comeback_soft: 'Trial win-back',
-    daypass_to_trial: 'Day-pass upsell',
-    nudge_round_two: 'Round two (high intent)',
-    nudge_pricing: 'Pricing blocker',
-    nudge_crowding: 'Crowding blocker',
-    nudge_too_hard: 'Too-hard blocker',
-    nudge_intimidating: 'Intimidating blocker',
-    nudge_frontdesk: 'Front-desk blocker',
-    nudge_confusing: 'Confusing blocker',
-    nudge_routes: 'Routes blocker',
-    MANUAL: 'Manager call (safety)'
-  })[name] || name.replace(/_/g, ' ');
+  return TRIGGER_LABELS[name] || String(name || '').replace(/_/g, ' ');
 }
+// Outreach-log rows that are not first-time-visitor emails (the member survey
+// program and its replies, the front-desk alert): they live on the Members
+// pages, not in Email activity (engine.NON_FTV_TRIGGERS).
+const NON_FTV_TRIGGERS = ['member_survey', 'member_reply', 'member_auto_reply', 'member_checkin_alert'];
+function isFtvTrigger(name) { return NON_FTV_TRIGGERS.indexOf(name) < 0; }
 function blockerLabel(b) {
   if (!b) return '';
   return ({
@@ -467,13 +534,6 @@ function surveyStatusLine(q) {
   }
   return '<div class="queue-survey-status"><span class="ss-label">Survey</span>' + inner + '</div>';
 }
-function prioAction(name) {
-  return ({
-    survey_request: 'Send the first-visit survey so the next message can be matched to the real blocker.',
-    comeback_soft: 'Win back trial buyers who bought in but never came back.',
-    daypass_to_trial: 'Upsell day-pass regulars to the 2-week trial before the habit fades.'
-  })[name] || 'In the recovery queue this run.';
-}
 function icon(n) {
   const p = { download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
     mail:'<path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><polyline points="22,6 12,13 2,6"/>',
@@ -504,23 +564,17 @@ function showView(viewId) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   $('view-' + viewId).classList.add('active');
-  const navId = viewId === 'detail' ? 'queue' : viewId;
+  // Email activity and a climber's history open from Home (no sidebar entry)
+  const navId = (viewId === 'detail' || viewId === 'activity') ? 'home' : viewId;
   const btn = document.querySelector('.nav-btn[data-view="' + navId + '"]');
   if (btn) btn.classList.add('active');
   // Remember the tab so an auto-refresh reload restores it instead of snapping
-  // back to Dashboard. sessionStorage survives a reload regardless of whether
+  // back to Home. sessionStorage survives a reload regardless of whether
   // the meta-refresh keeps the URL hash. Detail is per-climber, so skip it.
   if (viewId !== 'detail') {
     try { sessionStorage.setItem('shiftActiveView', viewId); } catch (e) {}
     try { history.replaceState(null, '', '#' + viewId); }
     catch (e2) { location.hash = viewId; }
-  }
-  // Opening the inbox marks the currently-shown response as read, so the top
-  // item doesn't sit there looking unseen (it IS shown in the reading pane).
-  if (viewId === 'inbox' && surveyOn() && SELECTED_KEY) {
-    const seen = lsGet(INBOX_READ_KEY);
-    if (!seen.has(SELECTED_KEY)) { seen.add(SELECTED_KEY); lsSet(INBOX_READ_KEY, seen); renderInbox(); }
-    refreshInboxBadge();
   }
   window.scrollTo(0, 0);
   closeMobileNav();
@@ -532,15 +586,6 @@ function toggleMobileNav() {
 function closeMobileNav() {
   $('sidebar').classList.remove('open');
   $('sidebar-backdrop').classList.remove('open');
-}
-
-function safetyBanner() {
-  if (DATA.send_enabled) {
-    return '<div class="banner banner-warn">' + icon('shield') +
-      '<div><strong>Live.</strong> New first-time visitors are followed up automatically every day. You can also send any person’s follow-up right now with the Send button.</div></div>';
-  }
-  return '<div class="banner banner-safe">' + icon('shield') +
-    '<div><strong>Live view.</strong> Follow-ups send automatically each day to the people listed here. Sending by hand from this page isn’t switched on for this account yet.</div></div>';
 }
 
 /* ============================ REPORTING PERIOD + AGGREGATES ============================ */
@@ -580,8 +625,8 @@ function addDays(iso, n) {
 // scorecard's cut); a rolling period moves back by n days, so "Last 90 days"
 // still has a join rate: the people whose 90 days ended in the last 90 days.
 // Before 2026-09-24 a rolling period cut both ends and read "n/a" (audit S3).
-function periodRange(n) {
-  const end = dataEnd(), p = REPORT_PERIOD;
+function periodRange(n, period) {
+  const end = dataEnd(), p = period || REPORT_PERIOD;   // period: Home reads the default period while Insights keeps the picker's
   const hi = addDays(end, -n);
   if (p === 'pilot') return [pilotStart(), hi];
   if (p.startsWith('r:')) return [addDays(end, -(+p.slice(2)) - n + 1), hi];
@@ -589,8 +634,8 @@ function periodRange(n) {
   if (p.startsWith('m:')) { const e = p.slice(2) + '-31'; return [p.slice(2) + '-01', e < hi ? e : hi]; }
   return ['', hi];
 }
-function inPeriod(f, n) { const r = periodRange(n || 0), d = f.d || ''; return d >= r[0] && d <= r[1]; }
-function filterFtvs(n) { return allFtvs().filter(f => inPeriod(f, n || 0)); }
+function inPeriod(f, n, period) { const r = periodRange(n || 0, period), d = f.d || ''; return d >= r[0] && d <= r[1]; }
+function filterFtvs(n, period) { return allFtvs().filter(f => inPeriod(f, n || 0, period)); }
 function periodLabel() {
   const hit = periodOpts().find(o => o[0] === REPORT_PERIOD);
   return hit ? hit[1] : '';
@@ -600,8 +645,8 @@ function shortDate(iso) {
   return p.length === 3 ? MONTHS[+p[1] - 1] + ' ' + (+p[2]) + ', ' + p[0] : iso;
 }
 // "Jun 19, 2026 to Aug 25, 2026": the first-visit dates behind a number
-function rangeText(n) {
-  const r = periodRange(n || 0);
+function rangeText(n, period) {
+  const r = periodRange(n || 0, period);
   const lo = r[0] || (DATA.reporting && DATA.reporting.post_opening_date) || '';
   return shortDate(lo) + ' to ' + shortDate(r[1]);
 }
@@ -614,7 +659,7 @@ function periodSelectHtml() {
 function setReportPeriod(v) {
   REPORT_PERIOD = v;
   persistInsightsState();
-  renderDashboard(); renderInsights();
+  renderInsights();   // Home's numbers are fixed to the default period (Block 20 R2)
 }
 // Persist the Insights view state so the auto-refresh reload keeps the user's
 // period, Counts/% choice, and which chart they were on (sessionStorage survives
@@ -646,8 +691,8 @@ function reportWindows() {
 }
 // one rate for the picked period: n of `of` people, every one of whom has had
 // `days` days since their first visit
-function periodRate(key, days) {
-  const grp = filterFtvs(days);
+function periodRate(key, days, period) {
+  const grp = filterFtvs(days, period);
   return { n: grp.filter(f => f[key]).length, of: grp.length, days: days };
 }
 // the join window the Insights charts read (the scorecard's headline: 90 days)
@@ -696,223 +741,177 @@ function groupCaption() {
 function closeModal() { $('modal-backdrop').classList.remove('open'); $('modal-card').classList.remove('modal-wide'); $('modal-card').innerHTML = ''; }
 function openModal(html) { $('modal-card').innerHTML = html; $('modal-backdrop').classList.add('open'); }
 
-/* POST the chosen climber ids to the server, which tags them in Mailchimp (the
-   Journey then sends). The server only sends to people still eligible in today's
-   queue, so a double-click or a person who already returned is a safe no-op. */
-async function doSend(ids, label) {
-  openModal('<div class="modal-head">' + icon('mail') + 'Sending…</div>' +
-    '<div class="modal-body">Sending ' + escapeHtml(label) + '. One moment…</div>');
-  let res;
-  try {
-    const r = await fetch('/send', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: ids })
-    });
-    res = await r.json();
-  } catch (e) {
-    res = { ok: false, message: 'Could not reach the server, so nothing was sent. Try again.' };
-  }
-  sendResultModal(res);
-}
-function sendResultModal(res) {
-  if (!res || !res.ok) {
-    const msg = (res && res.message) ? res.message : 'Sending isn’t available right now, so nothing was sent.';
-    openModal('<div class="modal-head">' + icon('shield') + 'Not sent</div>' +
-      '<div class="modal-body">' + escapeHtml(msg) + '</div>' +
-      '<div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Got it</button></div>');
-    return;
-  }
-  const sent = (res.sent || []).length, failed = (res.failed || []).length;
-  let body;
-  if (!sent && !failed) {
-    body = 'No one here was eligible to send right now. They may have already been contacted or already come back.';
-  } else {
-    body = '<strong>' + sent + '</strong> follow-up' + (sent === 1 ? '' : 's') + ' sent.';
-    if (failed) body += '<br><br><strong>' + failed + '</strong> could not be sent. Check the daily report email for details.';
-  }
-  openModal('<div class="modal-head">' + icon('mail') + 'Done</div>' +
-    '<div class="modal-body">' + body + '</div>' +
-    '<div class="modal-foot"><button class="btn btn-primary" onclick="location.reload()">Refresh list</button></div>');
-}
-function confirmSendOne(id) {
-  const q = DATA.queue.find(x => x.climber_id === id);
-  if (!q) return;
-  openModal(
-    '<div class="modal-head">' + icon('mail') + 'Send this follow-up?</div>' +
-    '<div class="modal-body">You’re about to send the <strong>' + escapeHtml(triggerLabel(q.trigger_name)) + '</strong> message to ' +
-    '<strong>' + escapeHtml(q.name || 'this climber') + '</strong> (' + escapeHtml(q.email || 'no email') + ').</div>' +
-    '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn btn-send" onclick="doSend([' + JSON.stringify(q.climber_id) + '], \'this follow-up\')">Send follow-up</button></div>');
-}
-function confirmSendBulk() {
-  const sel = selectedQueueIds();
-  const ids = sel.length ? sel
-    : filteredQueue().filter(q => q.trigger_name !== 'MANUAL' && (q.email || '').trim()).map(q => q.climber_id);
-  const count = ids.length;
-  if (!count) {
-    openModal('<div class="modal-head">' + icon('mail') + 'Nothing to send</div>' +
-      '<div class="modal-body">No one in this view is eligible to send right now.</div>' +
-      '<div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Got it</button></div>');
-    return;
-  }
-  const allWord = sel.length ? 'the <strong>' + count + '</strong> selected climber' + (count === 1 ? '' : 's')
-    : '<strong>everyone in the queue</strong> (' + count + ' climber' + (count === 1 ? '' : 's') + ')';
-  openModal(
-    '<div class="modal-head">' + icon('mail') + 'Send to ' + (sel.length ? 'selected' : 'everyone') + '?</div>' +
-    '<div class="modal-body">Heads up: you’re about to send each person’s matched follow-up to ' + allWord + ' in one go. ' +
-    'Each climber gets the message that fits their situation.</div>' +
-    '<div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn btn-send" id="bulk-send-confirm">Send ' + count + ' follow-up' + (count === 1 ? '' : 's') + '</button></div>');
-  document.getElementById('bulk-send-confirm').onclick = function () {
-    doSend(ids, count + ' follow-up' + (count === 1 ? '' : 's'));
-  };
-}
+/* The hand-send buttons (one person, everyone) left the page with Block 20
+   R2 (decision 4, 2026-10-08). The server's /send route stays, switched off. */
 
-/* ============================ DASHBOARD ============================ */
-// a Dashboard rate tile: one number, the % (Luke 2026-09-25: no "n of m"
-// anywhere, small groups included), and the first-visit dates it covers
-function rateTile(label, b) {
+/* ============================ HOME (Block 20 R2, decision 12) ============================ */
+// Three parts: Needs you (the only real staff jobs), Running by itself (the
+// automatic emails, with the link to Email activity) and How it is going
+// (three numbers for first-time visitors and, at ABC, three for members). The
+// numbers under "How it is going" are fixed to the default period (the pilot
+// when there is a scorecard), so they equal the Pilot scorecard; the period
+// picker lives on Insights.
+function plural(n, one, many) { return n === 1 ? one : many; }
+function toggleHow(id) { const el = $(id); if (el) el.classList.toggle('open'); }
+// "How this is counted" (decision 7d): the long grey definition sits behind a
+// link, same words as before.
+function howLink(id, text, label) {
+  return '<button class="how-link" onclick="toggleHow(\'' + id + '\')">' + escapeHtml(label || 'How this is counted') + '</button>' +
+    '<div class="how-text" id="' + id + '">' + escapeHtml(text) + '</div>';
+}
+// a rate tile: one number, the % (Luke 2026-09-25: no "n of m" anywhere,
+// small groups included), and the first-visit dates it covers
+function rateTile(label, b, period) {
   let value, sub;
   if (!b.of) {
     value = 'n/a';
     sub = 'Nobody in this period has had ' + b.days + ' days yet';
   } else {
     value = (100 * b.n / b.of).toFixed(1) + '%';
-    sub = 'First visit ' + rangeText(b.days);
+    sub = 'First visit ' + rangeText(b.days, period);
   }
   return statTile(label, value, escapeHtml(sub));
 }
-function renderDashboard() {
-  const m = DATA.metrics, s = DATA.summary, dw = DATA.data_window;
-  let h = pageHeader("Here's who to send to today",
-    'The climbers worth a follow-up right now, based on their visits and purchases. Each group below is ready to contact.');
-  h += safetyBanner();
-
-  // behavior-driven priorities (replaces the survey-themes hero)
-  const prios = Object.entries(s.by_trigger || {}).filter(([, n]) => n > 0)
-    .sort((a, b) => b[1] - a[1]);
-  h += '<div class="card card-highlight" style="padding-bottom:4px;"><div class="card-header" style="padding-bottom:6px;">' +
-    '<div class="card-title">' + icon('sparkles') + 'Today’s send priorities</div>' +
-    '<div class="card-description">The groups in this run’s recovery queue, biggest first. Click through to see exactly who.</div></div>' +
-    '<div class="card-content with-top"><div class="prio-grid">';
-  if (prios.length === 0) {
-    h += '<div class="prio-desc">No groups are eligible for this run. Check back after the next data refresh.</div>';
+function homeRate(key, days) {
+  const b = periodRate(key, days, defaultPeriod());
+  return b.of ? (100 * b.n / b.of).toFixed(1) + '%' : 'n/a';
+}
+function autoQueue() { return (DATA.queue || []).filter(q => q.trigger_name !== 'MANUAL'); }
+function manualQueue() { return (DATA.queue || []).filter(q => q.trigger_name === 'MANUAL'); }
+function heldCount() { return (DATA.suppression || {}).total || 0; }
+function renderHome() {
+  const hasMembers = typeof membersOn === 'function' && membersOn();
+  let rows = '', jobs = 0;
+  // Needs you: members waiting on a reply (ABC only), lowest scores first
+  if (hasMembers) {
+    const needs = mNeedsList();
+    if (needs.length) {
+      jobs++;
+      const names = needs.slice(0, 3).map(r => escapeHtml(r.name) + (r.risk === 'high' ? ' (high risk)' : '')).join(', ');
+      rows += '<div class="todo-row"><div class="todo-count">' + needs.length + '</div><div class="todo-main">' +
+        '<div class="todo-title">' + plural(needs.length, 'member is', 'members are') + ' waiting on a reply to their survey</div>' +
+        '<div class="todo-sub">Lowest scores first: ' + names + (needs.length > 3 ? ' and ' + (needs.length - 3) + ' more' : '') + '</div></div>' +
+        '<button class="btn btn-primary" onclick="setMemberRespTab(\'needs\');showView(\'m-responses\')">Reply to members</button></div>';
+    }
   }
-  prios.forEach(([name, n]) => {
-    h += '<div class="prio-card">' +
-      '<div class="prio-count"><strong>' + n + '</strong> ' + (n === 1 ? 'climber' : 'climbers') + '</div>' +
-      '<div class="prio-title">' + escapeHtml(triggerLabel(name)) + '</div>' +
-      '<div class="prio-desc">' + escapeHtml(prioAction(name)) + '</div>' +
-      '<button class="btn btn-outline btn-sm" style="margin-top:8px;" onclick="setQueueFilter(\'' + name + '\');showView(\'queue\')">View in queue</button>' +
-      '</div>';
-  });
-  h += '</div></div></div>';
-
-  // operational tiles (always "today", not period-scoped)
-  h += '<div class="stats-grid-3">' +
-    statTile('New visitors (last 7 days)', m.new_visitors_7d, 'First check-in within a week') +
-    statTile('Needs follow-up today', m.eligible_now, 'In the recovery queue', m.eligible_now > 0) +
-    statTile('Day-pass regulars', m.daypass_regulars, '2+ day passes in 30 days') +
-    surveyTilesHtml() +
-  '</div>';
-
-  // period-scoped first-timer + conversion numbers (Block 15 session 3): the
-  // Pilot scorecard's group and rules, so "Since the pilot started" shows the
-  // scorecard's own numbers; joins at 30 / 60 / 90 days (Luke 2026-09-24)
-  if (reportingOn()) {
-    const w = reportWindows();
-    const plain = filterFtvs(0);
-    h += '<div style="margin-top:24px;"><div class="card-title" style="margin-bottom:2px;">' + icon('funnel') + 'First-timers & conversion</div>' +
-      '<div class="card-description" style="margin-bottom:12px;">' + escapeHtml(groupCaption()) + '</div>';
-    h += periodSelectHtml();
-    h += '<div class="stats-grid-3">' +
-      statTile('First-timers', plain.length.toLocaleString(), escapeHtml('First visit ' + rangeText(0))) +
-      rateTile('Came back within ' + w.return_days + ' days', periodRate('ret30', w.return_days)) +
-      w.join_days.map((d, i) => rateTile('Joined within ' + d + ' days', periodRate(JOIN_KEYS[i], d))).join('') +
-    '</div></div>';
+  // Needs you: new first-timer survey answers to read
+  if (surveyOn()) {
+    const ns = newSurveyRows();
+    if (ns.length) {
+      jobs++;
+      const low = ns.filter(lowOverall).length, safe = ns.filter(r => r.safety).length;
+      rows += '<div class="todo-row"><div class="todo-count">' + ns.length + '</div><div class="todo-main">' +
+        '<div class="todo-title">new first-timer survey ' + plural(ns.length, 'answer', 'answers') + ' to read</div>' +
+        '<div class="todo-sub">' + (safe ? safe + ' raised a safety concern: handle in person. ' : '') + (low ? low + ' gave a low score. ' : '') +
+        'Reading is all that is needed, unless one raises a safety concern.</div></div>' +
+        '<button class="btn btn-primary" onclick="showView(\'surveys\')">Read answers</button></div>';
+    }
   }
+  const todo = jobs ? '<div class="card todo">' + rows + '</div>' :
+    '<div class="card"><div class="done"><div class="done-mark">&#10003;</div><div><div class="todo-title">You are all caught up</div>' +
+    '<div class="todo-sub">Nothing needs you right now. New survey answers will show up here.</div></div></div></div>';
 
-  h += '<div class="card"><div class="card-content with-top" style="font-size:12.5px;color:var(--fg-subtle);line-height:1.7;">' +
-    'As of <strong>' + escapeHtml(DATA.as_of) + '</strong> &nbsp;·&nbsp; ' +
-    'data window: transactions to ' + escapeHtml(dw.transactions_max || '?') + ', check-ins to ' + escapeHtml(dw.sessions_max || '?') + '<br>' +
-    'Generated ' + escapeHtml(DATA.generated_at) +
-    '</div></div>';
+  // Running by itself
+  const n = autoQueue().length, held = heldCount(), manual = manualQueue().length;
+  let auto = '<div class="card">' +
+    '<div class="auto-row"><span class="auto-dot' + (n ? '' : ' off') + '"></span><div class="auto-main">' +
+    '<div class="auto-title">' + (n ? n + ' follow-up ' + plural(n, 'email goes', 'emails go') + ' out on the next morning run' : 'No follow-up emails are due on the next morning run') + '</div>' +
+    '<div class="auto-sub">Surveys and offers to first-time visitors.' +
+      (held ? ' ' + held + ' ' + plural(held, 'person is', 'people are') + ' held back today (unsubscribed, emailed recently, or a shared email address).' : '') +
+      (manual ? ' ' + manual + ' ' + plural(manual, 'needs', 'need') + ' a manager\'s call, not an email.' : '') + '</div></div>' +
+    '<button class="btn btn-outline btn-sm" onclick="showView(\'activity\')">Email activity &rsaquo;</button></div>';
+  if (hasMembers) {
+    const cfg = MDATA.config || {}, sent = mSent('all'), answered = mAllResponses().length;
+    auto += '<div class="auto-row"><span class="auto-dot' + (MDATA.enabled ? '' : ' off') + '"></span><div class="auto-main">' +
+      '<div class="auto-title">' + (MDATA.enabled ? 'Member surveys go out to up to ' + (cfg.daily_cap || 0) + ' members a day' : 'Member surveys are switched off') + '</div>' +
+      '<div class="auto-sub">' + sent.toLocaleString() + ' sent so far, ' + answered.toLocaleString() + ' answered. Each member is asked once every ' + (cfg.cooldown_days || 180) + ' days.</div></div></div>';
+  }
+  auto += '</div>';
 
-  $('view-dashboard').innerHTML = h;
+  // How it is going
+  const m = DATA.metrics || {}, w = reportWindows();
+  let going = '<div class="card"><div class="card-header"><div class="card-title">First-time visitors</div></div><div class="card-content"><div class="mini-grid">' +
+    '<div class="mini"><div class="mini-label">New this week</div><div class="mini-value">' + (m.new_visitors_7d == null ? 'n/a' : m.new_visitors_7d.toLocaleString()) + '</div></div>' +
+    '<div class="mini"><div class="mini-label">Came back within ' + w.return_days + ' days</div><div class="mini-value">' + (reportingOn() ? homeRate('ret30', w.return_days) : 'n/a') + '</div></div>' +
+    '<div class="mini"><div class="mini-label">Joined within ' + w.join_days[0] + ' days</div><div class="mini-value">' + (reportingOn() ? homeRate(JOIN_KEYS[0], w.join_days[0]) : 'n/a') + '</div></div></div></div>' +
+    '<div class="card-foot"><button class="link-btn" onclick="showView(\'insights\')">More in Insights &rsaquo;</button></div></div>';
+  if (hasMembers) {
+    const rs = mAllResponses(), nps = mNps(rs), ret = mAvg(rs, 'remain'), mc = MDATA.member_count || {};
+    going += '<div class="card"><div class="card-header"><div class="card-title">Members</div></div><div class="card-content"><div class="mini-grid">' +
+      '<div class="mini"><div class="mini-label">Recommend score</div><div class="mini-value">' + (nps.n ? nps.score : 'n/a') + '</div></div>' +
+      '<div class="mini"><div class="mini-label">Stay-6-months intent</div><div class="mini-value">' + (ret == null ? 'n/a' : ret.toFixed(1) + ' / 10') + '</div></div>' +
+      '<div class="mini"><div class="mini-label">Active members</div><div class="mini-value">' + (mc.current == null ? 'n/a' : mc.current.toLocaleString()) + '</div></div></div></div>' +
+      '<div class="card-foot"><button class="link-btn" onclick="showView(\'m-insights\')">More in Insights &rsaquo;</button></div></div>';
+  }
+  const dw = DATA.data_window || {};
+  let h = pageHeader('Home', 'What needs you today at ' + DATA.client + ', and what is running by itself.');
+  h += '<div class="section-label" style="margin-top:0;">Needs you' + (jobs ? '<span>' + jobs + plural(jobs, ' thing', ' things') + '</span>' : '') + '</div>' + todo;
+  h += '<div class="section-label">Running by itself<span>nothing to do</span></div>' + auto;
+  h += '<div class="section-label">How it is going</div><div class="' + (hasMembers ? 'two-col' : '') + '">' + going + '</div>';
+  h += '<div class="home-foot">Data as of ' + escapeHtml(DATA.as_of) + '. Purchases through ' + escapeHtml(dw.transactions_max || '?') +
+    ', check-ins through ' + escapeHtml(dw.sessions_max || '?') + '. Page built ' + escapeHtml(DATA.generated_at) + '.</div>';
+  $('view-home').innerHTML = h;
 }
 
-/* ============================ RECOVERY QUEUE ============================ */
-let QUEUE_FILTER = 'all';
-let QUEUE_SELECTED = new Set();
-function toggleQueueSelect(id, el) { if (el.checked) QUEUE_SELECTED.add(id); else QUEUE_SELECTED.delete(id); updateBulkBar(); }
-function selectedQueueIds() { return filteredQueue().filter(q => q.trigger_name !== 'MANUAL').map(q => q.climber_id).filter(id => QUEUE_SELECTED.has(id)); }
-function clearQueueSelection() { QUEUE_SELECTED.clear(); renderQueue(); }
-function updateBulkBar() {
-  const el = $('bulk-count'); if (!el) return;
-  const sel = selectedQueueIds().length;
-  const total = filteredQueue().filter(q => q.trigger_name !== 'MANUAL').length;
-  $('bulk-btn').textContent = sel ? 'Send to ' + sel + ' selected' : 'Send to all ' + total;
-  el.textContent = sel ? (sel + ' selected') : (total + ' in this view');
-  const clr = $('bulk-clear'); if (clr) clr.style.display = sel ? '' : 'none';
-}
-function bulkBarHtml() {
-  const total = filteredQueue().filter(q => q.trigger_name !== 'MANUAL').length;
-  if (!total) return '';
-  return '<div class="bulk-bar">' +
-    '<span class="bulk-count" id="bulk-count">' + total + ' in this view</span>' +
-    '<button class="btn btn-send btn-sm" id="bulk-btn" onclick="confirmSendBulk()">Send to all ' + total + '</button>' +
-    '<button class="btn btn-ghost btn-sm" id="bulk-clear" style="display:none;" onclick="clearQueueSelection()">Clear selection</button>' +
-    '<span style="font-size:11.5px;color:var(--fg-subtle);margin-left:auto;">Tick a climber to send one-by-one, or send the whole list.</span>' +
-    '</div>';
-}
-function queueFilters() {
-  const names = [];
-  DATA.queue.forEach(q => { if (!names.includes(q.trigger_name)) names.push(q.trigger_name); });
-  const out = [{ id: 'all', label: 'All (' + DATA.queue.length + ')' }];
-  if (DATA.queue.length > 10) out.push({ id: '__top10', label: 'Top 10 priority' });
-  names.forEach(n => out.push({ id: n, label: triggerLabel(n) + ' (' + DATA.queue.filter(q => q.trigger_name === n).length + ')' }));
+/* ============================ EMAIL ACTIVITY (Block 20 R2, decisions 4 + 5) ============================ */
+// The Recovery Queue, reshaped as a log: who gets an email on the next run and
+// why, who is held back today, and who was sent what. Nothing here sends
+// anything (the hand-send code in the server stays switched off; the page no
+// longer offers it). Opened from Home; no sidebar entry. Email types show
+// their plain names and are filtered by that name, so the two membership-offer
+// arms at SHIFT read as one "Membership offer" chip.
+let ACT_FILTER = 'all';      // 'all' or a plain email-type name (triggerLabel)
+let ACT_PREVIEW = null;      // climber_id whose message preview is open
+let ACT_SHOW_ALL = false;    // the next-run table past its first ACT_FOLD rows
+const ACT_FOLD = 10;         // next-run rows shown before "Show all"
+const ACT_SENT_MAX = 200;    // sent rows shown on the page (the CSV has them all)
+function setActFilter(id) { ACT_FILTER = id; ACT_PREVIEW = null; ACT_SHOW_ALL = false; renderActivity(); }
+function toggleActPreview(id) { ACT_PREVIEW = ACT_PREVIEW === id ? null : id; renderActivity(); }
+function actShowAll() { ACT_SHOW_ALL = true; renderActivity(); }
+function actMatches(name) { return ACT_FILTER === 'all' || triggerLabel(name) === ACT_FILTER; }
+function actQueue() { return (DATA.queue || []).filter(q => actMatches(q.trigger_name)); }
+function actSentRows() { return filteredSentLog().filter(r => actMatches(r.trigger_name)); }
+function actChips() {
+  const seen = {}, out = [{ id: 'all', label: 'All' }];
+  const add = name => { if (!name) return; const l = triggerLabel(name); if (!seen[l]) { seen[l] = true; out.push({ id: l, label: l }); } };
+  (DATA.queue || []).forEach(q => add(q.trigger_name));
+  filteredSentLog().forEach(r => add(r.trigger_name));
   return out;
 }
-function setQueueFilter(id) { QUEUE_FILTER = id; renderQueue(); }
-function filteredQueue() {
-  if (QUEUE_FILTER === 'all') return DATA.queue;
-  if (QUEUE_FILTER === '__top10') return DATA.queue.filter(q => q.priority <= 10);
-  return DATA.queue.filter(q => q.trigger_name === QUEUE_FILTER);
+// "First visit Sep 30, 2026, 6 days ago": the anchor behind the email, plain
+function actWhy(q) {
+  const a = anchorLabel(q.anchor).replace(/^the /, '');
+  const label = a.charAt(0).toUpperCase() + a.slice(1);
+  return label + (q.anchor_date ? ' ' + longDate(q.anchor_date) : '') +
+    (q.days_since != null ? ', ' + q.days_since + ' ' + plural(q.days_since, 'day', 'days') + ' ago' : '');
 }
-
 function reasonLabel(r) {
-  return ({ unsubscribed: 'Unsubscribed / cleaned', already_sent: 'Already sent (once only)', cooldown: 'In cooldown', shared_inbox: 'Shared inbox (deduped)', shared_email: 'Shared email (held for safety)', group_sent: 'Already got the offer email' })[r] || r;
+  return ({ unsubscribed: 'Unsubscribed', already_sent: 'Already got this email', cooldown: 'Got an email recently',
+    shared_inbox: 'Shares an email address with another climber', shared_email: 'Shares an email address with another climber',
+    group_sent: 'Already got the offer email' })[r] || String(r || '').replace(/_/g, ' ');
 }
-function withheldCard() {
+// Held back today (N), and why: the people who matched an email but are not
+// sent one (unsubscribed, emailed recently, a shared address). Folded.
+function heldCard(open) {
   const sup = DATA.suppression || {};
   if (!sup.total) return '';
-  let h = '<details class="card withheld-card" style="border-color:var(--warning-soft);">' +
-    '<summary class="card-header"><div class="card-title">' + icon('shield') + 'Withheld this run (' + sup.total + ')' +
-      '<span class="withheld-hint"></span></div>' +
-    '<div class="card-description">Matched a trigger but intentionally not sent, so sender reputation and consent stay protected.</div></summary>' +
-    '<div class="card-content with-top">';
-  h += '<div class="inline-badges" style="margin-bottom:12px;">';
-  Object.entries(sup.by_reason || {}).forEach(([r, n]) => {
-    h += '<span class="badge badge-warning">' + escapeHtml(reasonLabel(r)) + ': ' + n + '</span>';
-  });
-  h += '</div>';
+  let h = '<details class="card held section-gap"' + (open ? ' open' : '') + '><summary>Held back today (' + sup.total + '), and why<span>click to show</span></summary>' +
+    '<div class="card-content" style="padding-top:12px;overflow-x:auto;"><table class="tbl"><tbody>';
   (sup.withheld || []).forEach(w => {
-    h += '<div class="withheld-row">' +
-      '<span class="withheld-name">' + escapeHtml(w.name || '(no name)') + '</span>' +
-      '<span class="badge badge-primary">' + escapeHtml(triggerLabel(w.trigger_name)) + '</span>' +
-      '<span class="badge badge-warning">' + escapeHtml(reasonLabel(w.reason)) + '</span>' +
-      '<span class="withheld-email">' + escapeHtml(w.email || '') + '</span>' +
-      '</div>';
+    h += '<tr><td><strong>' + escapeHtml(w.name || '(no name)') + '</strong><div class="sub">' + escapeHtml(w.email || '') + '</div></td>' +
+      '<td><span class="badge badge-primary">' + escapeHtml(triggerLabel(w.trigger_name)) + '</span></td>' +
+      '<td>' + escapeHtml(reasonLabel(w.reason)) + '</td></tr>';
   });
-  h += '</div></details>';
-  return h;
+  return h + '</tbody></table></div></details>';
 }
 
-/* --- export: who was sent what (reads DATA.sent_log, the outreach record) --- */
+/* --- sent: who was sent what (reads DATA.sent_log, the outreach record) --- */
 let EXPORT_PERIOD = 'r:30';
 const SENT_PERIOD_OPTS = [['r:30','Last 30 days'],['r:90','Last 90 days'],['r:180','Last 6 months'],['r:365','Last year'],['all','All time']];
-function sentLog() { return DATA.sent_log || []; }
-function setExportPeriod(v) { EXPORT_PERIOD = v; renderQueue(); }
+// first-time-visitor emails only: the member survey program and its replies
+// have their own log on Member Responses
+function sentLog() { return (DATA.sent_log || []).filter(r => isFtvTrigger(r.trigger_name)); }
+function setExportPeriod(v) { EXPORT_PERIOD = v; renderActivity(); }
 function sentCutoff(days) {
   const asof = DATA.as_of || '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asof)) return null;
@@ -934,92 +933,78 @@ function downloadCsv(name, text) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function exportSentLog() {
-  const rows = filteredSentLog();
-  if (!rows.length) { alert('No messages were sent in this period yet.'); return; }
+  const rows = actSentRows();
+  if (!rows.length) { toast('No messages were sent in this period yet.'); return; }
   const head = ['Date sent', 'Name', 'Email', 'Message'];
   const body = rows.map(r => [r.sent_date, r.name, r.email, triggerLabel(r.trigger_name)]);
   const csv = [head].concat(body).map(cols => cols.map(csvCell).join(',')).join('\r\n');
   const lbl = (SENT_PERIOD_OPTS.find(o => o[0] === EXPORT_PERIOD) || ['', 'all'])[1].toLowerCase().replace(/ /g, '-');
   downloadCsv('sent-messages_' + lbl + '.csv', csv);
 }
-function exportControlHtml() {
-  const opts = SENT_PERIOD_OPTS.map(([v, l]) =>
-    '<option value="' + v + '"' + (EXPORT_PERIOD === v ? ' selected' : '') + '>' + l + '</option>').join('');
-  const n = filteredSentLog().length;
-  return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;">' +
-    '<span style="font-size:12.5px;color:var(--fg-subtle);font-weight:600;">Export who was sent what</span>' +
-    '<select class="period-select" onchange="setExportPeriod(this.value)">' + opts + '</select>' +
-    '<button class="btn btn-ghost btn-sm" onclick="exportSentLog()">' + icon('download') + 'Export CSV (' + n + ')</button>' +
-    '</div>';
-}
 
-function renderQueue() {
-  let h = pageHeader('Recovery Queue',
-    'Everyone queued to send to this run, highest priority first. Click a name for their full history.');
-  h += safetyBanner();
-  h += exportControlHtml();
-  h += withheldCard();
-
-  const filters = queueFilters();
-  if (filters.length > 2) {
-    h += '<div class="chips">';
-    filters.forEach(f => {
-      h += '<button class="chip' + (QUEUE_FILTER === f.id ? ' active' : '') + '" onclick="setQueueFilter(\'' + f.id + '\')">' + escapeHtml(f.label) + '</button>';
-    });
-    h += '</div>';
+function renderActivity() {
+  const heldOpen = !!(document.querySelector('details.held') || {}).open;   // keep the fold across re-renders
+  const chips = actChips();
+  const next = actQueue(), shown = (ACT_SHOW_ALL || ACT_FILTER !== 'all') ? next : next.slice(0, ACT_FOLD);
+  const sent = actSentRows();
+  let h = '<button class="back-link" onclick="showView(\'home\')">&lsaquo; Home</button>';
+  h += pageHeader('Email activity',
+    'Every follow-up email, sent automatically each morning. This page is a record. There is nothing to send from here.');
+  if (chips.length > 2) {
+    h += '<div class="chips">' + chips.map(c => '<button class="chip' + (ACT_FILTER === c.id ? ' active' : '') + '" onclick="setActFilter(\'' +
+      escapeHtml(c.id).replace(/'/g, "\\'") + '\')">' + escapeHtml(c.label) + '</button>').join('') + '</div>';
   }
-
-  const rows = filteredQueue();
-  if (rows.length === 0) {
-    h += '<div class="card"><div class="empty-state">' +
-      '<div class="empty-state-icon">🎉</div>' +
-      '<div class="empty-state-title">No one is waiting</div>' +
-      '<div class="empty-state-msg">No climbers match this filter for this run.</div>' +
-      '</div></div>';
+  // 1. going out on the next run
+  h += '<div class="card"><div class="card-header"><div class="card-title">Going out on the next run (' + next.length + ')</div>' +
+    '<div class="card-description">These people get the email shown at the next morning run, on the data as of ' + escapeHtml(DATA.as_of || '?') + '.</div></div>' +
+    '<div class="card-content" style="overflow-x:auto;">';
+  if (!next.length) {
+    h += '<div class="card-description">' + (ACT_FILTER === 'all' ? 'Nobody is due an email on the next run.' : 'Nobody in this group on the next run.') + '</div>';
   } else {
-    h += bulkBarHtml();
+    h += '<table class="tbl"><thead><tr><th>Who</th><th>Email</th><th>Why now</th><th></th></tr></thead><tbody>';
+    shown.forEach(q => {
+      const manual = q.trigger_name === 'MANUAL', open = ACT_PREVIEW === q.climber_id, id = escapeHtml(q.climber_id).replace(/'/g, "\\'");
+      h += '<tr><td><strong>' + escapeHtml(q.name || '(no name)') + '</strong><div class="sub">' + escapeHtml(q.email || 'no email on file') + '</div></td>' +
+        '<td><span class="badge ' + (manual ? 'badge-destructive' : 'badge-primary') + '">' + escapeHtml(triggerLabel(q.trigger_name)) + '</span></td>' +
+        '<td>' + escapeHtml(actWhy(q)) + (manual ? '<div class="sub">Handle in person. No email is sent.</div>' : '') + '</td>' +
+        '<td class="acts">' + (manual ? '' : '<button class="link-btn" onclick="toggleActPreview(\'' + id + '\')">' + (open ? 'Hide message' : 'Preview the message') + '</button>') +
+        '<button class="link-btn" onclick="openDetail(\'' + id + '\')">Full history</button></td></tr>';
+      if (open) h += '<tr class="preview-row"><td colspan="4"><div class="email-subject">' + escapeHtml(q.subject) + '</div><div class="email-body">' + formatEmailBody(q.body_preview) + '</div></td></tr>';
+    });
+    h += '</tbody></table>';
   }
-  rows.forEach(q => { h += renderQueueCard(q); });
-  $('view-queue').innerHTML = h;
-  updateBulkBar();
-}
-
-function renderQueueCard(q) {
-  const manual = q.trigger_name === 'MANUAL';
-  const checked = QUEUE_SELECTED.has(q.climber_id) ? ' checked' : '';
-  return '<div class="card queue-card" id="card-' + escapeHtml(q.climber_id) + '">' +
-    '<div class="card-header"><div class="queue-name-row">' +
-      (manual ? '' : '<label class="queue-select" title="Select for bulk send"><input type="checkbox"' + checked + ' onchange="toggleQueueSelect(\'' + escapeHtml(q.climber_id) + '\', this)"></label>') +
-      '<div class="queue-name" onclick="openDetail(\'' + escapeHtml(q.climber_id) + '\')">' + escapeHtml(q.name || '(no name)') + '</div>' +
-      '<div class="inline-badges">' +
-        '<span class="badge badge-warning">#' + q.priority + '</span>' +
-        '<span class="badge badge-primary">' + escapeHtml(triggerLabel(q.trigger_name)) + '</span>' +
-      '</div>' +
-    '</div><div class="queue-email">' + escapeHtml(q.email || 'no email on file') + '</div></div>' +
-    '<div class="card-content">' +
-      '<div class="queue-fields">' +
-        field('Trigger', triggerLabel(q.trigger_name)) +
-        field('Timing', anchorLabel(q.anchor) + ' + ' + q.days_since + 'd') +
-        field('Visits', String(q.visit_count)) +
-      '</div>' +
-      surveyStatusLine(q) +
-      '<button class="queue-expand-btn" onclick="toggleExpand(\'' + escapeHtml(q.climber_id) + '\')">▸ Preview the message</button>' +
-      '<div class="queue-survey-panel" id="panel-' + escapeHtml(q.climber_id) + '">' +
-        '<div class="email-subject">' + escapeHtml(q.subject) + '</div>' +
-        '<div class="email-body">' + formatEmailBody(q.body_preview) + '</div>' +
-      '</div>' +
-      '<div class="queue-actions">' +
-        '<button class="btn btn-outline btn-sm" onclick="openDetail(\'' + escapeHtml(q.climber_id) + '\')">' + icon('users') + ' Full history</button>' +
-        (manual
-          ? '<span class="badge badge-destructive">⚠ Manager call: handle personally, no automated send</span>'
-          : '<button class="btn btn-send btn-sm" onclick="confirmSendOne(\'' + escapeHtml(q.climber_id) + '\')">' + icon('mail') + ' Send follow-up</button>') +
-      '</div>' +
-    '</div></div>';
-}
-
-function toggleExpand(id) {
-  const p = $('panel-' + id);
-  if (p) p.classList.toggle('open');
+  h += '</div>';
+  if (shown.length < next.length) h += '<div class="card-foot"><button class="link-btn" onclick="actShowAll()">Show all ' + next.length + '</button></div>';
+  h += '</div>';
+  // 2. held back today
+  h += heldCard(heldOpen);
+  // 3. sent
+  const opts = SENT_PERIOD_OPTS.map(([v, l]) => '<option value="' + v + '"' + (EXPORT_PERIOD === v ? ' selected' : '') + '>' + l + '</option>').join('');
+  const plabel = (SENT_PERIOD_OPTS.find(o => o[0] === EXPORT_PERIOD) || ['', 'All time'])[1].toLowerCase();
+  h += '<div class="card section-gap"><div class="card-header" style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div style="flex:1;">' +
+    '<div class="card-title">Sent, ' + escapeHtml(plabel) + '</div><div class="card-description">Newest first. Test sends are left out.</div></div>' +
+    '<select class="period-select" onchange="setExportPeriod(this.value)">' + opts + '</select>' +
+    '<button class="btn btn-outline btn-sm" onclick="exportSentLog()">' + icon('download') + ' Export CSV (' + sent.length + ')</button></div>' +
+    '<div class="card-content" style="overflow-x:auto;">';
+  if (!sent.length) {
+    h += '<div class="card-description">' + (ACT_FILTER === 'all' ? 'Nothing sent in this period yet.' : 'None of this kind in this period.') + '</div>';
+  } else {
+    // Full history opens only for someone in today's queue (the payload carries
+    // each climber's visits and purchases for the queue only)
+    const byEmail = {}; (DATA.queue || []).forEach(q => { if (q.email) byEmail[q.email.trim().toLowerCase()] = q.climber_id; });
+    h += '<table class="tbl"><thead><tr><th>Date</th><th>Who</th><th>Email</th><th></th></tr></thead><tbody>';
+    sent.slice(0, ACT_SENT_MAX).forEach(r => {
+      const cid = byEmail[(r.email || '').trim().toLowerCase()];
+      h += '<tr><td style="white-space:nowrap;">' + escapeHtml(longDate(r.sent_date)) + '</td>' +
+        '<td><strong>' + escapeHtml(r.name || r.email || '') + '</strong>' + (r.name ? '<div class="sub">' + escapeHtml(r.email) + '</div>' : '') + '</td>' +
+        '<td>' + escapeHtml(triggerLabel(r.trigger_name)) + '</td>' +
+        '<td class="acts">' + (cid ? '<button class="link-btn" onclick="openDetail(\'' + escapeHtml(cid).replace(/'/g, "\\'") + '\')">Full history</button>' : '') + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    if (sent.length > ACT_SENT_MAX) h += '<div class="card-description" style="margin-top:8px;">Showing the newest ' + ACT_SENT_MAX + ' of ' + sent.length + '. Export CSV has them all.</div>';
+  }
+  h += '</div></div>';
+  $('view-activity').innerHTML = h;
 }
 
 /* ============================ DETAIL ============================ */
@@ -1028,13 +1013,12 @@ function renderDetail(id) {
   const q = DATA.queue.find(x => x.climber_id === id);
   if (!q) { $('view-detail').innerHTML = '<div class="card"><div class="empty-state"><div class="empty-state-title">Not found</div></div></div>'; return; }
 
-  let h = '<button class="btn btn-ghost btn-sm" onclick="showView(\'queue\')">‹ Back to queue</button>';
-  h += '<div class="page-header" style="margin-top:10px;margin-bottom:14px;">' +
+  let h = '<button class="back-link" onclick="showView(\'activity\')">&lsaquo; Email activity</button>';
+  h += '<div class="page-header" style="margin-top:4px;margin-bottom:14px;">' +
     '<div class="page-title">' + escapeHtml(q.name || '(no name)') + '</div>' +
     '<div class="page-subtitle">' + escapeHtml(q.email || 'no email on file') + '</div></div>';
 
   h += '<div class="inline-badges" style="margin-bottom:18px;">' +
-    '<span class="badge badge-warning">priority #' + q.priority + '</span>' +
     '<span class="badge badge-primary">' + escapeHtml(triggerLabel(q.trigger_name)) + '</span>' +
     (q.is_member ? '<span class="badge badge-success">member</span>'
       : q.is_converted ? '<span class="badge badge-success">converted</span>'
@@ -1042,23 +1026,23 @@ function renderDetail(id) {
     '</div>';
 
   // matched message
-  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('sparkles') + 'Matched message</div>' +
-    '<div class="card-description">Why this person is in the queue, and the email that is queued for them.</div></div>' +
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('sparkles') + 'The email going out</div>' +
+    '<div class="card-description">Why this person gets an email on the next run, and the email itself. It sends by itself; there is nothing to click.</div></div>' +
     '<div class="card-content with-top">' +
     '<div class="queue-fields" style="margin-bottom:10px;">' +
-      field('Follow-up', triggerLabel(q.trigger_name)) +
-      field('Timing', anchorLabel(q.anchor) + ' + ' + q.days_since + 'd') +
+      field('Email', triggerLabel(q.trigger_name)) +
+      field('Why now', actWhy(q)) +
       field('Anchor date', q.anchor_date || '—') +
     '</div>' +
+    surveyStatusLine(q) +
     '<div class="queue-survey-panel open" style="margin-top:0;">' +
       '<div class="email-subject">' + escapeHtml(q.subject) + '</div>' +
       '<div class="email-body">' + formatEmailBody(q.body_preview) + '</div>' +
     '</div>' +
-    '<div class="queue-actions">' +
-      (q.trigger_name === 'MANUAL'
-        ? '<span class="badge badge-destructive">⚠ Manager call: handle personally, no automated send</span>'
-        : '<button class="btn btn-send btn-sm" onclick="confirmSendOne(\'' + escapeHtml(q.climber_id) + '\')">' + icon('mail') + ' Send follow-up</button>') +
-    '</div></div></div>';
+    (q.trigger_name === 'MANUAL'
+      ? '<div class="queue-actions"><span class="badge badge-destructive">⚠ Manager call: handle personally, no automated send</span></div>'
+      : '') +
+    '</div></div>';
 
   // history
   const visits = q.visit_dates || [];
@@ -1157,179 +1141,35 @@ function skuBadges(arr) {
   return '<div class="inline-badges">' + (arr || []).map(s => '<span class="badge">' + escapeHtml(s) + '</span>').join('') + '</div>';
 }
 
-/* ============================ SURVEY RESPONSES & ALERTS (inbox) ============================ */
-// Read / removed state is browser-local (localStorage). "Remove" only hides from
-// this dashboard; it NEVER deletes the underlying Google Form response. Read items
-// older than 7 days auto-hide. Unread count drives the sidebar badge.
-const INBOX_READ_KEY = 'shiftInboxRead', INBOX_RM_KEY = 'shiftInboxRemoved';
-let SELECTED_KEY = null;
+/* ============================ SURVEY RESPONSES (one page; Block 20 R2, decision 7a) ============================ */
+// Every completed survey, newest first, with the new ones on top and marked
+// "New" until someone marks them read. Read state is browser-local
+// (localStorage), as the old inbox's was; the response itself always stays in
+// the form / on the survey page. "New" = answered inside the inbox window
+// (DATA.survey.responses, the last 14 days) and not yet marked read, so an
+// old answer never shows as new on a fresh browser.
+const SURVEY_PAGE_TITLE = 'Survey Responses';   // the one per-gym line: ABC says "FTV Responses" (decision 8)
+const INBOX_READ_KEY = 'shiftInboxRead';
 function lsGet(k) { try { return new Set(JSON.parse(localStorage.getItem(k) || '[]')); } catch (e) { return new Set(); } }
 function lsSet(k, set) { try { localStorage.setItem(k, JSON.stringify([...set])); } catch (e) {} }
 function respKey(r) { return (r.email || '') + '|' + (r.answered_at || '') + '|' + (r.q3_blocker_raw || ''); }
-function allResponses() { return (DATA.survey && DATA.survey.responses) || []; }
-function findResp(key) { return allResponses().find(r => respKey(r) === key); }
-function daysSinceAnswered(r) {
-  const a = (r.answered_at || '').slice(0, 10), b = (DATA.as_of || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) return 0;
-  return Math.round((new Date(b) - new Date(a)) / 86400000);
+function recentResponses() { return (DATA.survey && DATA.survey.responses) || []; }
+function surveyAllRows() { const sv = DATA.survey || {}; return sv.all_responses || sv.responses || []; }
+function newSurveyRows() {
+  if (!surveyOn()) return [];
+  const read = lsGet(INBOX_READ_KEY);
+  return recentResponses().filter(r => !read.has(respKey(r)));
 }
-function inboxVisible() {
-  const read = lsGet(INBOX_READ_KEY), removed = lsGet(INBOX_RM_KEY);
-  const out = [];
-  allResponses().forEach(r => {
-    const key = respKey(r);
-    if (removed.has(key)) return;
-    const isRead = read.has(key);
-    if (isRead && !r.safety && daysSinceAnswered(r) > 7) return;  // auto-hide old read items
-    out.push({ r, key, read: isRead });
-  });
-  // safety first, then unread, then newest answered
-  out.sort((a, b) => (b.r.safety - a.r.safety) || (a.read - b.read) ||
-    String(b.r.answered_at || '').localeCompare(String(a.r.answered_at || '')));
-  return out;
-}
-function inboxUnreadCount() { return inboxVisible().filter(v => !v.read).length; }
+function newSurveyKeys() { const s = new Set(); newSurveyRows().forEach(r => s.add(respKey(r))); return s; }
+// a low first-visit score: the form's 1 to 5 overall answer, 3 or under
+function lowOverall(r) { const n = parseInt(String(r.q1_overall || '').trim(), 10); return !isNaN(n) && n <= 3; }
+function afterReadChange() { renderSurveys(); refreshInboxBadge(); renderHome(); }
+function markSurveyRead(key) { const s = lsGet(INBOX_READ_KEY); s.add(key); lsSet(INBOX_READ_KEY, s); afterReadChange(); }
+function markAllSurveysRead() { const s = lsGet(INBOX_READ_KEY); recentResponses().forEach(r => s.add(respKey(r))); lsSet(INBOX_READ_KEY, s); afterReadChange(); }
 function refreshInboxBadge() {
   const badge = $('inbox-badge'); if (!badge) return;
-  const n = surveyOn() ? inboxUnreadCount() : 0;
+  const n = newSurveyRows().length;
   if (n) { badge.textContent = n; badge.style.display = ''; } else { badge.style.display = 'none'; }
-}
-function selectResponse(key) {
-  SELECTED_KEY = key;
-  const r = findResp(key);
-  if (r) { const s = lsGet(INBOX_READ_KEY); s.add(key); lsSet(INBOX_READ_KEY, s); }
-  renderInbox(); refreshInboxBadge();
-}
-function removeResponse(key) {
-  const s = lsGet(INBOX_RM_KEY); s.add(key); lsSet(INBOX_RM_KEY, s);
-  if (SELECTED_KEY === key) SELECTED_KEY = null;
-  renderInbox(); refreshInboxBadge();
-}
-function inboxUnhideAll() { lsSet(INBOX_RM_KEY, new Set()); renderInbox(); refreshInboxBadge(); }
-function renderInbox() {
-  let h = pageHeader('Survey Responses & Alerts',
-    'What first-timers actually wrote about their visit. Read each one, watch for safety flags (handle those personally), then remove it once you’ve acted. Removing only clears it from here, the response stays in your form.');
-  const visible = inboxVisible();
-  if (!visible.length) {
-    const hadAny = allResponses().length > 0;
-    h += '<div class="card"><div class="empty-state">' +
-      '<div class="empty-state-icon">📭</div>' +
-      '<div class="empty-state-title">' + (hadAny ? 'Inbox clear' : 'No survey responses yet') + '</div>' +
-      '<div class="empty-state-msg">' + (hadAny ? 'You’ve read and cleared everything. New responses will appear here.' : 'Responses show up here as first-timers fill out the survey.') + '</div>' +
-      '</div></div>';
-    $('view-inbox').innerHTML = h; return;
-  }
-  if (!visible.some(v => v.key === SELECTED_KEY)) SELECTED_KEY = visible[0].key;
-  h += '<div class="inbox-layout"><div class="inbox-list">';
-  visible.forEach(v => {
-    const r = v.r, who = r.name || r.email || '(no email)';
-    h += '<button class="inbox-item ' + (v.read ? 'read' : 'unread') + (v.key === SELECTED_KEY ? ' active' : '') + '" onclick="selectResponse(\'' + escapeHtml(v.key).replace(/'/g, "\\'") + '\')">' +
-      '<div class="inbox-item-name">' + (v.read ? '' : '<span class="inbox-dot"></span> ') + escapeHtml(who) + '</div>' +
-      '<div class="inbox-item-meta">' +
-        (r.answered_at ? '<span>' + escapeHtml(r.answered_at) + '</span>' : '') +
-        (r.safety ? '<span class="badge badge-destructive">⚠ safety</span>'
-          : r.blocker ? '<span class="badge badge-warning">' + escapeHtml(blockerLabel(r.blocker)) + '</span>' : '') +
-        (r.matched ? '' : '<span class="badge">unmatched</span>') +
-      '</div></button>';
-  });
-  const hiddenCount = lsGet(INBOX_RM_KEY).size;
-  if (hiddenCount) {
-    h += '<div class="inbox-hidden-note">' + hiddenCount + ' removed from this view (still in your form). <a onclick="inboxUnhideAll()">Show them again</a></div>';
-  }
-  const sel = visible.find(v => v.key === SELECTED_KEY);
-  h += '</div><div>' + inboxDetail(sel ? sel.r : null, sel ? sel.key : null) + '</div></div>';
-  $('view-inbox').innerHTML = h;
-}
-function inboxDetail(r, key) {
-  if (!r) return '';
-  const matchedItem = r.matched ? DATA.queue.find(q => q.climber_id === r.climber_id) : null;
-  let h = '';
-  if (r.safety) {
-    h += '<div class="banner banner-warn" style="margin-bottom:14px;">' + icon('shield') +
-      '<div><strong>Safety flag.</strong> This response tripped a safety keyword. Reach out personally, no automated message is sent for this person.</div></div>';
-  }
-  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('mail') + escapeHtml(r.name || r.email || '(no email)') + '</div>' +
-    '<div class="card-description">' + escapeHtml(r.email || '') + (r.answered_at ? ' · ' + escapeHtml(r.answered_at) : '') + '</div></div>' +
-    '<div class="card-content with-top">';
-  h += '<div class="inline-badges" style="margin-bottom:14px;">' +
-    (r.safety ? '<span class="badge badge-destructive">⚠ safety concern</span>' : '') +
-    (r.matched ? '<span class="badge badge-success">matched a climber</span>' : '<span class="badge badge-warning">no climber match</span>') +
-    (r.blocker ? '<span class="badge badge-warning">' + escapeHtml(blockerLabel(r.blocker)) + '</span>' : '') +
-    (r.intent ? '<span class="badge badge-info">' + escapeHtml(intentLabel(r.intent)) + '</span>' : '') +
-    (r.source === 'native' ? '<span class="badge badge-primary">native survey</span>' : '') +
-    '</div>';
-  h += inboxQ('Overall first visit', r.q1_overall);
-  h += inboxQ('Likely to become a regular?', r.q2_intent);
-  h += inboxQ('Main issue, if any', r.q3_blocker_raw);
-  h += inboxQ('In their own words', r.q4_text);
-  h += '<div class="queue-actions">';
-  if (matchedItem) {
-    h += '<button class="btn btn-outline btn-sm" onclick="openDetail(\'' + escapeHtml(matchedItem.climber_id) + '\')">' + icon('users') + ' Open in recovery queue</button>';
-  }
-  h += '<button class="btn btn-ghost btn-sm" onclick="removeResponse(\'' + escapeHtml(key).replace(/'/g, "\\'") + '\')">' + icon('copy') + ' Remove from inbox</button>';
-  h += '</div>';
-  if (!r.matched) {
-    h += '<div style="font-size:12px;color:var(--fg-subtle);margin-top:8px;line-height:1.6;">No climber in your data matches this email (typo, or a contact not imported). Kept here for manual review, never dropped.</div>';
-  }
-  h += '</div></div>';
-  return h;
-}
-function inboxQ(label, ans) {
-  const empty = !ans || !String(ans).trim();
-  return '<div class="inbox-q"><div class="q-label">' + escapeHtml(label) + '</div>' +
-    '<div class="q-ans' + (empty ? ' muted' : '') + '">' + (empty ? '(no answer)' : escapeHtml(ans)) + '</div></div>';
-}
-
-/* ============================ ALL SURVEYS (tiles + full table) ============================ */
-// The Inbox above is a working tray (windowed, read/unread). This view is the
-// permanent record: EVERY completed survey, all-time, with what the person did
-// afterwards. Feeds Chris's "view all completed surveys" ask (7/27).
-function surveyAllRows() { const sv = DATA.survey || {}; return sv.all_responses || sv.responses || []; }
-// Most common named issue across every response. Ties break to the most
-// recently answered; "none"/blank answers never count as an issue.
-function topIssue(rows) {
-  const counts = {}, latest = {};
-  rows.forEach(r => {
-    if (!r.blocker) return;
-    counts[r.blocker] = (counts[r.blocker] || 0) + 1;
-    const d = r.answered_at || '';
-    if (!latest[r.blocker] || d > latest[r.blocker]) latest[r.blocker] = d;
-  });
-  const keys = Object.keys(counts);
-  if (!keys.length) return null;
-  const max = Math.max.apply(null, keys.map(k => counts[k]));
-  const tied = keys.filter(k => counts[k] === max)
-    .sort((a, b) => (latest[b] || '').localeCompare(latest[a] || ''));
-  return { blocker: tied[0], n: max, tiedWith: tied.slice(1) };
-}
-function surveyTilesHtml() {
-  if (!surveyOn()) return '';
-  const rows = surveyAllRows();
-  const n = rows.length;
-  // Block 15 S5 (2026-09-24): the rate used to divide EVERY answer row
-  // (unmatched and repeat answers included) by the people emailed. Now the
-  // All Gyms sheet's own survey numbers when the page has them.
-  const g = erGroup('surveys'), e = erData();
-  let h;
-  if (g && e && e.available && g.sends) {
-    const w = (e.windows || {}).answer || 14;
-    const rate = g.m_sends14 ? erPct(g.m_resp14, g.m_sends14) + ' of survey emails sent ' + w +
-      ' or more days ago answered' : 'No survey email is ' + w + ' days old yet';
-    h = statTile('Survey answers', g.responses.toLocaleString(),
-      escapeHtml('Answered within ' + w + ' days of a survey email. ' + rate + '. Same count as the All Gyms sheet.'));
-  } else {
-    h = statTile('Survey answers', n, n === 0 ? 'No responses yet' : 'Every answer received, from the feedback survey');
-  }
-  const t = topIssue(rows);
-  if (!t) {
-    h += statTile('Top survey issue', n ? 'None reported' : '&ndash;',
-      n ? 'No one has named an issue yet' : 'No responses yet');
-  } else {
-    h += statTile('Top survey issue', escapeHtml(blockerLabel(t.blocker)),
-      'Named in ' + t.n + (t.n === 1 ? ' response' : ' responses') +
-      (t.tiedWith.length ? ', tied with ' + escapeHtml(blockerLabel(t.tiedWith[0])) : ''));
-  }
-  return h;
 }
 function cellAns(v) {
   return (v && String(v).trim()) ? escapeHtml(v)
@@ -1343,32 +1183,47 @@ function cameBackBadge(cb) {
   if (cb === 'too_early') return '<span style="color:var(--fg-hint);">Too early</span>';
   return '<span style="color:var(--fg-hint);">Unknown</span>';
 }
+// one labelled answer (the member detail page reads it; tester 2026-10-08)
+function inboxQ(label, ans) {
+  const empty = !ans || !String(ans).trim();
+  return '<div class="inbox-q"><div class="q-label">' + escapeHtml(label) + '</div>' +
+    '<div class="q-ans' + (empty ? ' muted' : '') + '">' + (empty ? '(no answer)' : escapeHtml(ans)) + '</div></div>';
+}
+const CAME_BACK_TEXT = 'From check-in data. Yes = checked in again within 30 days of answering. MEMBER = joined a paid membership (not a youth plan; a trial does not count) within 90 days of answering. Too early = answered less than 30 days ago and not back yet. Unknown = the email did not match a climber in your data.';
 function renderSurveys() {
-  let h = pageHeader('All Survey Responses',
-    'Every completed survey since the pilot started, newest first. “Came back?” shows what each person did after answering, from check-in data: Yes = checked in again within 30 days of answering, MEMBER = joined a paid membership (not a youth plan; a trial does not count) within 90 days of answering, Too early = answered less than 30 days ago and not back yet.');
-  const rows = surveyAllRows();
+  const rows = surveyAllRows(), fresh = newSurveyKeys(), n = fresh.size;
+  let h = pageHeader(SURVEY_PAGE_TITLE,
+    'What first-timers wrote about their visit, newest first. Read the new ones and mark them read. If one raises a safety concern, handle it in person.');
   if (!rows.length) {
     h += '<div class="card"><div class="empty-state"><div class="empty-state-icon">📭</div>' +
       '<div class="empty-state-title">No responses yet</div>' +
       '<div class="empty-state-msg">Every survey a first-timer completes will appear here, newest first.</div></div></div>';
     $('view-surveys').innerHTML = h; return;
   }
-  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('mail') +
-      rows.length + (rows.length === 1 ? ' response' : ' responses') + '</div>' +
-    '<div class="card-description">Recent surveys also land in Survey Responses (the inbox), where you can mark them read and watch for safety flags. “Unknown” means the email didn’t match a climber in your data.</div></div>' +
-    '<div class="card-content with-top" style="overflow-x:auto;">';
-  h += '<table class="conv-table"><thead><tr><th>Date</th><th>Email</th><th>Overall</th><th>Regular?</th><th>Main issue</th><th>In their own words</th><th class="num">Came back?</th></tr></thead><tbody>';
-  rows.forEach(r => {
-    h += '<tr>' +
-      '<td style="white-space:nowrap;">' + escapeHtml(r.answered_at || '?') + '</td>' +
-      '<td>' + escapeHtml(r.email || '') +
-        (r.matched ? '' : '<div style="font-size:10.5px;color:var(--fg-subtle);">no climber match</div>') + '</td>' +
+  // new answers on top, then newest first
+  const ordered = rows.slice().sort((a, b) => (fresh.has(respKey(b)) - fresh.has(respKey(a))) ||
+    String(b.answered_at || '').localeCompare(String(a.answered_at || '')));
+  h += '<div class="card"><div class="card-header" style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div style="flex:1;">' +
+    '<div class="card-title">' + icon('mail') + rows.length + plural(rows.length, ' response', ' responses') + (n ? ', ' + n + ' new' : '') + '</div>' +
+    howLink('how-cameback', CAME_BACK_TEXT, 'What "Came back?" means') + '</div>' +
+    (n ? '<button class="btn btn-outline btn-sm" onclick="markAllSurveysRead()">Mark all read</button>' : '') + '</div>' +
+    '<div class="card-content" style="overflow-x:auto;">' +
+    '<table class="tbl"><thead><tr><th>Date</th><th>Who</th><th>Overall</th><th>Regular?</th><th>Main issue</th><th>In their own words</th><th>Came back?</th><th></th></tr></thead><tbody>';
+  ordered.forEach(r => {
+    const key = respKey(r), isNew = fresh.has(key), k = escapeHtml(key).replace(/'/g, "\\'");
+    h += '<tr' + (isNew ? ' class="is-new"' : '') + '>' +
+      '<td style="white-space:nowrap;">' + escapeHtml(r.answered_at || '?') +
+        (isNew ? ' <span class="badge badge-primary">New</span>' : '') +
+        (r.safety ? ' <span class="badge badge-destructive">⚠ safety</span>' : '') +
+        (r.source === 'native' ? '<div class="sub">survey page</div>' : '') + '</td>' +
+      '<td>' + escapeHtml(r.name || r.email || '(no email)') + (r.name && r.email ? '<div class="sub">' + escapeHtml(r.email) + '</div>' : '') +
+        (r.matched ? '' : '<div class="sub">no climber match</div>') + '</td>' +
       '<td>' + cellAns(r.q1_overall) + '</td>' +
       '<td>' + cellAns(r.q2_intent) + '</td>' +
       '<td>' + cellAns(r.q3_blocker_raw) + '</td>' +
       '<td style="min-width:180px;">' + cellAns(r.q4_text) + '</td>' +
-      '<td class="num">' + cameBackBadge(r.came_back) + '</td>' +
-    '</tr>';
+      '<td>' + cameBackBadge(r.came_back) + '</td>' +
+      '<td class="acts">' + (isNew ? '<button class="link-btn" onclick="markSurveyRead(\'' + k + '\')">Mark read</button>' : '') + '</td></tr>';
   });
   h += '</tbody></table></div></div>';
   $('view-surveys').innerHTML = h;
@@ -1635,7 +1490,7 @@ function showEngInfo(kind) {
 }
 function engInfoBtn(kind) {
   return '<div class="eng-info-wrap"><button class="eng-info-btn" onclick="showEngInfo(\'' + kind + '\')">' +
-    'Click here for more info: who’s counted, what the bars mean, and why</button></div>';
+    'How this is counted</button></div>';
 }
 function engagementOn() {
   const e = DATA.engagement || {};
@@ -1813,9 +1668,22 @@ function emailResultSlides() {
   }
   return out;
 }
+// Chart 1 of Insights (Block 20 R2, decisions 13 + 14): the period-picked
+// first-timer numbers that used to sit on the Dashboard, on the Pilot
+// scorecard's group and rules, joins at 30 / 60 / 90 days. "Since the pilot
+// started" gives the scorecard's own numbers (the site harness proves it).
+function glanceHtml() {
+  const w = reportWindows(), plain = filterFtvs(0);
+  return '<div class="stats-grid-3">' +
+    statTile('First-timers', plain.length.toLocaleString(), escapeHtml('First visit ' + rangeText(0))) +
+    rateTile('Came back within ' + w.return_days + ' days', periodRate('ret30', w.return_days)) +
+    w.join_days.map((d, i) => rateTile('Joined within ' + d + ' days', periodRate(JOIN_KEYS[i], d))).join('') +
+    '</div>' + howLink('how-glance', groupCaption());
+}
 function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
   const slides = [];
   if (hasReport) {
+    slides.push({ title: 'First-timers & conversion', desc: 'Paid first-timers in the period you picked, and what they did next.', html: glanceHtml() });
     // Block 15 session 3 (2026-09-24): the Pilot scorecard's group (the wider
     // "every first-timer type" group is gone) and the one join rule: a paid
     // membership that is not a youth plan, within the charts' join window,
@@ -1830,13 +1698,13 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
     let inner = bv.length
       ? bv.map(b => convBarM(b.k, b.n, b.conv, b.pct, Math.max.apply(null, bv.map(x => x.n)) || 1, Math.max.apply(null, bv.map(x => x.pct)) || 1)).join('')
       : tooNew;
-    slides.push({ title: 'Conversion by return visits', desc: 'The single biggest driver: how many times a first-timer came back after their first paid visit, and how that changes the odds of joining.' + joinNote, html: inner });
+    slides.push({ title: 'Conversion by return visits', desc: 'The single biggest driver: how many times a first-timer came back after their first paid visit, and how that changes the odds of joining.', html: inner + howLink('how-visits', joinNote.trim()) });
 
     const be = byEntry(matured);
     inner = be.length
       ? be.map(e => convBarM(e.label, e.n, e.conv, e.pct, Math.max.apply(null, be.map(x => x.n)) || 1, Math.max.apply(null, be.map(x => x.pct)) || 1)).join('')
       : tooNew;
-    slides.push({ title: 'Conversion by entry product', desc: 'How the product someone first walks in on changes their odds of joining.' + joinNote, html: inner });
+    slides.push({ title: 'Conversion by entry product', desc: 'How the product someone first walks in on changes their odds of joining.', html: inner + howLink('how-entry', joinNote.trim()) });
 
     const months = [...new Set(plain.map(f => f.m))].sort();
     const mm = [...new Set(matured.map(f => f.m))].sort();   // % mode: the shifted period, like the tiles
@@ -1845,8 +1713,9 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
         // the months of the people who have had the join window (a rolling
         // period moves back by the window, as the tiles do)
         const pS = mm.map(m => { const g = matured.filter(f => f.m === m); return 100 * g.filter(f => f[J.key]).length / g.length; });
-        slides.push({ title: 'Conversion rate over time', desc: 'The share of each month’s first-timers who joined within ' + J.days + ' days, counting only people who have had ' + J.days + ' days (first visits ' + rangeText(J.days) + ').',
-          html: mm.length > 1 ? pctLineChart(mm.map(monthName), pS, 'Joined within ' + J.days + ' days') : noData('Fewer than two months have people who have had ' + J.days + ' days. Pick a longer period.') });
+        slides.push({ title: 'Conversion rate over time', desc: 'The share of each month’s first-timers who joined within ' + J.days + ' days.',
+          html: (mm.length > 1 ? pctLineChart(mm.map(monthName), pS, 'Joined within ' + J.days + ' days') : noData('Fewer than two months have people who have had ' + J.days + ' days. Pick a longer period.')) +
+            howLink('how-trend', 'Each month counts only the people who have had ' + J.days + ' days (first visits ' + rangeText(J.days) + ').' + joinNote) });
       } else {
         const fS = months.map(m => plain.filter(f => f.m === m).length);
         const mS = months.map(m => plain.filter(f => f.m === m && f[J.key]).length);
@@ -1859,7 +1728,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
     inner = bt.length
       ? bt.map(b => countBarM(b.k, b.n, totT, Math.max.apply(null, bt.map(x => x.n)) || 1)).join('')
       : noData('No one whose first visit is in this period has joined yet.');
-    slides.push({ title: 'When members join', desc: 'Days from a first visit to joining (a paid membership, not a youth plan), for everyone in this period who joined. Tells you when a follow-up still has a chance.', html: inner });
+    slides.push({ title: 'When members join', desc: 'Days from a first visit to joining, for everyone in this period who joined. Tells you when a follow-up still has a chance.', html: inner + howLink('how-timing', 'Joined = a paid membership (not a youth plan). Every joiner whose first visit is in the period counts, however long they took (first visits ' + rangeText(0) + ').') });
   }
   if (hasSurvey) {
     // include zero bars for every issue the form CAN name, so "nobody said
@@ -2030,22 +1899,18 @@ function renderInsights() {
 }
 
 function setupSurveyNav() {
-  const inbox = $('nav-inbox'), insights = $('nav-insights'), surveys = $('nav-surveys');
-  const label = $('survey-nav-label');
+  const insights = $('nav-insights'), surveys = $('nav-surveys');
+  const label = $('survey-nav-label');   // SHIFT's "Survey loop" section label; ABC has none
   // Insights is always available now (it includes behavior reporting, not just survey).
   insights.onclick = () => showView('insights');
   renderInsights();
   if (surveyOn()) {
-    label.textContent = 'Survey loop';
-    inbox.onclick = () => showView('inbox');
-    renderInbox();
-    refreshInboxBadge();
+    if (label) label.textContent = 'Survey loop';
     surveys.onclick = () => showView('surveys');
     renderSurveys();
+    refreshInboxBadge();
   } else {
-    label.textContent = 'Coming with the survey loop';
-    inbox.style.opacity = '0.5'; inbox.style.cursor = 'not-allowed';
-    inbox.onclick = () => toast('Survey responses appear once the survey loop is on');
+    if (label) label.textContent = 'Coming with the survey loop';
     surveys.style.opacity = '0.5'; surveys.style.cursor = 'not-allowed';
     surveys.onclick = () => toast('Survey responses appear once the survey loop is on');
   }
@@ -2072,20 +1937,26 @@ function toast(msg) {
 REPORT_PERIOD = reportingOn() ? defaultPeriod() : 'all';
 restoreInsightsState();   // re-apply period / counts-% / chart after an auto-refresh reload
 $('brand-sub').textContent = DATA.client || 'Send It';
-$('queue-badge').textContent = DATA.queue.length;
-renderDashboard();
-renderQueue();
+renderHome();
+renderActivity();
 setupSurveyNav();
+if (typeof setupMembersNav === 'function') setupMembersNav();   // ABC's Members pages (absent at SHIFT)
 
 // Restore the tab across auto-refresh reloads (so a periodic refresh doesn't
-// snap the reader back to Dashboard). Inbox/Insights only when the survey is on.
+// snap the reader back to Home). The old page names (a bookmark, a stored
+// tab from before Block 20 R2) map onto the pages that replaced them.
 (function restoreView() {
   let id = '';
   try { id = sessionStorage.getItem('shiftActiveView') || ''; } catch (e) {}
   if (!id) id = (location.hash || '').replace('#', '');
-  const valid = ['dashboard', 'queue', 'inbox', 'surveys', 'insights'];
-  if (!valid.includes(id) || id === 'dashboard') return;
-  if ((id === 'inbox' || id === 'surveys') && !surveyOn()) return;
+  id = ({ dashboard: 'home', queue: 'activity', inbox: 'surveys', 'm-overview': 'home' })[id] || id;
+  const hasMembers = typeof membersOn === 'function' && membersOn();
+  const mvalid = ['m-responses', 'm-recognition', 'm-insights', 'm-settings'];   // m-settings: no sidebar entry, hash only (decision 7b)
+  if (mvalid.includes(id)) { if (hasMembers) showView(id); return; }
+  if (id === 'm-respdetail') { if (hasMembers) showView('m-responses'); return; }
+  const valid = ['home', 'activity', 'surveys', 'insights'];
+  if (!valid.includes(id) || id === 'home') return;
+  if (id === 'surveys' && !surveyOn()) return;
   showView(id);
 })();
 </script>
