@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hmac
 import json
 import os
 import threading
@@ -89,6 +90,12 @@ def _ensure_beta_data(client) -> None:
 # app-level fallback; a fronting Cloudflare Access policy can gate it instead.
 BASIC_USER = os.getenv("LIVE_USER")
 BASIC_PASS = os.getenv("LIVE_PASS")
+# Per-person logins (10/14, Jadee + Isaac): env LIVE_PASS_<NAME> = that person's
+# password, and <name> (any case) is their username. Deleting one env var locks
+# out just that person; the shared LIVE_USER/LIVE_PASS login is unchanged.
+NAMED_LOGINS = {k[len("LIVE_PASS_"):].lower(): v for k, v in os.environ.items()
+                if k.upper().startswith("LIVE_PASS_") and len(k) > len("LIVE_PASS_") and v}
+AUTH_ON = bool((BASIC_USER and BASIC_PASS) or NAMED_LOGINS)
 
 # Auto-reload interval (seconds) baked into every page so the bare URL refreshes
 # itself (handy for a "watch it land" demo without appending ?refresh=). 0 = off
@@ -511,14 +518,18 @@ class Handler(survey_page.handler_base()):
         print("  " + _redact(fmt % args))
 
     def _authed(self) -> bool:
-        """True if Basic Auth is off, or the request carries the right creds."""
-        if not (BASIC_USER and BASIC_PASS):
+        """True if Basic Auth is off, or the request carries the right creds
+        (the shared login or a per-person LIVE_PASS_<NAME> one)."""
+        if not AUTH_ON:
             return True
         header = self.headers.get("Authorization", "")
         if header.startswith("Basic "):
             try:
                 user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
-                if user == BASIC_USER and pw == BASIC_PASS:
+                if BASIC_USER and BASIC_PASS and user == BASIC_USER and pw == BASIC_PASS:
+                    return True
+                named = NAMED_LOGINS.get(user.strip().lower())
+                if named and hmac.compare_digest(pw.encode(), named.encode()):
                     return True
             except Exception:
                 pass
@@ -663,7 +674,8 @@ def main() -> None:
     print("Live dashboard server (additive, read-only)")
     print(f"  client : {args.client}")
     print(f"  open   : {url}")
-    print(f"  auth   : {'Basic Auth ON' if (BASIC_USER and BASIC_PASS) else 'OPEN (no LIVE_USER/LIVE_PASS set)'}")
+    print(f"  auth   : {'Basic Auth ON' if AUTH_ON else 'OPEN (no LIVE_USER/LIVE_PASS set)'}"
+          + (f" | named logins: {', '.join(sorted(NAMED_LOGINS))}" if NAMED_LOGINS else ""))
     print(f"  as-of  : today + {DEFAULT_DAYS_AHEAD}d by default (override ?asof= or ?days=)")
     print("  the cron+static demo is untouched and still your backup.")
     print("  Ctrl+C to stop.\n")
