@@ -11,7 +11,9 @@ Flow each run:
   3. ID token -> pull transactions + sessions + memberships for a rolling window
   4. hand the three CSVs to refresh_beta_data's tested merge/dedup/backup logic
   5. (cloud) push the merged canonical CSVs back to Drive so the dashboard updates
-  6. (optional) email a success/failure report
+  6. append today's ACTIVE membership list to the daily snapshot file (guarded:
+     a failure prints `member snapshot FAILED` and never stops steps 1-5)
+  7. (optional) email a success/failure report
 
 A rolling overlap window (default 2 days) means a missed or late-posting row is
 always caught on the next run; the merge dedup removes the overlap.
@@ -25,6 +27,8 @@ Secrets / config (env or .env next to this file):
   # is passed, the canonical files are pulled from / pushed back to Drive by id.
   BETA_DRIVE_TX, BETA_DRIVE_SES, BETA_DRIVE_MEM   Drive file ids (drive_manifest.json)
   BETA_TX_PATH, BETA_SES_PATH, BETA_MEM_PATH      where the canonical CSVs live (working dir)
+  BETA_DRIVE_MEMSNAP   Drive file id of the daily active-member snapshot (--drive)
+  BETA_MEMSNAP_PATH    its working path (default: next to Memberships.csv)
 
   # Email (Gmail SMTP). When set and --notify is passed, sends a daily report.
   SMTP_HOST (default smtp.gmail.com), SMTP_PORT (default 587)
@@ -65,6 +69,11 @@ BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env", override=False)
 
 import refresh_beta_data as rbd  # noqa: E402
+
+# Default = next to Memberships.csv (SHIFT_Docs on the PC, beta_data/ on Render).
+SNAP_DST = Path(os.getenv("BETA_MEMSNAP_PATH")
+                or (rbd.MEM_DST.parent / "Beta_Active_Members_Daily.csv"))
+SNAP_TZ = "America/New_York"  # SHIFT is West Michigan; the cron runs 3 AM ET
 
 TOKEN_URL = "https://securetoken.googleapis.com/v1/token"
 API = "https://api.sendmoregetbeta.com"
@@ -182,6 +191,95 @@ def drive_push_canonical() -> None:
         print(f"  pushed {label} ({_nrows(dst)} rows) -> {fid}")
 
 
+def snapshot_memberships(me: Path, drive: bool) -> None:
+    """Append today's ACTIVE membership list to one long daily snapshot file.
+
+    Why: Beta's active list (`state=1,2`) carries no cancel dates, and the merged
+    Memberships.csv only ADDS rows, so a cancel is invisible there. A cancel is
+    a membership that was on yesterday's list and is gone today; keeping every
+    day's list is the only way to see it (same idea as ABC's member_status.csv,
+    but kept as history). Past days cannot be rebuilt: history starts on the
+    first run.
+
+    One row per membership per day, all of Beta's columns, plus `snapshot_date`
+    (Eastern date) first. A re-run on the same day REPLACES that day's rows, so
+    a Trigger Run never doubles a day. If Beta adds a column, it is appended to
+    the header and older days show it blank."""
+    import csv
+    from zoneinfo import ZoneInfo
+    print("\n=== MEMBER SNAPSHOT (daily active list) ===")
+    fid = os.getenv("BETA_DRIVE_MEMSNAP", "").strip()
+    if drive:
+        if not fid:
+            raise RuntimeError("BETA_DRIVE_MEMSNAP is not set (Drive file id of "
+                               "Beta_Active_Members_Daily.csv)")
+        from nudge_tool import drive_io
+        drive_io.pull(fid, str(SNAP_DST))
+
+    new_h, new = rbd._read(me)
+    new = [r for r in new if len(r) >= len(new_h)]  # same junk-row rule as the merge
+    if not new:
+        raise RuntimeError("today's Beta pull has 0 memberships; not saving an "
+                           "empty day (it would read as everyone cancelling)")
+    day = datetime.now(ZoneInfo(SNAP_TZ)).strftime("%Y-%m-%d")
+
+    cur_h, cur = ["snapshot_date"], []
+    if SNAP_DST.exists() and SNAP_DST.stat().st_size > 0:
+        with open(SNAP_DST, newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.reader(f))
+        if rows:
+            cur_h, cur = rows[0], rows[1:]
+        if cur_h[:1] != ["snapshot_date"]:
+            raise RuntimeError(f"{SNAP_DST.name} does not start with a "
+                               f"snapshot_date column; not touching it")
+    header = cur_h + [c for c in new_h if c not in cur_h]
+
+    def as_dict(h, r):
+        return dict(zip(h, r))
+
+    old = [as_dict(cur_h, r) for r in cur if r]
+    replaced = sum(1 for d in old if d.get("snapshot_date") == day)
+    old = [d for d in old if d.get("snapshot_date") != day]
+    today = [{"snapshot_date": day, **as_dict(new_h, r)} for r in new]
+
+    # Compare with the latest earlier day: memberships (Beta `key`) and people
+    # (`climber_key`). A plan switch = one membership gone + one new, same person.
+    prev_day = max((d["snapshot_date"] for d in old), default=None)
+    prev = [d for d in old if d["snapshot_date"] == prev_day]
+
+    def keys(ds, col):
+        return {d.get(col, "") for d in ds if d.get(col, "").strip()}
+
+    if SNAP_DST.exists() and cur:
+        rbd._backup(SNAP_DST)
+    SNAP_DST.parent.mkdir(parents=True, exist_ok=True)
+    with open(SNAP_DST, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=header, restval="", extrasaction="ignore")
+        w.writeheader()
+        w.writerows(old)
+        w.writerows(today)
+    days = len({d["snapshot_date"] for d in old}) + 1
+
+    print(f"  {day}: {len(today)} active memberships, "
+          f"{len(keys(today, 'climber_key'))} people"
+          + (f" (replaced {replaced} rows already saved for today)" if replaced else ""))
+    if prev_day:
+        tm, pm = keys(today, "key"), keys(prev, "key")
+        tp, pp = keys(today, "climber_key"), keys(prev, "climber_key")
+        print(f"  vs {prev_day}: memberships +{len(tm - pm)} new / -{len(pm - tm)} gone; "
+              f"people +{len(tp - pp)} new / -{len(pp - tp)} gone")
+    else:
+        print("  first day in the file (nothing to compare yet)")
+    added_cols = header[len(cur_h):]
+    if cur and added_cols:
+        print(f"  note: new Beta column(s) added to the header: {added_cols}")
+    print(f"  file: {len(old) + len(today)} rows, {days} day(s)")
+
+    if drive:
+        drive_io.push(str(SNAP_DST), file_id=fid)
+        print(f"  pushed snapshot -> {fid}")
+
+
 def send_email(subject: str, body: str) -> None:
     host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     port = int(os.getenv("SMTP_PORT", "587") or "587")
@@ -262,6 +360,21 @@ def run_pull(a) -> None:
         print("\n=== PUSH TO DRIVE ===")
         cmd_push(folder)
 
+    # Guarded (project rule 5): the refresh above is already done and pushed, so
+    # a snapshot problem must never fail the run. It prints a greppable FAILED
+    # line here AND marks the email subject, so it cannot hide in a SUCCESS body.
+    global SNAP_FAILED
+    try:
+        snapshot_memberships(me, a.drive)
+    except Exception as e:  # noqa: BLE001
+        SNAP_FAILED = True
+        print(f"\n  member snapshot FAILED: {type(e).__name__}: {e}\n"
+              f"  (the Beta refresh above is fine; today's member list is NOT saved)\n"
+              + traceback.format_exc())
+
+
+SNAP_FAILED = False
+
 
 def main() -> None:
     ap = argparse.ArgumentParser(
@@ -301,6 +414,15 @@ def main() -> None:
             banner = ("==================================================\n"
                       "  SUCCESS - Beta data refreshed. Nothing to do.\n"
                       "==================================================\n\n")
+            if SNAP_FAILED:
+                subject = (f"SUCCESS - Beta data refreshed, but member snapshot "
+                           f"FAILED ({when})")
+                banner = ("==================================================\n"
+                          "  SUCCESS - Beta data refreshed.\n"
+                          "  BUT the daily member snapshot FAILED: today's\n"
+                          "  active list was not saved. See 'member snapshot\n"
+                          "  FAILED' below.\n"
+                          "==================================================\n\n")
         else:
             subject = f"FAILURE - Beta refresh FAILED, pull manually ({when})"
             banner = ("==================================================\n"

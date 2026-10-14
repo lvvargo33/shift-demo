@@ -91,6 +91,8 @@ services:
         sync: false
       - key: BETA_DRIVE_MEM
         sync: false
+      - key: BETA_DRIVE_MEMSNAP  # daily active-member snapshot (Beta_Active_Members_Daily.csv,
+        sync: false              # 1EGzzc1dMZL8zHpe_WGjXG2Y0wu8tZx6C); unset = "member snapshot FAILED"
       - key: BETA_GYM_ID
         value: "13353"
       - key: BETA_TX_PATH      # working paths inside the (ephemeral) cron container
