@@ -617,7 +617,8 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
     excluded_cats = set(rep.get("exclude_from_cohort", []))
     # One group, one set of rules (Block 15 session 3, Luke 2026-09-24): with
     # a Pilot scorecard configured, the Dashboard tiles and Insights charts
-    # count the SCORECARD's group (paid adult first-timers the emails could
+    # count the SCORECARD's group ("Qualified first-timers" on the site and
+    # the sheet since Block 21: paid adult first-timers the emails could
     # have reached, same screens), at any first-visit date since opening; the
     # period picker sets the dates and the pilot start applies only when that
     # period is picked. A client without a scorecard keeps the wider group.

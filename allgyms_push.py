@@ -1858,11 +1858,11 @@ def _history_fmt_requests(sheet_id: int, existing_cf: int) -> list:
 # build_scorecard, the exact call the site's Insights "Pilot scorecard" slide
 # makes, and keeps the other gym's rows as they are (like History). The two
 # questions stay apart on purpose (Luke 2026-09-24): the Dashboard is about
-# EMAILS (clocked from the email), this tab is about PAID FIRST-TIMERS
+# EMAILS (clocked from the email), this tab is about QUALIFIED FIRST-TIMERS
 # (clocked from the first paid visit), so the two cannot be the same number.
 SCORECARD_TAB = "Scorecard"
 SCORECARD_HEADER = [
-    "Gym", "Group", "First paid visit between", "Paid first-timers",
+    "Gym", "Group", "First paid visit between", "Qualified first-timers",
     "Came back within 30 days", "Came back: out of (30 days passed)", "Came back %",
     "Goal: came back",
     "Joined within 30 days", "Joined: out of (30 days passed)", "Join % (30 days)",
@@ -1870,6 +1870,10 @@ SCORECARD_HEADER = [
     "Joined within 90 days", "Joined: out of (90 days passed)", "Join % (90 days)",
     "Goal: joined (90 days)", "Data through", "Updated"]
 SCORECARD_NCOLS = len(SCORECARD_HEADER)
+# Block 21 rename (2026-10-15): the other gym's rows are re-laid by header
+# name, so read a renamed column under its old name too until both gyms run
+# the new code (otherwise the other gym's count is blank for a day).
+_SC_OLD_NAMES = {"Qualified first-timers": "Paid first-timers"}
 _SC_LASTCOL = _a1col(max(SCORECARD_NCOLS, 26) - 1)
 _SC_PCT_COLS = [SCORECARD_HEADER.index(h) for h in
                 ("Came back %", "Join % (30 days)", "Join % (60 days)",
@@ -1879,9 +1883,9 @@ SCORECARD_NOTES = {
         "each gym's Send It page, written by each gym's morning run. One row "
         "for the pilot so far and one for the same calendar dates a year "
         "earlier, counted the same way. The Dashboard tab is about emails; "
-        "this tab is about paid first-timers, so the two are different "
+        "this tab is about qualified first-timers, so the two are different "
         "questions and different numbers."),
-    3: ("Paid first-timers: first paid entry was a day pass or a trial "
+    3: ("Qualified first-timers: first paid entry was a day pass or a trial "
         "(SHIFT: Day Pass, 2-Week Trial, 30-Day Trial; ABC: day pass), not a "
         "youth pass, not staff, checked in at least once, first paid visit "
         "inside the dates shown, and would have passed the email screens (own "
@@ -1950,7 +1954,8 @@ def _maintain_scorecard(svc, sc: dict, stamp: str) -> None:
         if not r or not str(r[0]).strip() or str(r[0]).strip() == GYM:
             continue
         vals = dict(zip(old_header, r))
-        kept.append([vals.get(h, "") for h in SCORECARD_HEADER])
+        kept.append([vals.get(h, vals.get(_SC_OLD_NAMES.get(h, ""), ""))
+                     for h in SCORECARD_HEADER])
     out = kept + _scorecard_rows(sc, stamp)
     out.sort(key=lambda r: (GYM_ORDER.get(str(r[0]), 9),
                             0 if str(r[1]) == "Pilot" else 1))

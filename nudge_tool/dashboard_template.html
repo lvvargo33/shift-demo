@@ -732,7 +732,7 @@ function byTiming(ftvs) {
 // who the tiles and charts count, in one sentence (Dashboard + Insights)
 function groupCaption() {
   if (groupIsScorecard()) {
-    return 'Paid first-timers the emails could have reached: the same people the Pilot scorecard counts (their own first purchase was a day pass or a trial, not a youth pass; own email on file; not a member within 2 days). Joined = a paid membership that is not a youth plan. Each rate only counts people who have had that many days, so it looks at first visits that far back. Pick “Since the pilot started” to see the scorecard’s own numbers.';
+    return 'Qualified first-timers: the people the Pilot scorecard counts (their own first purchase was a day pass or a trial, not a youth pass; own email on file; not a member within 2 days). Joined = a paid membership that is not a youth plan. Each rate only counts people who have had that many days, so it looks at first visits that far back. Pick “Since the pilot started” to see the scorecard’s own numbers.';
   }
   return 'Everyone whose first purchase was a pass, trial, punch pass, class, or event. Joined = a paid membership that is not a youth plan. Each rate only counts people who have had that many days.';
 }
@@ -1519,7 +1519,7 @@ function scorecardSlideV2(sc) {
   const goal = g => g ? ' Goal: ' + g + '.' : '';
   // Captions (Luke 9/22): three short sentences each. Who is in the bar, last
   // year's figure for the same dates, the goal. No product mix, no early read.
-  let inner = engBarM('Paid first-timers the emails could have reached', p.n, p.n, true,
+  let inner = engBarM('Qualified first-timers', p.n, p.n, true,
     'First-timers who bought their own day pass or trial and came in to climb. ' +
     lastYear + ': ' + b.n.toLocaleString() + '.');
 
@@ -1544,7 +1544,7 @@ function scorecardSlideV2(sc) {
 
   inner += engInfoBtn('scorecard');
   return { title: 'Pilot scorecard', pilot: true,
-    desc: 'Paid first-timers the emails could have reached, since ' + longDate(sc.start) + ' (check-ins through ' + longDate(sc.data_through) +
+    desc: 'Qualified first-timers, since ' + longDate(sc.start) + ' (check-ins through ' + longDate(sc.data_through) +
       '), and what they did next, beside the same dates in ' + yr + '.',
     html: inner };
 }
@@ -1683,7 +1683,7 @@ function glanceHtml() {
 function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
   const slides = [];
   if (hasReport) {
-    slides.push({ title: 'First-timers & conversion', desc: 'Paid first-timers in the period you picked, and what they did next.', html: glanceHtml() });
+    slides.push({ title: 'First-timers & conversion', desc: 'Qualified first-timers in the period you picked, and what they did next.', html: glanceHtml() });
     // Block 15 session 3 (2026-09-24): the Pilot scorecard's group (the wider
     // "every first-timer type" group is gone) and the one join rule: a paid
     // membership that is not a youth plan, within the charts' join window,
@@ -1797,7 +1797,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
         // within 90), not yet cut to the people who have had that long
         const pRet = pcohort.filter(f => f.ret30).length;
         const pConv = pcohort.filter(f => f.j90).length;
-        let inner = engBarM('Paid first-timers since the pilot started', pN, pN, true,
+        let inner = engBarM('Qualified first-timers since the pilot started', pN, pN, true,
           'Everyone who bought their own first pass and checked in during the pilot, emailed or not. Guests on someone else’s pass aren’t counted here (the survey still reaches them).');
         inner += engBarM('Came back within 30 days', pRet, pN, false,
           'The pilot’s main goal: 30 to 33% back within 30 days (last summer: 23%). Reads low early; the newest first-timers haven’t had time to come back yet.');

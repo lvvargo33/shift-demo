@@ -294,9 +294,9 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  "change once a day, shortly after the morning run. ABC's "
                  "member survey is on this sheet only."]),
         ("row", ["Pilot scorecard",
-                 "Is the pilot moving paid first-timers? How many came back "
+                 "Is the pilot moving qualified first-timers? How many came back "
                  "and joined, next to the same dates a year earlier.",
-                 "Per paid first-timer. The clock starts on their first paid "
+                 "Per qualified first-timer. The clock starts on their first paid "
                  "visit.",
                  "This sheet: Scorecard. Each gym's page: the Pilot scorecard "
                  "slide, the Dashboard's first-timer tiles (on 'Since the "
@@ -311,7 +311,7 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  "", ""]),
         ("band", ["Terms"]),
         ("header", ["Term", "What it means", "Window", "Used in"]),
-        ("row", ["Paid first-timer",
+        ("row", ["Qualified first-timer",
                  "First paid entry was a day pass or a trial (SHIFT: Day Pass, "
                  "2-Week Trial, 30-Day Trial; ABC: day use). Their very first "
                  "purchase was not a youth item, not staff, checked in at "
