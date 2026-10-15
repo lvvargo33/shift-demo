@@ -8,8 +8,10 @@ browser), so this runs unattended on a schedule.
 Flow each run:
   1. refresh token + API key  -> fresh 1-hour ID token (Google securetoken endpoint)
   2. (cloud) pull the canonical CSVs from Drive into the working dir
-  3. ID token -> pull transactions + sessions + memberships for a rolling window
-  4. hand the three CSVs to refresh_beta_data's tested merge/dedup/backup logic
+  3. ID token -> pull transactions + sessions for a rolling window, and the
+     membership list twice: the ACTIVE list (for the daily snapshot) and the FULL
+     list, cancelled ones included, so `cancelled_date` lands in Memberships.csv
+  4. hand the CSVs to refresh_beta_data's tested merge/dedup/backup logic
   5. (cloud) push the merged canonical CSVs back to Drive so the dashboard updates
   6. append today's ACTIVE membership list to the daily snapshot file (guarded:
      a failure prints `member snapshot FAILED` and never stops steps 1-5)
@@ -140,11 +142,21 @@ def pull_sessions(token: str, date_from: str, date_to: str) -> str:
                           "origin": ORIGIN, "referer": f"{ORIGIN}/"})
 
 
-def pull_memberships(token: str) -> str:
-    # state=1,2 = active subscriptions only; the merge union keeps cancelled
-    # history so "ever a member" still resolves to converted.
-    url = (f"{API}/v3/{GYM}/subscription/list"
-           f"?state=1%2C2&downloadOptions.getHasBillingMethod=false")
+def pull_memberships(token: str, *, all_states: bool = False) -> str:
+    """Beta's subscription list.
+
+    Default = `state=1,2`, the current (active) list the pull has always asked
+    for; the daily snapshot uses it. `all_states=True` drops the filter: every
+    membership Beta holds, cancelled ones included, each with `cancelled_date`
+    filled (probe 2026-10-15: 477 rows, 273 cancelled, 204 active = the same
+    204 the filtered call returns). The merge takes the full list so cancel
+    dates land in Memberships.csv; before 2026-10-15 only the active list was
+    pulled and the column stayed blank for anyone who cancelled after the first
+    manual export."""
+    q = "downloadOptions.getHasBillingMethod=false"
+    if not all_states:
+        q = "state=1%2C2&" + q
+    url = f"{API}/v3/{GYM}/subscription/list?{q}"
     return _http(url, headers={"authorization": token, "accept": "*/*",
                                "origin": ORIGIN, "referer": f"{ORIGIN}/"})
 
@@ -158,6 +170,14 @@ def _save_temp(text: str, name: str) -> Path:
 def _nrows(p: Path) -> int:
     with open(p, encoding="utf-8-sig") as f:
         return max(0, sum(1 for _ in f) - 1)
+
+
+def _n_active(p: Path) -> int:
+    """Rows with a blank `cancelled_date` (the full list's own view of active)."""
+    import csv
+    with open(p, newline="", encoding="utf-8-sig") as f:
+        return sum(1 for r in csv.DictReader(f)
+                   if not (r.get("cancelled_date") or "").strip())
 
 
 # (label, drive-id env value, canonical destination Path)
@@ -194,12 +214,13 @@ def drive_push_canonical() -> None:
 def snapshot_memberships(me: Path, drive: bool) -> None:
     """Append today's ACTIVE membership list to one long daily snapshot file.
 
-    Why: Beta's active list (`state=1,2`) carries no cancel dates, and the merged
-    Memberships.csv only ADDS rows, so a cancel is invisible there. A cancel is
-    a membership that was on yesterday's list and is gone today; keeping every
-    day's list is the only way to see it (same idea as ABC's member_status.csv,
-    but kept as history). Past days cannot be rebuilt: history starts on the
-    first run.
+    Why: a day-by-day record of who was active (same idea as ABC's
+    member_status.csv, but kept as history): the daily active count, and a
+    cancel = a membership on yesterday's list that is gone today. Since
+    2026-10-15 the merge also fills `cancelled_date` in Memberships.csv from
+    Beta's full list, so cancel DATES live there; this file stays the per-day
+    active record. Past days cannot be rebuilt: history starts on the first
+    run (2026-10-14).
 
     One row per membership per day, all of Beta's columns, plus `snapshot_date`
     (Eastern date) first. A re-run on the same day REPLACES that day's rows, so
@@ -338,17 +359,24 @@ def run_pull(a) -> None:
     tx = _save_temp(pull_transactions(token, tx_start, tx_end), "transactions")
     se = _save_temp(pull_sessions(token, date_from, date_to), "sessions")
     me = _save_temp(pull_memberships(token), "memberships")
+    me_all = _save_temp(pull_memberships(token, all_states=True), "memberships_all")
     print(f"  pulled: transactions={_nrows(tx)}  sessions={_nrows(se)}  "
           f"memberships={_nrows(me)} (rows in window)")
+    n_all, n_all_active = _nrows(me_all), _n_active(me_all)
+    print(f"  full membership list: {n_all} rows, {n_all - n_all_active} with a "
+          f"cancelled_date, {n_all_active} without"
+          + ("" if n_all_active == _nrows(me) else
+             f"  (note: the active pull has {_nrows(me)} rows; the two lists "
+             f"disagree on who is active)"))
 
     if a.no_merge:
         print("\n--no-merge: nothing written. Temp files:")
-        print(f"  {tx}\n  {se}\n  {me}")
+        print(f"  {tx}\n  {se}\n  {me}\n  {me_all}")
         return
 
     rbd.merge_transactions(tx)
     rbd.merge_sessions(se)
-    rbd.merge_memberships(me)
+    rbd.merge_memberships(me_all)
 
     if a.drive:
         drive_push_canonical()

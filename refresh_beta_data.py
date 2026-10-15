@@ -9,10 +9,12 @@ Dedup keys:
                    so a later-finalized/refunded state replaces the older row)
   sessions      -> full-row tuple (no id column; identical check-in rows are dups)
   memberships   -> subscription `key` (col 0). UNION: keep all current rows,
-                   add only new-file rows whose key is unseen. This preserves the
+                   add new-file rows whose key is unseen. This preserves the
                    "ever a member => converted" semantics even when Beta's export
                    is active-only (drops cancelled members the engine still needs
-                   to treat as converted).
+                   to treat as converted). Since 2026-10-15 the daily pull hands
+                   this Beta's FULL list, and the one column copied onto a row
+                   already on file is `cancelled_date` (see merge_memberships).
 
 Backs up each canonical file (timestamped) before writing. Prints a sanity
 report (rows before/after, $ total for transactions, new max date, samples).
@@ -164,32 +166,67 @@ def merge_sessions(new_path: Path) -> None:
 
 
 def merge_memberships(new_path: Path) -> None:
+    """Union on subscription `key`, plus ONE update on rows already on file:
+    `cancelled_date`.
+
+    Since 2026-10-15 the pull hands this Beta's FULL list (active and
+    cancelled), so a membership saved while active comes back with its
+    `cancelled_date` filled once it ends; that value is copied onto the saved
+    row. Nothing else on a saved row changes (the engine reads climber_key,
+    prices, metadata, email and created_date, and those stay exactly as first
+    seen), and a blank incoming date never blanks a saved one (counted and
+    printed instead). Unseen keys are added whole, cancelled or not."""
     print("\n=== MEMBERSHIPS ===")
     cur_h, cur = _read(MEM_DST)
     new_h, new = _read(new_path)
     key_i = cur_h.index("key")
     ck_i = cur_h.index("climber_key")
-    ncols = len(cur_h)
-    seen_keys = {r[key_i] for r in cur}
+    cd_i = cur_h.index("cancelled_date") if "cancelled_date" in cur_h else None
+    by_key = {r[key_i]: r for r in cur}      # rows shared with `out` (mutated in place)
     cur_climbers = {r[ck_i] for r in cur if len(r) > ck_i and r[ck_i].strip()}
     before_n = len(cur)
     out = list(cur)
-    added = 0
+    added = added_cancelled = 0
     new_climbers = set()
     # map new-file columns onto the current header by name (new lacks billing_issues)
     nidx = {name: i for i, name in enumerate(new_h)}
+    ncd = nidx.get("cancelled_date")
     skipped = 0
+    cd_filled = cd_changed = cd_kept = 0
+
+    def n_cancelled(rows):
+        if cd_i is None:
+            return 0
+        return sum(1 for r in rows if len(r) > cd_i and r[cd_i].strip())
+
+    before_cd = n_cancelled(cur)
     for r in new:
         if len(r) < len(new_h):   # incomplete/junk row (e.g. a stray '{}' trailer)
             skipped += 1
             continue
         k = r[nidx["key"]]
-        if k in seen_keys:
+        if k in by_key:
+            if cd_i is not None and ncd is not None:
+                row = by_key[k]
+                incoming = r[ncd].strip()
+                saved = row[cd_i].strip() if len(row) > cd_i else ""
+                if incoming and incoming != saved:
+                    if len(row) <= cd_i:
+                        row.extend([""] * (cd_i + 1 - len(row)))
+                    row[cd_i] = incoming
+                    if saved:
+                        cd_changed += 1
+                    else:
+                        cd_filled += 1
+                elif saved and not incoming:
+                    cd_kept += 1
             continue
-        seen_keys.add(k)
         row = [r[nidx[name]] if name in nidx and nidx[name] < len(r) else "" for name in cur_h]
+        by_key[k] = row
         out.append(row)
         added += 1
+        if cd_i is not None and row[cd_i].strip():
+            added_cancelled += 1
         ck = row[ck_i].strip()
         if ck and ck not in cur_climbers:
             new_climbers.add(ck)
@@ -197,8 +234,16 @@ def merge_memberships(new_path: Path) -> None:
         print(f"  note: skipped {skipped} short/blank row(s) in the new file")
     _backup(MEM_DST)
     _write(MEM_DST, cur_h, out)
-    print(f"  rows: {before_n} -> {len(out)}  (+{added} new subscription rows)")
+    print(f"  rows: {before_n} -> {len(out)}  (+{added} new subscription rows, "
+          f"{added_cancelled} of them already cancelled)")
     print(f"  brand-new member climber_keys added: {len(new_climbers)}")
+    if cd_i is None or ncd is None:
+        print("  cancelled_date: column missing from the "
+              + ("canonical file" if cd_i is None else "new file") + "; nothing updated")
+    else:
+        print(f"  cancelled_date: filled on {cd_filled} saved row(s), changed on "
+              f"{cd_changed}, {cd_kept} saved date(s) kept where the pull sent blank")
+        print(f"  rows with a cancelled_date: {before_cd} -> {n_cancelled(out)} of {len(out)}")
     print(f"  (union keeps cancelled/historical members so 'ever converted' holds)")
 
 
