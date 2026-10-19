@@ -54,7 +54,9 @@
       "baseline": 0.09,
       "mwe": 0.05,
       "started": "2026-08-13",
-      "active": true
+      "ended": "2026-10-19",
+      "_ended_note": "ENDED 2026-10-19 (Chris on the 10/16 call, ROADMAP Block 24 decision 1): both arms' triggers are active:false in client.json, every returner gets membership_offer. active:false freezes this row on the Experiments tab at its final numbers. After SHIFT's $30-for-30 promo (ends 12/31) a no-commit offer test is planned (not built).",
+      "active": false
     },
     {
       "exp_id": "shift_survey_reminder_01",

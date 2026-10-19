@@ -396,7 +396,23 @@ details.held[open] > summary { border-bottom: 1px solid var(--border-soft); }
 .how-text { display: none; margin-top: 8px; font-size: 12px; color: var(--fg-subtle); max-width: 820px; line-height: 1.6; }
 .how-text.open { display: block; }
 .home-foot { font-size: 11.5px; color: var(--fg-hint); margin-top: 18px; line-height: 1.6; }
+/* Block 23 (2026-10-16): the Home "Gym" card, four numbers across, above the other cards */
+.gym-card { margin-bottom: 14px; }
+.mini-grid.four { grid-template-columns: repeat(4, 1fr); }
+.mini .mini-sub { font-size: 11.5px; color: var(--fg-hint); margin-top: 2px; }
+.home-period { margin: 0 0 12px; }
+.mini.has-trend .mini-value { display: inline-block; }
+.mini .trend { margin-left: 6px; font-size: 13px; vertical-align: 3px; cursor: help; }
+.home-period .period-select { flex-shrink: 0; min-width: 160px; }
+.home-dates { font-size: 12.5px; color: var(--fg-subtle); }
+@media (max-width: 600px) { .mini.has-trend .mini-value { font-size: 18px; } .mini .trend { margin-left: 3px; } }
+/* Block 24 arrows: the same three classes ABC's page already had */
+.delta-up   { color: var(--success); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.delta-down { color: var(--destructive); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.delta-flat { color: var(--fg-hint); font-size: 11px; font-weight: 600; white-space: nowrap; }
+#how-gym { white-space: pre-line; }   /* one line per number */
 @media (max-width: 880px) {
+  .mini-grid.four { grid-template-columns: repeat(2, 1fr); row-gap: 14px; }
   .two-col { grid-template-columns: 1fr; }
   .todo-row { flex-wrap: wrap; }
   .tbl { min-width: 560px; }   /* the card scrolls sideways instead of squeezing the cells (tester 2026-10-08) */
@@ -747,10 +763,10 @@ function openModal(html) { $('modal-card').innerHTML = html; $('modal-backdrop')
 /* ============================ HOME (Block 20 R2, decision 12) ============================ */
 // Three parts: Needs you (the only real staff jobs), Running by itself (the
 // automatic emails, with the link to Email activity) and How it is going
-// (three numbers for first-time visitors and, at ABC, three for members). The
-// numbers under "How it is going" are fixed to the default period (the pilot
-// when there is a scorecard), so they equal the Pilot scorecard; the period
-// picker lives on Insights.
+// (the Gym card, three counts for first-time visitors and, at ABC, three
+// member survey scores). Since Block 24 the numbers under "How it is going"
+// follow their own two-way switch (this month so far / last 30 days) with
+// arrows; the Pilot scorecard's rates live on Insights.
 function plural(n, one, many) { return n === 1 ? one : many; }
 function toggleHow(id) { const el = $(id); if (el) el.classList.toggle('open'); }
 // "How this is counted" (decision 7d): the long grey definition sits behind a
@@ -772,13 +788,207 @@ function rateTile(label, b, period) {
   }
   return statTile(label, value, escapeHtml(sub));
 }
-function homeRate(key, days) {
-  const b = periodRate(key, days, defaultPeriod());
-  return b.of ? (100 * b.n / b.of).toFixed(1) + '%' : 'n/a';
-}
 function autoQueue() { return (DATA.queue || []).filter(q => q.trigger_name !== 'MANUAL'); }
 function manualQueue() { return (DATA.queue || []).filter(q => q.trigger_name === 'MANUAL'); }
 function heldCount() { return (DATA.suppression || {}).total || 0; }
+/* Home period switch + arrows (Block 24, Chris's 10/16 call). Every number
+   under "How it is going" follows one switch: "This month so far" (the
+   default; compared with the same days last month, capped at that month's
+   last day) or "Last 30 days" (compared with the 30 days before). Each
+   number gets a green (better) or red (worse) arrow; hovering it shows the
+   change. Counts show the % change; survey scores show the change in
+   points, because a % of a score misleads (a Recommend score can be 0 or
+   below). No arrow when either side has no number. The Gym card's windows
+   come from gym_metrics.periods (same rule, worked out on the server). */
+// Always opens on 'month' (Luke 2026-10-19): the pick is not remembered across loads.
+let HOME_PERIOD = 'month';   // 'month' | 'r30'
+function setHomePeriod(v) {
+  HOME_PERIOD = v === 'r30' ? 'r30' : 'month';
+  renderHome();
+}
+// One end date for every card under "How it is going" (Luke 2026-10-19: the
+// dates sit once, next to the switch, not in each card): the Gym card's last
+// day of sales data, else the last day of check-in data.
+function homeRef() {
+  const g = DATA.gym;
+  return (g && !g.error && g.data_through) || dataEnd();
+}
+// "Oct 1 to Oct 18, 2026" (the year once when both ends share it)
+function homeRange(a, b) {
+  if (!a || !b) return '';
+  return a.slice(0, 4) === b.slice(0, 4) ? shortDate(a).replace(/, \d{4}$/, '') + ' to ' + shortDate(b) : shortDate(a) + ' to ' + shortDate(b);
+}
+function homeSwitchHtml() {
+  const o = [['month', 'This month so far'], ['r30', 'Last 30 days']].map(([v, l]) =>
+    '<option value="' + v + '"' + (HOME_PERIOD === v ? ' selected' : '') + '>' + l + '</option>').join('');
+  const w = homeWindow(homeRef());
+  return '<div class="period-toggle home-period"><span class="period-label">Showing</span>' +
+    '<select class="period-select" onchange="setHomePeriod(this.value)">' + o + '</select>' +
+    (w ? '<span class="home-dates">' + homeRange(w.start, w.end) + ', compared with ' +
+      homeRange(w.prev_start, w.prev_end).replace(/, \d{4}$/, '') + '</span>' : '') + '</div>';
+}
+// the same date last month, capped at that month's last day (gym_metrics.month_back)
+function monthBack(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  const firstPrev = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1));
+  const lastPrev = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 0));
+  const want = new Date(firstPrev.getTime()); want.setUTCDate(d.getUTCDate());
+  return (want > lastPrev || want.getUTCMonth() !== firstPrev.getUTCMonth() ? lastPrev : want).toISOString().slice(0, 10);
+}
+// {start, end, prev_start, prev_end} for the picked period, ending on `ref`
+function homeWindow(ref) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ref || '')) return null;
+  if (HOME_PERIOD === 'r30') {
+    const s = addDays(ref, -29);
+    return { start: s, end: ref, prev_start: addDays(s, -30), prev_end: addDays(s, -1) };
+  }
+  const pe = monthBack(ref);
+  return { start: ref.slice(0, 8) + '01', end: ref, prev_start: pe.slice(0, 8) + '01', prev_end: pe };
+}
+function homePeriodName() { return HOME_PERIOD === 'r30' ? 'Last 30 days' : 'This month so far'; }
+function homeVs(w) {
+  return (HOME_PERIOD === 'r30' ? 'vs the 30 days before (' : 'vs last calendar month, same days (') +
+    shortDate(w.prev_start) + ' to ' + shortDate(w.prev_end) + ')';
+}
+// the arrow: opts.down = a rise is bad (cancellations); opts.dp = a score, change in points
+function trendHtml(cur, prev, vs, opts) {
+  opts = opts || {};
+  if (cur == null || prev == null || isNaN(cur) || isNaN(prev)) return '';
+  const diff = cur - prev;
+  const eps = opts.dp != null ? Math.pow(10, -opts.dp) / 2 : 0.5;
+  if (Math.abs(diff) < eps) return '<span class="trend delta-flat" title="No change ' + escapeHtml(vs) + '">&#9644;</span>';
+  const sign = diff > 0 ? '+' : '-';
+  let what;
+  if (opts.dp != null) { const pts = Math.abs(diff).toFixed(opts.dp); what = sign + pts + (pts === '1' ? ' point' : ' points'); }
+  else if (prev) what = sign + (100 * Math.abs(diff) / Math.abs(prev)).toFixed(1) + '%';
+  else what = 'Up from 0';
+  const good = opts.down ? diff < 0 : diff > 0;
+  const t = what + ' ' + vs;
+  return '<span class="trend ' + (good ? 'delta-up' : 'delta-down') + '" title="' + escapeHtml(t) + '" aria-label="' + escapeHtml(t) + '">' +
+    (diff > 0 ? '&#9650;' : '&#9660;') + '</span>';
+}
+// one Home number: label, value, arrow, small line under it
+function homeTile(label, value, trend, sub) {
+  return '<div class="mini' + (trend ? ' has-trend' : '') + '"><div class="mini-label">' + label + '</div><div class="mini-value">' + value + '</div>' +
+    (trend || '') + (sub ? '<div class="mini-sub">' + sub + '</div>' : '') + '</div>';
+}
+function homeNum(v) { return v == null ? 'n/a' : Number(v).toLocaleString(); }
+
+// The Home "Gym" card (Block 23, 2026-10-16, Chris's GM numbers): member
+// count, new members, cancellations and net sales; Block 24 adds the period
+// switch and arrows. DATA.gym comes from nudge_tool/gym_metrics.py; no
+// DATA.gym = no card. A payload from before Block 24 (no `periods`) shows
+// its last-30-days numbers with no arrows.
+function gymCard() {
+  const g = DATA.gym;
+  if (!g) return '';
+  const p = (g.periods || {})[HOME_PERIOD] || (g.periods ? null : {
+    start: g.window_start, end: g.window_end, new_members: g.new_members, cancels: g.cancels, net_sales: g.net_sales });
+  const name = g.periods ? homePeriodName() : 'Last 30 days';
+  let h = '<div class="card gym-card"><div class="card-header"><div class="card-title">Gym</div>' +
+    (g.periods ? '' : (p ? '<div class="card-description">' + name + ': ' + shortDate(p.start) + ' to ' + shortDate(p.end) + '</div>' : '')) + '</div>';
+  if (g.error || !p) {
+    return h + '<div class="card-content"><div class="todo-sub">These numbers could not be worked out today (' + escapeHtml(g.error || 'no period') + ').</div></div></div>';
+  }
+  const mem = g.members || {}, c = p.cancels || {}, s = p.net_sales || {};
+  const pc = p.prev_cancels || {}, ps = p.prev_net_sales || {};
+  const vs = p.prev_start ? homeVs(p) : '';
+  const mp = (mem.prev || {})[HOME_PERIOD];
+  const when = HOME_PERIOD === 'r30' ? '30 days ago' : 'the same date last month';
+  const memVs = !mp ? '' : mp.source === 'weekly count'
+    ? 'vs ' + shortDate(mp.date) + ' (the weekly member count closest to ' + when + ')'
+    : 'vs ' + shortDate(mp.date) + ' (' + when + ')';
+  // no line under Cancellations (Luke 2026-10-19); when ABC's tracking began
+  // is in "How this is counted"
+  const rgp = g.source === 'rgp';
+  const how = rgp ?
+    'Member count: RGP members whose status is OK today. Everyone on a family plan has their own status and counts. Frozen members are not in the number; they are on the line under it. Its arrow compares with the same date last month (or 30 days ago): from the daily status record once it reaches back that far, until then from the weekly member count taken that week. ' +
+    '\nNew members: people whose first membership purchase falls in the period, plus people coming back more than a month after their last membership ran out. A late renewal is not a new member. Counted by the person who pays, so a family plan counts once. ' +
+    '\nCancellations: members who went from active or frozen to terminated and did not come back within a month. RGP does not keep cancel dates, so Send It writes down every member\'s status each morning; this number only counts from the day that record began' + (c.since ? ' (' + shortDate(c.since) + ')' : '') + ', and has no arrow until the record covers the earlier period too. ' +
+    '\nNet sales: everything sold on paid invoices, before sales tax, with refunds taken off. Voided invoices, gift card sales (counted when the card is spent) and bookkeeping lines are left out. ' :
+    'Member count: people with a plan running today. A family or dual plan counts once (the account holder). Frozen members are not in the number; they are on the line under it. Staff plans and freeze fees are left out. Its arrow compares with the same date last month (or 30 days ago), worked out from the plans\' start and cancel dates. ' +
+    '\nNew members: people whose membership started in the period, including people coming back after more than a month away. ' +
+    '\nCancellations: people whose last plan was cancelled in the period and who held no plan at its end. Beta\'s cancel date may be the day the cancel was entered rather than the last day of access. ' +
+    '\nPeople, not plans: switching to another plan within a month is not a cancellation or a new member. ' +
+    '\nNet sales: paid sales before sales tax, minus refunds, counted the way Beta\'s sales report counts them: a sale on the day it was paid, a refund on the day it was made. Unpaid (open) and cancelled sales, and gift card sales (counted when the card is spent), are left out. ';
+  const howAll = how + '\nPeriod: it ends on the last day with sales in the data (the data is pulled each morning, so today is not in yet). Arrows: green is better, red is worse; hover one to see the change. This month so far is compared with the same days last month, Last 30 days with the 30 days before. A number with no arrow has no count for the earlier date or period yet.';
+  h += '<div class="card-content"><div class="mini-grid four">' +
+    homeTile('Member count', homeNum(mem.active), mp ? trendHtml(mem.active, mp.active, memVs) : '',
+      mem.frozen ? '+ ' + mem.frozen.toLocaleString() + ' frozen' : 'None frozen') +
+    homeTile('New members', homeNum(p.new_members), vs ? trendHtml(p.new_members, p.prev_new_members, vs) : '', '') +
+    homeTile('Cancellations', homeNum(c.n), vs ? trendHtml(c.n, pc.n, vs, { down: true }) : '', '') +
+    homeTile('Net sales', s.amount == null ? 'n/a' : '$' + Math.round(s.amount).toLocaleString(),
+      vs && ps.amount != null && s.amount != null ? trendHtml(Math.round(s.amount), Math.round(ps.amount), vs) : '',
+      s.through ? 'Sales through ' + shortDate(s.through) : '') +
+    '</div>' + howLink('how-gym', howAll) + '</div></div>';
+  return h;
+}
+// The Home "First-time visitors" card (Block 24 decision 4): COUNTS of what
+// happened in the period, for the same group of people Insights counts.
+// First-timers = first visit in the period; came back = their second visit
+// day fell in the period, within the return window of the first visit (the
+// Insights "came back" rule); became members = joined in the period (the
+// Insights join: a paid membership that is not a youth plan), however long
+// after the first visit. Rates stay on Insights. The period ends on the
+// shared Home end date (homeRef: the last day of sales data, which is pulled
+// with the check-ins), shown once next to the switch.
+function ftvCard() {
+  const w = homeWindow(homeRef()), rw = reportWindows();
+  const on = reportingOn() && w;
+  const ftvs = on ? allFtvs() : [];
+  const hasR2 = ftvs.some(f => 'r2' in f);
+  const inW = (d, a, b) => !!d && d >= a && d <= b;
+  const count = (a, b) => ({
+    first: ftvs.filter(f => inW(f.d, a, b)).length,
+    back: hasR2 ? ftvs.filter(f => f.r2 && f.r2 <= addDays(f.d, rw.return_days) && inW(f.r2, a, b)).length : null,
+    joined: ftvs.filter(f => f.dtc != null && inW(addDays(f.d, f.dtc), a, b)).length,
+  });
+  const cur = on ? count(w.start, w.end) : {}, prev = on ? count(w.prev_start, w.prev_end) : {};
+  const vs = on ? homeVs(w) : '';
+  const how = 'Counts of what happened in the period, for ' + (groupIsScorecard() ? 'the Qualified first-timers (the people the Pilot scorecard counts)' : 'everyone whose first purchase was a day pass or a youth program') + ', the same people as Insights. ' +
+    '\nFirst-timers: their first visit was in the period. ' +
+    '\nCame back: their second visit, on a later day and within ' + rw.return_days + ' days of the first, was in the period. ' +
+    '\nBecame members: they joined in the period (a paid membership that is not a youth plan), however long after their first visit. ' +
+    '\nThe period is the one next to Showing. The rates (came back within ' + rw.return_days + ' days, joined within 30 / 60 / 90 days) are on Insights.';
+  return '<div class="card"><div class="card-header"><div class="card-title">First-time visitors</div></div>' +
+    '<div class="card-content"><div class="mini-grid">' +
+    homeTile('First-timers', on ? homeNum(cur.first) : 'n/a', on ? trendHtml(cur.first, prev.first, vs) : '', '') +
+    homeTile('Came back', on ? homeNum(cur.back) : 'n/a', on ? trendHtml(cur.back, prev.back, vs) : '', '') +
+    homeTile('Became members', on ? homeNum(cur.joined) : 'n/a', on ? trendHtml(cur.joined, prev.joined, vs) : '', '') +
+    '</div>' + howLink('how-ftv-home', how) + '</div>' +
+    '<div class="card-foot"><button class="link-btn" onclick="showView(\'insights\')">More in Insights &rsaquo;</button></div></div>';
+}
+// The Home "Members" card (ABC; Block 24 decisions 2 + 5): the member survey
+// scores answered in the period, each with its answer count and an arrow vs
+// the earlier period (change in points; no arrow when either side has no
+// answers). "Active members" left (the Gym card's Member count is the same
+// number); Route Setting took its place (Luke 2026-10-19).
+function homeMembersCard() {
+  const w = homeWindow(String(homeRef() || MDATA.as_of || DATA.as_of || '').slice(0, 10));   // the shared Home end date
+  const inW = (r, a, b) => { const d = String(r.answered_at || '').slice(0, 10); return d >= a && d <= b; };
+  const all = mAllResponses();
+  const cur = w ? all.filter(r => inW(r, w.start, w.end)) : all, prev = w ? all.filter(r => inW(r, w.prev_start, w.prev_end)) : [];
+  const vs = w ? homeVs(w) : '';
+  const answers = n => n + plural(n, ' answer', ' answers');
+  const avgTile = (label, key) => {
+    const c = mAvg(cur, key), p = mAvg(prev, key), n = cur.filter(r => r.scores[key] != null).length;
+    return homeTile(label, c == null ? 'n/a' : c.toFixed(1),   // no '/ 10' (Luke 2026-10-19)
+     
+      w && c != null && p != null ? trendHtml(+c.toFixed(1), +p.toFixed(1), vs, { dp: 1 }) : '', answers(n));
+  };
+  const nc = mNps(cur), np = mNps(prev);
+  const how = 'Member survey answers given in the period (' + (w ? shortDate(w.start) + ' to ' + shortDate(w.end) : 'all time') + '). ' +
+    '\nRecommend score: % who would recommend (9 or 10) minus % who would not (0 to 6), from -100 to 100. ' +
+    '\nStay-6-months intent and Route Setting: the average answer, 0 to 10. ' +
+    '\nArrows show the change in points against the same question in the earlier period; none when either period has no answers. A handful of answers can swing a score, so read the answer count first.';
+  return '<div class="card"><div class="card-header"><div class="card-title">Members</div></div>' +
+    '<div class="card-content"><div class="mini-grid">' +
+    homeTile('Recommend score', nc.n ? String(nc.score) : 'n/a', w && nc.n && np.n ? trendHtml(nc.score, np.score, vs, { dp: 0 }) : '', answers(nc.n)) +
+    avgTile('Stay-6-months intent', 'remain') +
+    avgTile('Route Setting', 'routes') +
+    '</div>' + howLink('how-members-home', how) + '</div>' +
+    '<div class="card-foot"><button class="link-btn" onclick="showView(\'m-insights\')">More in Insights &rsaquo;</button></div></div>';
+}
 function renderHome() {
   const hasMembers = typeof membersOn === 'function' && membersOn();
   let rows = '', jobs = 0;
@@ -828,26 +1038,14 @@ function renderHome() {
   }
   auto += '</div>';
 
-  // How it is going
-  const m = DATA.metrics || {}, w = reportWindows();
-  let going = '<div class="card"><div class="card-header"><div class="card-title">First-time visitors</div></div><div class="card-content"><div class="mini-grid">' +
-    '<div class="mini"><div class="mini-label">New this week</div><div class="mini-value">' + (m.new_visitors_7d == null ? 'n/a' : m.new_visitors_7d.toLocaleString()) + '</div></div>' +
-    '<div class="mini"><div class="mini-label">Came back within ' + w.return_days + ' days</div><div class="mini-value">' + (reportingOn() ? homeRate('ret30', w.return_days) : 'n/a') + '</div></div>' +
-    '<div class="mini"><div class="mini-label">Joined within ' + w.join_days[0] + ' days</div><div class="mini-value">' + (reportingOn() ? homeRate(JOIN_KEYS[0], w.join_days[0]) : 'n/a') + '</div></div></div></div>' +
-    '<div class="card-foot"><button class="link-btn" onclick="showView(\'insights\')">More in Insights &rsaquo;</button></div></div>';
-  if (hasMembers) {
-    const rs = mAllResponses(), nps = mNps(rs), ret = mAvg(rs, 'remain'), mc = MDATA.member_count || {};
-    going += '<div class="card"><div class="card-header"><div class="card-title">Members</div></div><div class="card-content"><div class="mini-grid">' +
-      '<div class="mini"><div class="mini-label">Recommend score</div><div class="mini-value">' + (nps.n ? nps.score : 'n/a') + '</div></div>' +
-      '<div class="mini"><div class="mini-label">Stay-6-months intent</div><div class="mini-value">' + (ret == null ? 'n/a' : ret.toFixed(1) + ' / 10') + '</div></div>' +
-      '<div class="mini"><div class="mini-label">Active members</div><div class="mini-value">' + (mc.current == null ? 'n/a' : mc.current.toLocaleString()) + '</div></div></div></div>' +
-      '<div class="card-foot"><button class="link-btn" onclick="showView(\'m-insights\')">More in Insights &rsaquo;</button></div></div>';
-  }
+  // How it is going (Block 24: one period switch, counts, arrows)
+  let going = ftvCard();
+  if (hasMembers) going += homeMembersCard();
   const dw = DATA.data_window || {};
   let h = pageHeader('Home', 'What needs you today at ' + DATA.client + ', and what is running by itself.');
   h += '<div class="section-label" style="margin-top:0;">Needs you' + (jobs ? '<span>' + jobs + plural(jobs, ' thing', ' things') + '</span>' : '') + '</div>' + todo;
   h += '<div class="section-label">Running by itself<span>nothing to do</span></div>' + auto;
-  h += '<div class="section-label">How it is going</div><div class="' + (hasMembers ? 'two-col' : '') + '">' + going + '</div>';
+  h += '<div class="section-label">How it is going</div>' + homeSwitchHtml() + gymCard() + '<div class="' + (hasMembers ? 'two-col' : '') + '">' + going + '</div>';
   h += '<div class="home-foot">Data as of ' + escapeHtml(DATA.as_of) + '. Purchases through ' + escapeHtml(dw.transactions_max || '?') +
     ', check-ins through ' + escapeHtml(dw.sessions_max || '?') + '. Page built ' + escapeHtml(DATA.generated_at) + '.</div>';
   $('view-home').innerHTML = h;

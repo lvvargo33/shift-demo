@@ -665,6 +665,8 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
             "nva": min(sum(1 for v in c.visit_days if v >= fd), 99),  # on/after the paid first visit
             "ret30": definitions.came_back_within(c.visit_days, fd, ret_days),
             "dtc": dtc,                  # days from the first visit to joining (or null)
+            # Block 24: the first check-in on a LATER day (Home counts "came back" by its date)
+            "r2": min((str(v)[:10] for v in c.visit_days if str(v)[:10] > fd), default=None),
         }
         for key, days in zip(("j30", "j60", "j90"), join_windows):
             rec[key] = definitions.joined_within(jd, fd, days)

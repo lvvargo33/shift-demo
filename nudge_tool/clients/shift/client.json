@@ -39,9 +39,11 @@
     "punch pass",
     "2 week trial",
     "two-week trial",
-    "two week"
+    "two week",
+    "(group) pass",
+    "fall $35 family"
   ],
-  "_low_commitment_skus_note": "Entry-level products. low_commitment minus trial_skus = the day-pass set used by daypass_repeat. Grounded in SHIFT's real Transactions export (1 day pass - adult, new day pass, 10 punch pass - adult, etc.).",
+  "_low_commitment_skus_note": "Entry-level products. low_commitment minus trial_skus = the day-pass set used by daypass_repeat. Grounded in SHIFT's real Transactions export (1 day pass - adult, new day pass, 10 punch pass - adult, etc.). '(group) pass' + 'fall $35 family' added 2026-10-16: SHIFT's fall day-pass promo (Isaac 10/16, '90-Day Pilot') sells 'Fall $10 Day Pass' (already caught by 'day pass'), 'Fall $8 (Group) Pass' ($8 each, groups of 3+) and 'Fall $35 Family' (one purchase, a household). Luke promised Isaac all three count as first visits, so the same two words sit in reporting.product_rules (DAY_PASS) and reporting.group_visit.pass_words. Checked on the 10/16 pull: no other product name contains either word. Each is priced at its own promo price with no discount, so the 50%-off redemption footprint is not fooled.",
   "conversion_skus": [
     "recurring",
     "prepaid"
@@ -136,7 +138,9 @@
       {
         "category": "DAY_PASS",
         "any": [
-          "day pass"
+          "day pass",
+          "(group) pass",
+          "fall $35 family"
         ]
       },
       {
@@ -224,7 +228,9 @@
       "min_passes": 10,
       "pass_words": [
         "day pass",
-        "homeschool"
+        "homeschool",
+        "(group) pass",
+        "fall $35 family"
       ],
       "single_visit_pass_types": [
         "DAILY",
@@ -584,7 +590,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
+      "_ended_note": "2026-10-19: OFF with membership_offer_control, the E-005 test ENDED (Chris on the 10/16 call, ROADMAP Block 24 decision 1). Every returner now falls through to membership_offer (the same email arm A got). The send_it_trial_offer Mailchimp journey just stops getting new tags.",
       "_zip_note": "2026-10-07: resident_zip_prefix [\"49\"] REMOVED from this trigger and membership_offer_control (Chris's yes 10/5, ROADMAP Block 20 decision 10). Dry run: +1 person in ~4 weeks (+6%); prior-trial and 2nd-visit volume are the real limits. With no zip-gated trigger, residency.attach_for_active_triggers does no Beta lookups. Zip wording in the descriptions below is history.",
       "_activation_note": "To GO LIVE: 1) replace templates/trial_offer_v1.md placeholder with Chris's copy (+ the verified buy link https://widgets.sendmoregetbeta.com/13353/pass?pmtType=2&showOnly=65600 ONLY after Isaac's explicit OK; he took the trial off his site on purpose), 2) build the Mailchimp journey on tag send_it_trial_offer (NO entry filter, the S20 trap), 3) set active:true. send_nudges.py already fetches zips for candidates when this trigger is active.",
       "group": "returner_offer"
@@ -607,7 +614,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
+      "_ended_note": "2026-10-19: OFF with trial_offer, the E-005 test ENDED (Block 24 decision 1). Its people now get membership_offer, the same email.",
       "group": "returner_offer"
     },
     {

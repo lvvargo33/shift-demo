@@ -37,7 +37,7 @@ from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from nudge_tool import config, email_results, engine, ingest, livesend, outreach, survey
+from nudge_tool import config, email_results, engine, gym_metrics, ingest, livesend, outreach, survey
 from nudge_tool.config import DASHBOARD_TEMPLATE, load_client, load_settings
 
 DEFAULT_CLIENT = "shift_demo_live"
@@ -341,6 +341,10 @@ def render(client_slug: str, asof: date) -> str:
                                    email_results=email_results.snapshot(client_slug))
 
     payload["send_enabled"] = _send_enabled(client)
+    # Home "Gym" card (Block 23). Uses the real Eastern date, not `asof` (which
+    # runs DEFAULT_DAYS_AHEAD days ahead here), and never raises.
+    payload["gym"] = gym_metrics.build_beta(client.memberships_csv, client.transactions_csv,
+                                            gym_metrics.eastern_today())
 
     template = DASHBOARD_TEMPLATE.read_text(encoding="utf-8")
     data_str = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")

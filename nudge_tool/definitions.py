@@ -272,6 +272,7 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
     'band', 'header', 'row'. cells has at most DEF_TAB_COLS entries."""
     r, a = RETURN_DAYS, ANSWER_DAYS
     j = f"{JOIN_DAYS_SHORT}, {JOIN_DAYS} and {JOIN_DAYS_LONG}"
+    from .gym_metrics import SWITCH_GAP as gm_gap, WINDOW_DAYS as gm_window
     rows: list[tuple[str, list[str]]] = [
         ("title", ["Definitions: how every number on this sheet and on both "
                    "gyms' Send It pages is counted"]),
@@ -490,6 +491,65 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  "member-survey email sent before it, and the row has no "
                  "came-back or join numbers).",
                  "Q1 taps are SHIFT only."]),
+        # Block 23 (2026-10-16): the Home page Gym card. Luke: keep definitions
+        # as consistent as possible, and say where the card differs from the
+        # pilot's "Joined" (it answers a GM's question, not the pilot's).
+        # Block 24 (2026-10-16 call): a period switch and arrows on the card.
+        ("band", [f"Home page Gym card: four numbers for the GM, this month so far "
+                  f"or the last {gm_window} days"]),
+        ("header", ["Term", "What it means", "Window", "Used in"]),
+        ("row", ["Member count",
+                 "People with a membership running today, paying. Frozen members "
+                 "are not in the number; the card shows them on a line under it. "
+                 "SHIFT: a family or dual plan counts once (the account holder); "
+                 "staff plans and freeze fees are left out. ABC: RGP members with "
+                 "status OK, so everyone on a family plan counts. Its arrow "
+                 f"compares with the same date last month (or {gm_window} days "
+                 "ago); at ABC that earlier count comes from the weekly member "
+                 "count until the daily status record reaches back that far.",
+                 "Today", "Each gym's Home page"]),
+        ("row", ["Period and arrows",
+                 "The Home page shows this month so far (the default), compared "
+                 f"with the same days last month, or the last {gm_window} days, "
+                 f"compared with the {gm_window} days before. The period ends on "
+                 "the last day with sales in the data (pulled each morning). "
+                 "Green arrow = better, red = worse (for cancellations, fewer is "
+                 "better); hovering shows the % change. An earlier period with "
+                 "no number (ABC cancellations before 2026-10-16) has no arrow.",
+                 f"This month so far / last {gm_window} days", "Each gym's Home page"]),
+        ("row", ["New members",
+                 f"People who became members: a first membership, or a comeback "
+                 f"more than {gm_gap} days after their last one ended. Counted "
+                 f"per person, so switching plans within {gm_gap} days is not a "
+                 f"new member, and a late renewal is not either. Youth plans "
+                 f"count. Different from 'Joined' above on purpose: Joined asks "
+                 f"whether a first-timer converted, so it leaves youth plans out "
+                 f"and only counts a first-ever join; this asks how many members "
+                 f"the gym added. SHIFT: Beta's membership start dates. ABC: "
+                 f"membership purchases on RGP invoices, counted for the person "
+                 f"who paid (a family plan once).",
+                 "The Home period", "Each gym's Home page"]),
+        ("row", ["Cancellations",
+                 f"People who stopped being members: their last membership ended "
+                 f"and they held none at the end of the period. A plan switch (a new plan within "
+                 f"{gm_gap} days) is not a cancellation. Freezing is not a "
+                 f"cancellation. SHIFT: Beta's cancel date, which may be the day "
+                 f"the cancel was entered rather than the last day of access. "
+                 f"ABC: RGP keeps no cancel dates, so Send It writes down every "
+                 f"member's status each morning and counts from the day that "
+                 f"record began (2026-10-16).",
+                 "The Home period", "Each gym's Home page"]),
+        ("row", ["Net sales",
+                 "Everything sold and paid for, before sales tax, with refunds "
+                 "taken off. Gift card sales are left out "
+                 "(the visit counts when the card is spent). SHIFT: counted the "
+                 "way Beta's sales report counts them (checked against SHIFT's "
+                 "September 2026 report): a sale on the day it was paid, a refund "
+                 "on the day it was made; unpaid (open) and cancelled sales are "
+                 "left out. ABC: RGP invoice lines on the invoice day; voided invoices and "
+                 "bookkeeping lines are left out. Send It adds these up itself "
+                 "because Beta's own revenue dashboard is not reliable.",
+                 "The Home period", "Each gym's Home page"]),
         ("band", ["Known limits"]),
         ("row", ["Event history",
                  "Mailchimp shows a person's newest 50 events and Brevo keeps "

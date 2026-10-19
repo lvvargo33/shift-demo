@@ -18,7 +18,9 @@ Flow each run:
   7. (optional) email a success/failure report
 
 A rolling overlap window (default 2 days) means a missed or late-posting row is
-always caught on the next run; the merge dedup removes the overlap.
+always caught on the next run; the merge dedup removes the overlap. Transactions
+use a longer window (--tx-days, default 90, since 2026-10-19) so a sale's later
+payment, cancellation or refund replaces the saved copy.
 
 Secrets / config (env or .env next to this file):
   BETA_REFRESH_TOKEN   long-lived Firebase refresh token (capture once from browser)
@@ -132,6 +134,43 @@ def pull_transactions(token: str, start: str, end: str) -> str:
                  headers={"Authorization": token,
                           "Content-Type": "text/plain;charset=UTF-8",
                           "Referer": f"{ORIGIN}/"})
+
+
+TX_CHUNK_DAYS = 30   # one transactions call covers at most this many days
+
+
+def pull_transactions_window(token: str, start: datetime, end: datetime) -> str:
+    """Transactions created in start..end, fetched TX_CHUNK_DAYS at a time and
+    joined into one CSV (header once). A sale is returned again on every
+    pull while it is inside the window, in its CURRENT state, and the merge
+    lets that copy replace the saved one: this is how a later payment, a
+    cancellation or a refund on an older sale reaches the canonical file.
+    Why a long window (2026-10-19, Jadee's September check): a refund landed
+    43 days after its sale ($360 Homeschool, sold 7/21, refunded 9/2) and an
+    unpaid autobill was paid 21 days later; the old 2-day window never saw
+    either, so September read $111.53 high."""
+    import csv
+    header, body = None, []
+    s = start
+    while s < end:
+        e = min(s + timedelta(days=TX_CHUNK_DAYS), end)
+        text = pull_transactions(token, s.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                                 e.strftime("%Y-%m-%dT%H:%M:%S.000Z")).lstrip("﻿")
+        rows = list(csv.reader(io.StringIO(text)))   # csv, not lines: a quoted field may hold a line break
+        if rows:
+            if header is None:
+                header = rows[0]
+            elif rows[0] != header:
+                raise RuntimeError("transactions chunks came back with different headers")
+            body.extend(r for r in rows[1:] if any(c.strip() for c in r))
+        s = e
+    if header is None:
+        return ""
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\n")
+    w.writerow(header)
+    w.writerows(body)          # a sale on a chunk edge can appear twice; the merge keys on id
+    return out.getvalue()
 
 
 def pull_sessions(token: str, date_from: str, date_to: str) -> str:
@@ -342,13 +381,13 @@ def run_pull(a) -> None:
     """The actual work. Prints a human report; raises on any failure."""
     now = datetime.now(timezone.utc)
     win_start = now - timedelta(days=a.days)
-    tx_start = win_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    tx_end = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    tx_win_start = now - timedelta(days=max(a.tx_days, a.days))
     date_from = win_start.strftime("%Y-%m-%d")
     date_to = now.strftime("%Y-%m-%d")
 
     print(f"Beta pull {rbd.STAMP} | gym {GYM} | window {a.days}d "
-          f"({date_from} .. {date_to} UTC)")
+          f"({date_from} .. {date_to} UTC); transactions re-checked over "
+          f"{max(a.tx_days, a.days)}d (from {tx_win_start:%Y-%m-%d})")
 
     if a.drive:
         drive_pull_canonical()
@@ -356,7 +395,7 @@ def run_pull(a) -> None:
     token = mint_token()
     print("\n  token minted (fresh 1-hour ID token)")
 
-    tx = _save_temp(pull_transactions(token, tx_start, tx_end), "transactions")
+    tx = _save_temp(pull_transactions_window(token, tx_win_start, now), "transactions")
     se = _save_temp(pull_sessions(token, date_from, date_to), "sessions")
     me = _save_temp(pull_memberships(token), "memberships")
     me_all = _save_temp(pull_memberships(token, all_states=True), "memberships_all")
@@ -408,7 +447,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description="Pull Beta exports via the API and merge into canonical CSVs.")
     ap.add_argument("--days", type=int, default=2,
-                    help="rolling overlap window in days (default 2)")
+                    help="rolling overlap window in days for sessions (default 2)")
+    ap.add_argument("--tx-days", type=int, default=90,
+                    help="how far back transactions are re-pulled so later payments, "
+                         "cancels and refunds on older sales land (default 90)")
     ap.add_argument("--drive", action="store_true",
                     help="cloud mode: pull canonical from Drive, merge, push back "
                          "(uses BETA_DRIVE_* file ids + BETA_*_PATH working paths)")

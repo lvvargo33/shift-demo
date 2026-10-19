@@ -33,6 +33,7 @@ import csv
 import os
 import shutil
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -95,10 +96,21 @@ def merge_transactions(new_path: Path) -> None:
     before_n, before_amt = len(cur), total(cur)
     merged = {r[id_i]: r for r in cur}      # current first
     added = 0
+    # 2026-10-19: the pull re-fetches 90 days, so a saved sale whose state or
+    # refund changed (paid late, cancelled, refunded) is replaced here; count
+    # those so the report shows the refresh doing its job.
+    st_i, rf_i = cur_h.index("state"), cur_h.index("total_refunds")
+    changed = Counter()
     for r in new:                            # NEW wins on collision
         k = r[id_i]
         if k not in merged:
             added += 1
+        else:
+            o = merged[k]
+            if o[st_i] != r[st_i]:
+                changed[f"{o[st_i]} -> {r[st_i]}"] += 1
+            elif o[rf_i] != r[rf_i]:
+                changed["refund amount changed"] += 1
         merged[k] = r
     out = list(merged.values())
     out.sort(key=lambda r: r[time_i])
@@ -106,6 +118,8 @@ def merge_transactions(new_path: Path) -> None:
     _write(TX_DST, cur_h, out)
     print(f"  rows: {before_n} -> {len(out)}  (+{added} new ids, "
           f"{len(new) - added} overlapping ids refreshed)")
+    print(f"  saved sales that changed: "
+          + (", ".join(f"{n} {k}" for k, n in sorted(changed.items())) if changed else "none"))
     print(f"  $total_amount: {before_amt:,.2f} -> {total(out):,.2f}")
     print(f"  max time: {_datecol(cur, time_i)} -> {_datecol(out, time_i)}")
     print(f"  sample new rows (id | time | climber | amount):")
