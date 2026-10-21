@@ -232,8 +232,11 @@ def new_invitation(session, template_id, template_version, now):
             "attempts": [], "capabilities": {}}
 
 
-# Capability lifetime his issue_capability() uses by default (max 90 days).
-CAPABILITY_LIFETIME = timedelta(days=30)
+# Capability lifetime. His issue_capability() default is 30 days (max 90).
+# Block 26 (Luke, 2026-10-21): 24 hours, because /s mints from an email alone,
+# so a stranger who clicks first holds a token into that person's answers.
+# Real people finish in minutes; a day bounds that stranger's window.
+CAPABILITY_LIFETIME = timedelta(hours=24)
 # His pilot cap: a message holds at most 32 capabilities, none ever revoked.
 CAPABILITY_LIMIT = 32
 # What his _validate_token accepts: <64 hex>.<43 urlsafe chars>.
@@ -358,6 +361,18 @@ def _template_id(tag: str) -> str:
 # --------------------------------------------------------------------------
 # mint: click time.
 # --------------------------------------------------------------------------
+# What mint returns instead of a URL when the session already has saved
+# answers (Block 26, 2026-10-21). live_server shows a plain thanks page.
+ALREADY_STARTED = "already_started"
+
+
+def started(session: dict) -> bool:
+    """Anything ever saved: a partial or completed state, a started_at stamp
+    (kept even if every answer is later cleared), or any revision."""
+    return (session.get("state") != "unanswered" or bool(session.get("started_at"))
+            or bool(session.get("revision")) or bool(session.get("answers")))
+
+
 def mint(client: ClientConfig, email: str, climber_id: str, q1: int | None = None,
          tag: str = "", *, db=None, now: datetime | None = None,
          base_url: str | None = None) -> str:
@@ -368,7 +383,11 @@ def mint(client: ClientConfig, email: str, climber_id: str, q1: int | None = Non
     Idempotent where his page needs it: the session and message ids are
     deterministic (sha256 of gym + customer id), so a second click reuses both
     and only adds a capability (his issue_capability() does the same; earlier
-    tokens stay valid). An existing session is never overwritten."""
+    tokens stay valid). An existing session is never overwritten.
+
+    Block 26: a session with anything saved gets NO new capability; mint
+    returns ALREADY_STARTED and writes nothing. /s is unauthenticated, so
+    otherwise an email alone would open someone's saved answers."""
     try:
         if db is None:
             if not mint_enabled(client):
@@ -394,8 +413,6 @@ def mint(client: ClientConfig, email: str, climber_id: str, q1: int | None = Non
         snap = _retry(sref.get, _RETRY_DELAYS_MINT)
         if snap.exists:
             session = _check(snap.to_dict(), ctx.gym_id, "session")
-            if session.get("definition_hash") != FTV_V1.fingerprint:
-                raise SurveyError("session: definition changed without version bump")
         else:
             pref = root.collection("subjects").document(session["subject_id"])
             ps = _retry(pref.get, _RETRY_DELAYS_MINT)
@@ -412,6 +429,15 @@ def mint(client: ClientConfig, email: str, climber_id: str, q1: int | None = Non
                 if not again.exists:
                     raise
                 session = _check(again.to_dict(), ctx.gym_id, "session")
+        # Both paths (existing session, lost race) get the hash check (tester 10/21).
+        if session.get("definition_hash") != FTV_V1.fingerprint:
+            raise SurveyError("session: definition changed without version bump")
+        if started(session):
+            # Block 26: /s needs only an email, so it never hands out a new
+            # token into answers someone already saved. The person mid-survey
+            # keeps the page (and token) they already have open.
+            print("  native survey: session already started; thanks page, no token")
+            return ALREADY_STARTED
 
         message = new_invitation(session, _template_id(tag), 1, now)
         # Our additions, mirroring what his dispatcher writes on a message it

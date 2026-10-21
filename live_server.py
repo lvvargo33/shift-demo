@@ -488,9 +488,23 @@ def _native_survey_url(slug: str, email: str, q: str, tag: str) -> str:
         return ""
 
 
+# Block 26 (2026-10-21): a click into a survey that already has saved answers
+# gets this page, never a token (mint returns native_survey.ALREADY_STARTED).
+_ALREADY_STARTED = "already_started"
+_THANKS_PAGE = (
+    b'<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    b'<meta name="viewport" content="width=device-width, initial-scale=1">'
+    b'<title>Thanks</title></head>'
+    b'<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;'
+    b'max-width:32rem;margin:15vh auto;padding:0 1rem;text-align:center;color:#222">'
+    b'<h1 style="font-size:1.5rem">Thanks, we already have your answers.</h1>'
+    b'<p>You can close this page.</p></body></html>')
+
+
 def _s_redirect_url(slug: str, tap: dict, email: str, q: str, tag: str) -> str:
     """Where a survey click lands: the native page when the island is on and
-    the mint succeeds, else the prefilled Google Form ("" = no survey at all)."""
+    the mint succeeds, else the prefilled Google Form ("" = no survey at all).
+    _ALREADY_STARTED when that climber's survey already has saved answers."""
     url = _native_survey_url(slug, email, q, tag)
     if url:
         return url
@@ -568,7 +582,14 @@ class Handler(survey_page.handler_base()):
                 threading.Thread(target=_log_tap, args=(tap, email, q, tag),
                                  daemon=True).start()
             url = _s_redirect_url(slug, tap, email, q, tag)
-            if url:
+            if url == _ALREADY_STARTED:  # Block 26: saved answers never reopen from /s
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(_THANKS_PAGE)))
+                self.end_headers()
+                self.wfile.write(_THANKS_PAGE)
+            elif url:
                 self.send_response(302)
                 self.send_header("Location", url)
                 self.send_header("Cache-Control", "no-store")
