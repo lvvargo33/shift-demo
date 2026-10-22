@@ -590,8 +590,9 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": false,
+      "active": true,
       "_ended_note": "2026-10-19: OFF with membership_offer_control, the E-005 test ENDED (Chris on the 10/16 call, ROADMAP Block 24 decision 1). Every returner now falls through to membership_offer (the same email arm A got). The send_it_trial_offer Mailchimp journey just stops getting new tags.",
+      "_reopen_note": "2026-10-22: BACK ON with membership_offer_control (Chris 10/21 kept the test; 10/22 'Copy is done!': new copy + subjects in both Mailchimp journeys, Lite removed from arm A). First sends 2026-10-23 11 AM ET. E-005 stays frozen as the old-copy record; the new-copy readout is a new Experiments row (ROADMAP Block 25 'Changes 2026-10-22').",
       "_zip_note": "2026-10-07: resident_zip_prefix [\"49\"] REMOVED from this trigger and membership_offer_control (Chris's yes 10/5, ROADMAP Block 20 decision 10). Dry run: +1 person in ~4 weeks (+6%); prior-trial and 2nd-visit volume are the real limits. With no zip-gated trigger, residency.attach_for_active_triggers does no Beta lookups. Zip wording in the descriptions below is history.",
       "_activation_note": "To GO LIVE: 1) replace templates/trial_offer_v1.md placeholder with Chris's copy (+ the verified buy link https://widgets.sendmoregetbeta.com/13353/pass?pmtType=2&showOnly=65600 ONLY after Isaac's explicit OK; he took the trial off his site on purpose), 2) build the Mailchimp journey on tag send_it_trial_offer (NO entry filter, the S20 trap), 3) set active:true. send_nudges.py already fetches zips for candidates when this trigger is active.",
       "group": "returner_offer"
@@ -614,8 +615,9 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": false,
+      "active": true,
       "_ended_note": "2026-10-19: OFF with trial_offer, the E-005 test ENDED (Block 24 decision 1). Its people now get membership_offer, the same email.",
+      "_reopen_note": "2026-10-22: BACK ON with trial_offer (see trial_offer _reopen_note).",
       "group": "returner_offer"
     },
     {
