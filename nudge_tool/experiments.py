@@ -36,6 +36,13 @@ along on that person's record list, so a response credited to the reminder
 still counts for the person. The outcome clock is the person's FIRST
 population send (both arms judged "within N days of the first email").
 
+Send-date cutoff for tag tests (E-008, 2026-10-23). When an old test's arm
+tags are reused for a new one (new copy in the same Mailchimp journeys), the
+new entry sets `"sends_since": "YYYY-MM-DD"`: arm sends before that day are
+not counted, and a person who already had an arm send before it is left out
+(noted), since they saw the old copy first. Bucket tests use
+population.since instead (a bucket entry with sends_since is skipped, noted).
+
 Pooled tests (Tasks step 1.4, roadmap Block 14, 2026-09-28). When both gyms
 run the same test, each registry entry carries the same explicit
 `"pooled": {"id": "survey_reminder_01", "sheet_id": "P-006"}`. Each gym's
@@ -164,7 +171,18 @@ def load_registry(client_dir: Path) -> tuple[list[dict], list[str]]:
         elif not isinstance(arms, dict) or not arms.get("A") or not arms.get("B"):
             notes.append(f"{e['exp_id']}: arms must be {{'A': [...], 'B': [...]}}, skipped")
             continue
+        since = e.get("sends_since")
+        if since is None or since == "":
+            since = ""
+        elif (bucket or not isinstance(since, str) or not _iso_day(since[:10])
+              or since[10:11] not in ("", "T", " ")):
+            # a bad cutoff would count the old test's sends, so skip the entry
+            why = "a bucket test uses population.since" if bucket else "not a YYYY-MM-DD date"
+            notes.append(f"{e['exp_id']}: sends_since {since!r} ({why}), skipped")
+            continue
         e = dict(e)
+        if since:
+            e["sends_since"] = since[:10]
         e["arms"] = {k: ([v] if isinstance(v, str) else list(v or [])) for k, v in arms.items()}
         e["arms"].setdefault("A", [])
         e["arms"].setdefault("B", [])
@@ -310,22 +328,36 @@ def _person_table_bucket(exp: dict, records: list[dict]) -> tuple[dict, list[str
 def person_table(exp: dict, records: list[dict]) -> tuple[dict, list[str]]:
     """{'A': {email: [record, ...]}, 'B': {...}} from the send records; a
     record joins an arm when its tag or its A/B variant tag is listed there.
-    A person seen in both arms is dropped from both (noted). A bucket test
-    (see the module docstring) assigns people by hash instead."""
+    A person seen in both arms is dropped from both (noted). With
+    `sends_since`, earlier arm sends are not counted and a person who had one
+    is dropped (noted). A bucket test (see the module docstring) assigns
+    people by hash instead."""
     if exp.get("bucket"):
         return _person_table_bucket(exp, records)
+    since = (exp.get("sends_since") or "")[:10]
     arms = {"A": {}, "B": {}}
+    earlier: set = set()
     tags = {k: set(v) for k, v in exp["arms"].items()}
     for r in records:
         for arm, ts in tags.items():
             if r.get("tag") in ts or r.get("var_tag") in ts:
-                arms[arm].setdefault(r["email"], []).append(r)
+                if since and r["sent"] < since:
+                    earlier.add(r["email"])
+                else:
+                    arms[arm].setdefault(r["email"], []).append(r)
     both = set(arms["A"]) & set(arms["B"])
     for e in both:
         arms["A"].pop(e, None)
         arms["B"].pop(e, None)
     notes = ([f"{exp['exp_id']}: {len(both)} person(s) seen in both arms, dropped"]
              if both else [])
+    seen_old = earlier & (set(arms["A"]) | set(arms["B"]))
+    for e in seen_old:
+        arms["A"].pop(e, None)
+        arms["B"].pop(e, None)
+    if seen_old:
+        notes.append(f"{exp['exp_id']}: {len(seen_old)} person(s) also had an arm send "
+                     f"before {since}, dropped")
     return arms, notes
 
 
@@ -516,7 +548,10 @@ def pool_cell(res: dict, gym: str, pooled_id: str, asof: date) -> str:
 
 def _iso_day(v) -> bool:
     """Exactly YYYY-MM-DD and a real date (no numbers, no trailing junk)."""
-    if not isinstance(v, str) or len(v) != 10:
+    # the shape check matters: Python 3.11+ fromisoformat also takes
+    # "2026-W43-5", which is 10 characters too
+    if (not isinstance(v, str) or len(v) != 10 or v[4] != "-" or v[7] != "-"
+            or not (v[:4] + v[5:7] + v[8:]).isdigit()):
         return False
     try:
         date.fromisoformat(v)

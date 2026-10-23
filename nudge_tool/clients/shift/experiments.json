@@ -1,5 +1,5 @@
 {
-  "_note": "Experiments registry (roadmap block 6, 2026-09-14). Luke owns this file; the 11 AM cron reads it as the truth and writes each entry DOWN into the row of the All Gyms sheet's Experiments tab whose Experiment ID equals sheet_id (a missing row is appended). Chris reads, he does not type. arms = the outreach-log tags that put a send in each arm (SHIFT's Mailchimp journey tags). primary_outcome is one of opened_7d, clicked_7d, responded_14d, returned_30d, converted_30d, converted_60d, redeemed_30d (default returned_30d). baseline = the rate expected without a change, mwe = the smallest improvement worth acting on (fraction, default 0.05). started = the date the test went live, for the record. Set active to false to freeze a row.",
+  "_note": "Experiments registry (roadmap block 6, 2026-09-14). Luke owns this file; the 11 AM cron reads it as the truth and writes each entry DOWN into the row of the All Gyms sheet's Experiments tab whose Experiment ID equals sheet_id (a missing row is appended). Chris reads, he does not type. arms = the outreach-log tags that put a send in each arm (SHIFT's Mailchimp journey tags). primary_outcome is one of opened_7d, clicked_7d, responded_14d, returned_30d, converted_30d, converted_60d, redeemed_30d (default returned_30d). baseline = the rate expected without a change, mwe = the smallest improvement worth acting on (fraction, default 0.05). started = the date the test went live, for the record. sends_since (optional, 2026-10-23) = count only arm sends on or after this date, for a test that reuses an older test's arm tags. Set active to false to freeze a row.",
   "experiments": [
     {
       "exp_id": "shift_survey_subject_01",
@@ -79,6 +79,26 @@
       "_pooled_note": "Pooled with ABC's E-007 (Tasks step 1.4, Block 14, 2026-09-28): same pooled id in both registries = one extra row P-006 (Gym 'Both') on the Experiments tab, read from both gyms' arms. Nothing is written while this entry is inactive.",
       "started": "",
       "active": false
+    },
+    {
+      "exp_id": "shift_membership_vs_trial_02",
+      "sheet_id": "E-008",
+      "name": "SHIFT - membership offer, new copy (membership vs 2-week trial)",
+      "gym": "SHIFT",
+      "audience": "Day Pass FTV",
+      "type": "Offer",
+      "categories": ["offer"],
+      "variant_a": "Membership offer, new copy (Lite removed)",
+      "variant_b": "2-Week Trial, new copy",
+      "arms": {"A": ["send_it_membership_offer_a"], "B": ["send_it_trial_offer"]},
+      "sends_since": "2026-10-23",
+      "_since_note": "Same arm tags as E-005, so sends_since keeps E-005's sends (2026-08-13 to 2026-10-19, old copy) out of this row. Anyone who got an E-005 email is left out. Chris's new copy went live in Mailchimp 2026-10-22; triggers back on in SHIFT client.json at 023925d, first sends 2026-10-23 11 AM ET.",
+      "primary_outcome": "converted_30d",
+      "baseline": 0.09,
+      "mwe": 0.05,
+      "_baseline_note": "Copied from E-005, not re-estimated.",
+      "started": "2026-10-23",
+      "active": true
     }
   ]
 }
