@@ -216,15 +216,31 @@ def _run_live_mode(args, client, queue, asof) -> int:
         print(f"  FAIL  credentials needed to tag climbers: {e}")
         return 2
     mc = MailchimpClient(settings)
+    # Block 25 A1: survey emails go through the dispatch switch (cron parity).
+    from .survey_dispatch import Dispatcher, DispatchError
+    disp = Dispatcher(client, mc, entrypoint="cli", asof=asof)
+    try:
+        for line in disp.prepare(targets):
+            print(line)
+    except DispatchError as e:
+        print(f"  FAIL  survey dispatch not ready ({e}); tagged nobody")
+        return 2
     print(f"\n  --yes: tagging {len(targets)} climber(s) in Mailchimp ...")
     tagged: list = []
     for t in targets:
         try:
-            mc.tag_member(t.email, t.first_name, t.tag)
-            tagged.append(t)
-            print(f"    ok    {t.tag:<16} {t.email}")
+            o = disp.send(t)
         except (MailchimpError, RequestException) as e:
             print(f"    FAIL  {t.tag:<16} {t.email}  ({e})")
+            continue
+        if o.sent:
+            tagged.append(t)
+            print(f"    ok    {t.tag:<16} {t.email}"
+                  + ("  (Brevo)" if o.transport == "brevo" else ""))
+        elif o.state == "failed":
+            print(f"    FAILED {t.tag:<16} {t.email}  ({o.detail})")
+        else:
+            print(f"    skip  {t.tag:<16} {t.email}  ({o.state})")
     written = outreach.append(client, livesend.log_rows(tagged, asof))
     print(f"\n  LIVE done: tagged {len(tagged)} climber(s), logged {written} row(s) "
           "to the outreach log.")

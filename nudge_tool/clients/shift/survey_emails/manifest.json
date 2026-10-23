@@ -1,0 +1,55 @@
+{
+  "_note": "Written by import_survey_emails.py from the live Mailchimp journeys. Edit copy in Mailchimp and re-import, not here.",
+  "versions": {
+    "FTV_survey_subject_a": {
+      "html": "FTV_survey_subject_a.html",
+      "embed": false,
+      "subject": "Thanks for climbing with us!",
+      "preview": "This 4-question survey takes less than 60 seconds.",
+      "mailchimp_campaign_id": "91ff89e932",
+      "mailchimp_status": "sending",
+      "mailchimp_from_name": "Shift Climbing",
+      "mailchimp_reply_to": "jadee@shiftclimbing.com"
+    },
+    "FTV_survey_subject_b": {
+      "html": "FTV_survey_subject_b.html",
+      "embed": false,
+      "subject": "How was your first visit to Shift?",
+      "preview": "This 4-question survey takes less than 60 seconds.",
+      "mailchimp_campaign_id": "841bf6db5c",
+      "mailchimp_status": "sending",
+      "mailchimp_from_name": "Shift Climbing",
+      "mailchimp_reply_to": "jadee@shiftclimbing.com"
+    },
+    "FTV_survey_subject_a_embed": {
+      "html": "FTV_survey_subject_a_embed.html",
+      "embed": true,
+      "subject": "Thanks for climbing with us!",
+      "preview": "How was your first visit? Tap a number to start our 20-second survey.",
+      "mailchimp_campaign_id": "5904f8f367",
+      "mailchimp_status": "sending",
+      "mailchimp_from_name": "Shift Climbing",
+      "mailchimp_reply_to": "jadee@shiftclimbing.com"
+    },
+    "FTV_survey_subject_b_embed": {
+      "html": "FTV_survey_subject_b_embed.html",
+      "embed": true,
+      "subject": "How was your first visit to Shift?",
+      "preview": "This 4-question survey takes less than 60 seconds.",
+      "mailchimp_campaign_id": "e34f24cafb",
+      "mailchimp_status": "sending",
+      "mailchimp_from_name": "Shift Climbing",
+      "mailchimp_reply_to": "jadee@shiftclimbing.com"
+    },
+    "FTV_survey_reminder_embed": {
+      "html": "FTV_survey_reminder_embed.html",
+      "embed": true,
+      "subject": "Quick reminder: how was your first visit?",
+      "preview": "We’d still love your feedback. It takes about 20 seconds.",
+      "mailchimp_campaign_id": "284b485d0b",
+      "mailchimp_status": "sending",
+      "mailchimp_from_name": "Shift Climbing",
+      "mailchimp_reply_to": "jadee@shiftclimbing.com"
+    }
+  }
+}

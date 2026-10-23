@@ -63,6 +63,12 @@ services:
         value: /etc/secrets/firestore_sa.json
       - key: NATIVE_SURVEY_PUBLIC_BASE_URL  # Chris's public survey origin, https://<host>, no path
         sync: false
+      - key: BREVO_API_KEY        # block 25 A1: the Send button's Brevo survey sends
+        sync: false               # (unused while survey.dispatch.ftv is legacy)
+      - key: BREVO_SEND_FROM      # jadee@shiftclimbing.com
+        sync: false
+      - key: BREVO_SEND_FROM_NAME
+        sync: false
       - key: NATIVE_SURVEY_CACHE_DRIVE_ID  # Drive file id of _native_survey_cache.csv (the
         sync: false                        # cron writes it; this service only reads it)
     healthCheckPath: /healthz
@@ -202,12 +208,23 @@ services:
         sync: false
       - key: GOOGLE_APPLICATION_CREDENTIALS  # Secret File firestore_sa.json (same key as the web service)
         value: /etc/secrets/firestore_sa.json
-      - key: NATIVE_SURVEY_PUBLIC_BASE_URL   # not used by the cron; kept for parity with the web service
-        sync: false
+      - key: NATIVE_SURVEY_PUBLIC_BASE_URL   # REQUIRED once survey.dispatch.ftv = "native" (block 25 A1):
+        sync: false                          # the cron builds the survey + opt-out links with it
       - key: NATIVE_SURVEY_CACHE_DRIVE_ID
         sync: false
       - key: NATIVE_SURVEY_PULL              # "1" = refresh the cache from Firestore this run
         value: "1"
+      # Brevo survey emails (block 25 A1, 2026-10-23). Unused while
+      # survey.dispatch.ftv is legacy (no dispatch block = legacy). Needed on
+      # THIS cron and on shift-live-dash (its Send button) before the flip.
+      - key: BREVO_API_KEY        # Luke's Brevo account (the one ABC uses)
+        sync: false
+      - key: BREVO_SEND_FROM      # jadee@shiftclimbing.com (decision 2026-10-22)
+        sync: false
+      - key: BREVO_SEND_FROM_NAME # "Shift Climbing" (defaults to client_name)
+        sync: false
+      - key: BREVO_REPLY_TO       # optional; defaults to BREVO_SEND_FROM
+        sync: false
       - key: BETA_TX_PATH      # working paths = the client's data paths in the bundle
         value: beta_data/Transactions.csv
       - key: BETA_SES_PATH

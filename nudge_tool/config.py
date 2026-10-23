@@ -31,11 +31,27 @@ def _resolve(path_str: str) -> Path:
     return p if p.is_absolute() else (BASE_DIR / p)
 
 
+class ESPError(Exception):
+    """Base for email-service-provider backend errors. MailchimpError and
+    BrevoError both subclass it so cli.py / send_nudges.py can catch one type
+    regardless of which ESP a client uses."""
+
+
 @dataclass(frozen=True)
 class Settings:
+    """ESP credentials. Mailchimp uses server + audience_id; Brevo uses only the
+    api_key plus a send-from identity. Fields the other ESP does not need stay at
+    their defaults, so both backends share one Settings shape. (Brevo fields
+    ported from ABC 2026-10-23 for Block 25 A1: SHIFT survey emails on Brevo,
+    see nudge_tool/survey_dispatch.py.)"""
     api_key: str
-    server: str
-    audience_id: str
+    server: str = ""
+    audience_id: str = ""
+    esp: str = "mailchimp"
+    sender_email: str = ""   # brevo: the From address for transactional sends
+    sender_name: str = ""    # brevo: the From display name
+    reply_to_email: str = ""  # brevo: where a recipient's Reply goes. Blank =
+                              # omit the field so Brevo replies to the sender.
 
     @property
     def api_base(self) -> str:

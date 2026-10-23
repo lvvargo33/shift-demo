@@ -22,6 +22,13 @@ Measurement rules baked in (2026-07-28):
 - outreach log rows with mode=test are ignored.
 - opens/clicks come from each recipient's activity feed, opens pinned to the
   exact journey email that was sent (engine._sent_campaign_ids).
+- outreach rows with esp=brevo (Shift's survey emails once they move to Brevo,
+  ROADMAP Block 25 A1 session 2, 2026-10-23) are measured from Brevo's
+  transactional event log instead, pinned to the send by its tag (our sends
+  carry [tag, "send_it_survey"]; the subject when an event has no tag). ABC
+  shares that Brevo account, so its events for the same person never match.
+  A Shift survey opt-out (our own page, survey_optout) counts as an
+  unsubscribe on that person's last Brevo survey email before it.
 - link clicks = survey-form OR buy-link URLs (engine's markers).
 - Q1 taps (embed test) count only when the tapping email actually HAS an
   embed-tagged send on/before the tap date, and only the FIRST tap per email
@@ -97,6 +104,12 @@ _NUM_RETRIES = 5
 # see drive_io), so the file is created by hand once and its id passed in here.
 ENGAGEMENT_CACHE_DRIVE_ID = os.getenv("ENGAGEMENT_CACHE_DRIVE_ID", "").strip()
 ENGAGEMENT_FRESH_DAYS = int(os.getenv("ENGAGEMENT_FRESH_DAYS", "14") or 14)
+# Brevo feeds for esp=brevo rows (session 2, 2026-10-23). Brevo rate-limits per
+# HOUR across the whole account, which ABC's own stats push also uses around
+# the same time (its cap is 250), so SHIFT asks for at most this many per run;
+# the rest carry their cached answer (or wait, uncached) to the next run.
+BREVO_FEED_CAP = int(os.getenv("BREVO_FEED_CAP", "100") or 100)
+BREVO_FEED_INTERVAL = float(os.getenv("BREVO_FEED_INTERVAL", "0.3") or 0.3)
 # opened_at (2026-09-14, Luke's decision 2 after Chris's "last email opened"
 # ask): the date of the first open pinned to that send, "" when never opened,
 # "unknown" when the send was opened but the ESP no longer returns the event.
@@ -841,6 +854,110 @@ def _drop_group_sends(sends: list[dict], ds) -> tuple[list[dict], list[dict]]:
     return kept, dropped
 
 
+def _brevo_tag_tokens(tag: str) -> set[str]:
+    """Brevo hands a multi-tag send's tags back joined ("a|b"; ABC's
+    _tag_decides found this 2026-09-30). Commas split too, to be safe."""
+    return {t.strip() for t in re.split(r"[|,]", tag or "") if t.strip()}
+
+
+def _brevo_own(events: list, tag: str, subject: str) -> list:
+    """The events that belong to the Brevo email sent with `tag`: its tag
+    among the event's tags, or, for an event with no tag, the version's
+    subject. ABC's emails to the same person on the shared account carry
+    ABC template tags, so they never match."""
+    subj = (subject or "").strip().lower()
+    out = []
+    for a in events or []:
+        toks = _brevo_tag_tokens(a.get("tag") or "")
+        if toks:
+            if tag in toks:
+                out.append(a)
+        elif subj and (a.get("subject") or "").strip().lower() == subj:
+            out.append(a)
+    return out
+
+
+def _brevo_order(need: list[dict], cache: dict, today: date) -> list[str]:
+    """The esp=brevo people to ask Brevo about, in the order the per-run cap
+    cuts: everyone with a fresh send the cache has no answer for yet first
+    (newest send first), then the rest rotated by the day, so past the cap
+    each person is still read every few runs instead of the same alphabetical
+    head every time (tester round, 2026-10-23)."""
+    newest: dict[str, str] = {}
+    uncached: set[str] = set()
+    for s in need:
+        if s["esp"] != "brevo":
+            continue
+        e = s["email"]
+        newest[e] = max(newest.get(e, ""), s["sent"])
+        if (e, s["sent"], s["tag"]) not in cache:
+            uncached.add(e)
+    first = sorted(uncached, key=lambda e: (newest[e], e), reverse=True)
+    rest = sorted(set(newest) - uncached)
+    if rest:
+        k = (today.toordinal() * max(BREVO_FEED_CAP, 1)) % len(rest)
+        rest = rest[k:] + rest[:k]
+    return first + rest
+
+
+def _brevo_survey_feeds(client, sends: list[dict], need: list[dict], cache: dict | None = None):
+    """-> (Brevo feeds by email, subject by tag, opt-out keys) for the
+    esp=brevo sends (session 2, 2026-10-23). Every failure is loud and
+    soft: a FAILED line (rule 5), and the sends it touches keep their cached
+    answer or wait (unfrozen) for the next run. Nothing here can stop the
+    Mailchimp numbers."""
+    brevo_sends = [s for s in sends if s["esp"] == "brevo"]
+    if not brevo_sends:
+        return {}, {}, set()
+    subjects: dict[str, str] = {}
+    try:
+        from nudge_tool import survey_mail
+        subjects = {t: (v.get("subject") or "") for t, v
+                    in survey_mail.load_versions(client).items()}
+    except Exception as exc:  # noqa: BLE001
+        print(f"  allgyms: survey email manifest read FAILED ({exc}); Brevo events "
+              f"with no tag cannot be matched this run")
+    todo = _brevo_order(need, cache or {}, datetime.now(timezone.utc).date())
+    capped = todo[:BREVO_FEED_CAP]
+    feeds: dict[str, list] = {}
+    if capped:
+        try:
+            from nudge_tool import survey_dispatch
+            from nudge_tool.brevo_client import BrevoClient
+            bc = BrevoClient(survey_dispatch.brevo_settings(client), client)
+            for i, e in enumerate(capped, 1):
+                if i > 1 and BREVO_FEED_INTERVAL > 0:
+                    time.sleep(BREVO_FEED_INTERVAL)
+                feeds[e] = bc.member_activity(e)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  allgyms: Brevo survey activity FAILED after {len(feeds)} of "
+                  f"{len(capped)} feeds ({type(exc).__name__}: {exc}); the rest keep "
+                  f"their cached numbers or wait for the next run")
+    stage(f"Brevo survey feeds: {len(feeds)} of {len(todo)} fetched "
+          f"({len(brevo_sends)} Brevo sends in the log"
+          + (f", cap {BREVO_FEED_CAP}, {len(todo) - len(capped)} deferred"
+             if len(todo) > len(capped) else "") + ")")
+    optout_keys: set[tuple] = set()
+    try:
+        from nudge_tool import survey_optout
+        dates = survey_optout.opted_out_dates(client)
+        by_email: dict[str, list] = defaultdict(list)
+        for s in brevo_sends:
+            if "survey" in s["tag"].lower():
+                by_email[s["email"]].append(s)
+        for e, d in dates.items():
+            before = [s for s in by_email.get(e, []) if d and s["sent"] <= d]
+            if before:
+                last = max(before, key=lambda s: s["sent"])
+                optout_keys.add((e, last["sent"], last["tag"]))
+        stage(f"survey opt-outs: {len(dates)} on the list, "
+              f"{len(optout_keys)} pinned to a Brevo survey email")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  allgyms: survey opt-out list read FAILED ({type(exc).__name__}: "
+              f"{exc}); opt-outs not counted as unsubscribes this run")
+    return feeds, subjects, optout_keys
+
+
 def collect(client) -> tuple[list[dict], list[dict]]:
     """This gym's stats -> (automation rows, variant rows), one dict each:
     {gym, name, section, tag, level, m: {metric_key: value}}"""
@@ -869,7 +986,9 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         if email and sent and tag:
             sends.append({"email": email, "sent": sent, "trig": trig, "tag": tag,
                           # only _drop_group_sends reads it (Block 16), as ABC's
-                          "mid": (r.get("climber_id") or "").strip()})
+                          "mid": (r.get("climber_id") or "").strip(),
+                          # "brevo" = measured from Brevo's events (session 2)
+                          "esp": (r.get("esp") or "").strip().lower()})
     sends, group_dropped = _drop_group_sends(sends, ds)
     stage(f"group visits: {len(group_dropped)} send(s) to "
           f"{len({s['email'] for s in group_dropped})} people left out "
@@ -900,7 +1019,8 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                 or hit[5] not in definitions.CLICK_SETTLED)
 
     need = [s for s in sends if _is_fresh(s)]
-    emails = sorted({s["email"] for s in need})
+    # Mailchimp feeds only for the Mailchimp sends; esp=brevo rows read Brevo
+    emails = sorted({s["email"] for s in need if s["esp"] != "brevo"})
     _blank = (False, False, False, "", None, "")
     unsub_pending = sum(1 for s in need if s["sent"] < fresh_from
                         and (cache.get((s["email"], s["sent"], s["tag"]))
@@ -948,6 +1068,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     journey_ids = {c for c in cids if mc.campaign_type(c) == "automation-email"}
     stage(f"campaign types resolved ({len(cids)} campaigns, "
           f"{len(journey_ids)} journey emails)")
+    bfeeds, brevo_subjects, optout_keys = _brevo_survey_feeds(client, sends, need, cache)
 
     climber_by_email: dict[str, object] = {}
     for x in ds.climbers.values():
@@ -992,32 +1113,54 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     trig_of_tag: dict[str, str] = {}
     measured: dict[tuple, tuple] = {}  # what this run knows -> the next cache
     records: list[dict] = []  # per-send facts for the Experiments v2 writer
+    unfetched: set[tuple] = set()  # esp=brevo sends Brevo was not asked about
     for s in sends:
         email, sent = s["email"], s["sent"]
         key = (email, sent, s["tag"])
         prev = cache.get(key)
         hit = prev if not _is_fresh(s) else None
+        brevo = s["esp"] == "brevo"
+        if hit is None and brevo and email not in bfeeds:
+            if prev is None:
+                # Brevo was not asked this run (cap, failure, no creds): zeros
+                # for today's sheet, never frozen into the cache (below)
+                unfetched.add(key)
+                hit = _blank
+            else:
+                hit = prev  # carry the cached answer forward unchanged
         if hit is not None:
             # settled send: keep the delivered/opened/clicked already measured
             delivered, opened, clicked, opened_at, unsubscribed, click_rule = hit
         else:
-            ev = feeds.get(email) or []
-            sent_ids = engine._sent_campaign_ids(ev, sent, journey_ids)
-            delivered = bool(sent_ids)
-            opened = delivered and engine._has_event(
-                ev, "open", sent, campaign_ids=sent_ids)
-            # a click on a link in THIS email (campaign id, like an open),
-            # survey form, /s survey links and buy links (Block 15, 2026-09-24)
-            clicked = delivered and engine._has_event(
-                ev, "click", sent, click_markers, campaign_ids=sent_ids)
+            if brevo:
+                # Brevo's event log, pinned to THIS email by its tag (session 2)
+                ev = _brevo_own(bfeeds.get(email) or [], s["tag"],
+                                brevo_subjects.get(s["tag"], ""))
+                delivered = engine._has_event(ev, "delivered", sent)
+                opened = engine._has_event(ev, "open", sent)
+                clicked = engine._has_event(ev, "click", sent, click_markers)
+                opened_at = engine._first_event_date(ev, "open", sent) if opened else ""
+                unsubscribed = engine._has_event(ev, "unsubscribe", sent)
+                seen = delivered
+            else:
+                ev = feeds.get(email) or []
+                sent_ids = engine._sent_campaign_ids(ev, sent, journey_ids)
+                delivered = bool(sent_ids)
+                opened = delivered and engine._has_event(
+                    ev, "open", sent, campaign_ids=sent_ids)
+                # a click on a link in THIS email (campaign id, like an open),
+                # survey form, /s survey links and buy links (Block 15, 2026-09-24)
+                clicked = delivered and engine._has_event(
+                    ev, "click", sent, click_markers, campaign_ids=sent_ids)
+                opened_at = engine._first_event_date(
+                    ev, "open", sent, campaign_ids=sent_ids) if opened else ""
+                # the unsubscribe link used in THIS email: Mailchimp's `unsub`
+                # activity carries the campaign id, so it pins like an open
+                # (Tasks step 1.3, 2026-09-18)
+                unsubscribed = delivered and engine._has_event(
+                    ev, "unsub", sent, campaign_ids=sent_ids)
+                seen = bool(sent_ids)
             click_rule = definitions.CLICK_RULE
-            opened_at = engine._first_event_date(
-                ev, "open", sent, campaign_ids=sent_ids) if opened else ""
-            # the unsubscribe link used in THIS email: Mailchimp's `unsub`
-            # activity carries the campaign id, so it pins like an open
-            # (Tasks step 1.3, 2026-09-18)
-            unsubscribed = delivered and engine._has_event(
-                ev, "unsub", sent, campaign_ids=sent_ids)
             if prev is not None:
                 # never downgrade a frozen flag: a feed that no longer shows an
                 # event (Mailchimp trims old activity, a partial answer) must not
@@ -1031,7 +1174,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                 # asked again) rather than wiped (fresh-eyes finding).
                 if prev[5] == definitions.CLICK_RULE:
                     clicked = clicked or prev[2]
-                elif not sent_ids:
+                elif not seen:
                     clicked, click_rule = prev[2], definitions.CLICK_RULE_KEPT
                 delivered, opened = delivered or prev[0], opened or prev[1]
                 unsubscribed = unsubscribed or bool(prev[4])
@@ -1087,7 +1230,9 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         email, sent = s["email"], s["sent"]
         key = (email, sent, s["tag"])
         delivered, opened, clicked, _oa, _unsub, _rule = measured[key]
-        unsubscribed = bool(_unsub)  # None (not measured yet) counts as 0
+        # None (not measured yet) counts as 0; a Shift survey opt-out on our
+        # own page counts on the last Brevo survey email before it
+        unsubscribed = bool(_unsub) or key in optout_keys
         cr = credits[key]
         responded = (resp_credits.get(key) or {}).get("responded", False)
         # the record's credits carry the SURVEY-ONLY response credit (an
@@ -1169,7 +1314,9 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     # (not re-measured, not counted) so the rule can be reversed for free
     kept_group = {k: cache[k] for k in ((s["email"], s["sent"], s["tag"])
                                         for s in group_dropped) if k in cache}
-    _save_engagement_cache({**kept_group, **measured}, _stamp())
+    # a Brevo send nobody could ask about this run is not frozen as zeros
+    _save_engagement_cache({**kept_group, **{k: v for k, v in measured.items()
+                                             if k not in unfetched}}, _stamp())
     stage(f"collect done ({len(auto_rows)} automation rows, "
           f"{len(var_rows)} variant rows, {len(measured)} sends cached)")
     SEND_RECORDS[:] = records

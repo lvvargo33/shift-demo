@@ -35,6 +35,13 @@ class SendTarget:
     trigger_name: str
     anchor_date: str = ""
     days_since: int = 0
+    # which service actually sent it, for the outreach log's `esp` column
+    # (ROADMAP Block 25 A1 session 2, 2026-10-23). "" = the gym's default ESP;
+    # SHIFT's survey_dispatch sets "brevo" on a Brevo survey send.
+    esp: str = ""
+    # set only by a survey_dispatch send-ledger restore: the day the email
+    # really went out ("" = the run's as-of date, every other send)
+    sent_date: str = ""
 
 
 def derive_sends(queue) -> list[SendTarget]:
@@ -70,10 +77,12 @@ def log_rows(sent: list[SendTarget], asof: date) -> list[dict]:
     next run, and the dashboard's sent-log export has a row per send."""
     d = asof.isoformat()
     return [{
-        "sent_date": d,
+        "sent_date": getattr(t, "sent_date", "") or d,
         "email": t.email,
         "climber_id": t.climber_id,
         "trigger_name": t.trigger_name,
         "tag": t.tag,
         "mode": "live",
+        # dropped by a gym whose outreach.FIELDS has no `esp` column (ABC)
+        "esp": getattr(t, "esp", "") or "",
     } for t in sent]

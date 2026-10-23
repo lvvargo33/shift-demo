@@ -64,7 +64,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env", override=False)
 
-from nudge_tool import engine, ingest, livesend, outreach, survey  # noqa: E402
+from nudge_tool import engine, ingest, livesend, outreach, survey, survey_dispatch  # noqa: E402
 from nudge_tool.config import load_client, load_settings  # noqa: E402
 from nudge_tool.mailchimp_client import MailchimpClient, MailchimpError  # noqa: E402
 from nudge_tool.stage import stage, versions  # noqa: E402
@@ -168,7 +168,9 @@ def run_send(a) -> None:
     print(f"\n  queue={len(queue)}  to-send(auto-email)={len(targets)}  "
           f"safety/MANUAL={manual} (manager call, never auto-emailed)")
     for t in targets:
-        print(f"    {t.tag:<16} {t.name:<22.22} {t.email}")
+        route = survey_dispatch.route_for(client, t)
+        via = {"native": "  [Brevo]", "hold": "  [HOLD]"}.get(route, "")
+        print(f"    {t.tag:<16} {t.name:<22.22} {t.email}{via}")
 
     # --- decide: send, or one of the safe no-op / preview paths ---
     if not a.i_have_shift_signoff:
@@ -193,16 +195,33 @@ def run_send(a) -> None:
         return
 
     mc = MailchimpClient(settings)
+    # Survey emails go through the dispatch switch (Block 25 A1): legacy =
+    # Mailchimp tag as always, native = Brevo, hold = nobody. prepare() reads
+    # the opt-out + Brevo block lists first and RAISES if it can't, which
+    # fails this run before anything is sent (decision 3, 2026-10-23).
+    disp = survey_dispatch.Dispatcher(client, mc, entrypoint="scheduler", asof=asof)
+    for line in disp.prepare(targets):
+        print(line)
+    stage("survey dispatch prepared")
     print(f"\n  LIVE: tagging {len(targets)} climber(s) ...")
     stage(f"tagging {len(targets)} climber(s) in Mailchimp ...")
     tagged: list = []
     for i, t in enumerate(targets, 1):
         try:
-            mc.tag_member(t.email, t.first_name, t.tag)
-            tagged.append(t)
-            print(f"    ok    {t.tag:<16} {t.email}")
+            o = disp.send(t)
         except (MailchimpError, RequestException) as e:
             print(f"    FAIL  {t.tag:<16} {t.email}  ({e})")
+        else:
+            if o.sent:
+                tagged.append(t)
+                print(f"    ok    {t.tag:<16} {t.email}"
+                      + ("  (Brevo)" if o.transport == "brevo" else ""))
+            elif o.state == "failed":
+                print(f"    FAILED {t.tag:<16} {t.email}  survey email NOT sent, "
+                      f"retried next run ({o.detail})")
+            else:
+                print(f"    skip  {t.tag:<16} {t.email}  ({o.state}"
+                      + (f": {o.detail}" if o.detail else "") + ")")
         if i % 10 == 0:
             stage(f"tagging {i}/{len(targets)}")
     written = outreach.append(client, livesend.log_rows(tagged, asof))

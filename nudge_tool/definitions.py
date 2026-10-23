@@ -55,10 +55,12 @@ YOUTH_KEYWORDS = ("youth",)
 # Survey links: the Google Form, and every link routed through a gym's /s
 # endpoint (the rating buttons in the survey email, and every survey link once
 # the native survey page is live). Before 2026-09-24 the /s links were missed
-# on the sheet and on both sites (audit M7).
+# on the sheet and on both sites (audit M7). "/survey-tap?token=" = the rating
+# buttons in SHIFT's Brevo survey emails (ROADMAP Block 25 A1, 2026-10-23).
 SURVEY_LINK_MARKERS = ("docs.google.com/forms", "forms.gle",
                        "shift-live-dash.onrender.com/s?",
-                       "appalachian-live-dash.onrender.com/s?")
+                       "appalachian-live-dash.onrender.com/s?",
+                       "/survey-tap?token=")
 # SHIFT's offer emails carry a buy link; ABC's offers are redeemed at the desk
 # and carry none (ABC's config can add markers, see engine).
 BUY_LINK_MARKERS = ("purchase-a-pass", "sendmoregetbeta")

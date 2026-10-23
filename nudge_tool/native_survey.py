@@ -16,6 +16,12 @@ Three things live here:
                       line (CLAUDE.md rule 5).
   load_cache(...)     the dashboard and the stats push read the CSV only. They
                       never talk to Firestore.
+  issue_send_tokens(...)  SEND time (Block 25 A1, 2026-10-23): the cron mints
+                      30-day page tokens for a Brevo survey email (one per
+                      rating button) on the same session + message. Raises on
+                      failure; never a fallback.
+  tap_info(...)       /survey-tap: read-only check of one page token, for the
+                      Taps tab row.
 
 survey.load_responses merges the cache with the Form sheet (native wins per
 email); only a `completed` session counts as answered, so partials still get
@@ -46,6 +52,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import hmac
 import http.client
 import json
 import os
@@ -237,8 +244,17 @@ def new_invitation(session, template_id, template_version, now):
 # so a stranger who clicks first holds a token into that person's answers.
 # Real people finish in minutes; a day bounds that stranger's window.
 CAPABILITY_LIFETIME = timedelta(hours=24)
+# Send-time capabilities (Block 25 A1, 2026-10-23): minted by the cron when a
+# Brevo survey email goes out, so they travel only to that person's inbox and
+# must outlive the 14-day answer window. 30 days = his issue_capability()
+# default (his max is 90).
+SEND_CAPABILITY_LIFETIME = timedelta(days=30)
 # His pilot cap: a message holds at most 32 capabilities, none ever revoked.
 CAPABILITY_LIMIT = 32
+# Pre-go-live test sends (survey_test_send.py, Block 25 A1 session 2,
+# 2026-10-23) open sessions under customer ids with this prefix. pull() leaves
+# them out, so a tester who submits never becomes a Shift response.
+TEST_CUSTOMER_PREFIX = "send-it-test-"
 # What his _validate_token accepts: <64 hex>.<43 urlsafe chars>.
 TOKEN_RE = re.compile(r"[a-f0-9]{64}\.[A-Za-z0-9_-]{43}")
 
@@ -396,83 +412,192 @@ def mint(client: ClientConfig, email: str, climber_id: str, q1: int | None = Non
         base = public_base_url() if base_url is None else base_url.rstrip("/")
         if not base:
             return ""
-        cfg = native_cfg(client)
-        ctx = GymContext(gym_id(client))
-        source = identifier(str(cfg.get("source") or "beta"))
-        customer_id = identifier(str(climber_id or "").strip())
-        email = (email or "").strip().lower()
-        if not email:
-            raise SurveyError("email required")
         if q1 is not None and (type(q1) is not int or not 1 <= q1 <= 5):
             raise SurveyError("invalid embedded Q1 candidate")
         now = now or datetime.now(timezone.utc)
-        root = db.collection("gyms").document(ctx.gym_id)
-
-        session = new_session(ctx, source, customer_id, FTV_V1, now)
-        sref = root.collection("sessions").document(session["id"])
-        snap = _retry(sref.get, _RETRY_DELAYS_MINT)
-        if snap.exists:
-            session = _check(snap.to_dict(), ctx.gym_id, "session")
-        else:
-            pref = root.collection("subjects").document(session["subject_id"])
-            ps = _retry(pref.get, _RETRY_DELAYS_MINT)
-            if ps.exists:
-                subject = _check(ps.to_dict(), ctx.gym_id, "subject")
-                if subject.get("identity_source") != source:
-                    raise SurveyError("subject: identity source mismatch")
-            else:
-                pref.set(new_subject(ctx, source, customer_id, session["subject_id"]))
-            try:
-                sref.create(session)
-            except Exception:  # noqa: BLE001 (AlreadyExists: a second click won the race)
-                again = _retry(sref.get, _RETRY_DELAYS_MINT)
-                if not again.exists:
-                    raise
-                session = _check(again.to_dict(), ctx.gym_id, "session")
-        # Both paths (existing session, lost race) get the hash check (tester 10/21).
-        if session.get("definition_hash") != FTV_V1.fingerprint:
-            raise SurveyError("session: definition changed without version bump")
-        if started(session):
+        ent = _open_session(db, client, email, climber_id, now, _RETRY_DELAYS_MINT)
+        if started(ent["session"]):
             # Block 26: /s needs only an email, so it never hands out a new
             # token into answers someone already saved. The person mid-survey
             # keeps the page (and token) they already have open.
             print("  native survey: session already started; thanks page, no token")
             return ALREADY_STARTED
-
-        message = new_invitation(session, _template_id(tag), 1, now)
-        # Our additions, mirroring what his dispatcher writes on a message it
-        # sends (patch 0001 lines 645-647): who this went to and who sent it.
-        message.update({"dispatch_owner": "native", "contact_email": email,
-                        "identity_source": source, "customer_id": customer_id})
-        mref = root.collection("messages").document(message["id"])
-        ms = _retry(mref.get, _RETRY_DELAYS_MINT)
-        if ms.exists:
-            message = _check(ms.to_dict(), ctx.gym_id, "message")
-        else:
-            try:
-                mref.create(message)
-            except Exception:  # noqa: BLE001 (same race on the message)
-                again = _retry(mref.get, _RETRY_DELAYS_MINT)
-                if not again.exists:
-                    raise
-                message = _check(again.to_dict(), ctx.gym_id, "message")
+        mref, message = _open_message(ent, tag, now, _RETRY_DELAYS_MINT)
         if len(message.get("capabilities") or {}) >= CAPABILITY_LIMIT:
             raise SurveyError("pilot capability limit reached")
-
-        secret = secrets.token_urlsafe(32)
-        token = message["id"] + "." + secret
-        if not TOKEN_RE.fullmatch(token):
-            raise SurveyError("token shape")
-        hashed = hashlib.sha256(token.encode()).hexdigest()
-        cap = {"gym_id": ctx.gym_id, "session_id": session["id"],
-               "message_id": message["id"], "scope": "survey", "candidate": q1,
-               "issued_at": timestamp(now),
-               "expires_at": timestamp(now + CAPABILITY_LIFETIME)}
+        token, hashed, cap = _new_capability(ent, message, q1, now, CAPABILITY_LIFETIME)
         mref.set({"capabilities": {hashed: cap}}, merge=True)
         return base + "/survey?" + urlencode({"token": token})
     except Exception as exc:  # noqa: BLE001 (a click must never 500)
         print(f"  native survey: mint FAILED ({type(exc).__name__}: {exc}); Form fallback")
         return ""
+
+
+def _open_session(db, client: ClientConfig, email: str, climber_id: str,
+                  now: datetime, delays) -> dict:
+    """Find or create this climber's FTV session (and its subject). Returns
+    {root, ctx, source, customer_id, email, session}. Raises on anything off.
+    Shared by mint() (click time) and issue_send_tokens() (send time)."""
+    cfg = native_cfg(client)
+    ctx = GymContext(gym_id(client))
+    source = identifier(str(cfg.get("source") or "beta"))
+    customer_id = identifier(str(climber_id or "").strip())
+    email = (email or "").strip().lower()
+    if not email:
+        raise SurveyError("email required")
+    root = db.collection("gyms").document(ctx.gym_id)
+
+    session = new_session(ctx, source, customer_id, FTV_V1, now)
+    sref = root.collection("sessions").document(session["id"])
+    snap = _retry(sref.get, delays)
+    if snap.exists:
+        session = _check(snap.to_dict(), ctx.gym_id, "session")
+    else:
+        pref = root.collection("subjects").document(session["subject_id"])
+        ps = _retry(pref.get, delays)
+        if ps.exists:
+            subject = _check(ps.to_dict(), ctx.gym_id, "subject")
+            if subject.get("identity_source") != source:
+                raise SurveyError("subject: identity source mismatch")
+        else:
+            pref.set(new_subject(ctx, source, customer_id, session["subject_id"]))
+        try:
+            sref.create(session)
+        except Exception:  # noqa: BLE001 (AlreadyExists: a second click won the race)
+            again = _retry(sref.get, delays)
+            if not again.exists:
+                raise
+            session = _check(again.to_dict(), ctx.gym_id, "session")
+    # Both paths (existing session, lost race) get the hash check (tester 10/21).
+    if session.get("definition_hash") != FTV_V1.fingerprint:
+        raise SurveyError("session: definition changed without version bump")
+    return {"root": root, "ctx": ctx, "source": source, "customer_id": customer_id,
+            "email": email, "session": session}
+
+
+def _open_message(ent: dict, tag: str, now: datetime, delays):
+    """Find or create the session's (deterministic) invitation message.
+    Returns (message ref, message dict)."""
+    ctx, root = ent["ctx"], ent["root"]
+    message = new_invitation(ent["session"], _template_id(tag), 1, now)
+    # Our additions, mirroring what his dispatcher writes on a message it
+    # sends (patch 0001 lines 645-647): who this went to and who sent it.
+    message.update({"dispatch_owner": "native", "contact_email": ent["email"],
+                    "identity_source": ent["source"], "customer_id": ent["customer_id"]})
+    mref = root.collection("messages").document(message["id"])
+    ms = _retry(mref.get, delays)
+    if ms.exists:
+        message = _check(ms.to_dict(), ctx.gym_id, "message")
+    else:
+        try:
+            mref.create(message)
+        except Exception:  # noqa: BLE001 (same race on the message)
+            again = _retry(mref.get, delays)
+            if not again.exists:
+                raise
+            message = _check(again.to_dict(), ctx.gym_id, "message")
+    return mref, message
+
+
+def _new_capability(ent: dict, message: dict, candidate, now: datetime,
+                    lifetime: timedelta):
+    """(plaintext token, its sha256, the capability record). Nothing written."""
+    secret = secrets.token_urlsafe(32)
+    token = message["id"] + "." + secret
+    if not TOKEN_RE.fullmatch(token):
+        raise SurveyError("token shape")
+    hashed = hashlib.sha256(token.encode()).hexdigest()
+    cap = {"gym_id": ent["ctx"].gym_id, "session_id": ent["session"]["id"],
+           "message_id": message["id"], "scope": "survey", "candidate": candidate,
+           "issued_at": timestamp(now), "expires_at": timestamp(now + lifetime)}
+    return token, hashed, cap
+
+
+def issue_send_tokens(client: ClientConfig, email: str, climber_id: str,
+                      candidates, tag: str = "", *, db=None,
+                      now: datetime | None = None,
+                      lifetime: timedelta = SEND_CAPABILITY_LIFETIME) -> dict:
+    """SEND time (Block 25 A1, 2026-10-23): one page token per candidate for a
+    Brevo survey email, {candidate: token}. candidates = [1, 2, 3, 4, 5] for
+    the five rating buttons, [None] for a plain link.
+
+    Same session + message as mint() (deterministic ids), so a person who
+    answers through any of their links lands in the same answers. Unlike
+    mint() it DOES issue into a started session: the token goes only to the
+    person's own inbox (a reminder to a half-finished survey must open it),
+    while Block 26's rule is about /s, which needs nothing but an email.
+    Every capability is written in ONE merge so a failure leaves none behind.
+
+    RAISES on any failure (the cron reports FAILED and does not send); it
+    never falls back to anything. Needs the island's Firestore env when db is
+    not given (mint_enabled)."""
+    cands = list(candidates)
+    if not cands:
+        raise SurveyError("no candidates")
+    for c in cands:
+        if c is not None and (type(c) is not int or not 1 <= c <= 5):
+            raise SurveyError("invalid embedded Q1 candidate")
+    if not timedelta(0) < lifetime <= timedelta(days=90):
+        raise SurveyError("invalid capability lifetime")
+    if db is None:
+        if not mint_enabled(client):
+            raise SurveyError("native survey not enabled on this service "
+                              "(client flag, Firestore env or public base URL missing)")
+        db = _db()
+    now = now or datetime.now(timezone.utc)
+    ent = _open_session(db, client, email, climber_id, now, _RETRY_DELAYS_PULL)
+    mref, message = _open_message(ent, tag, now, _RETRY_DELAYS_PULL)
+    if len(message.get("capabilities") or {}) + len(cands) > CAPABILITY_LIMIT:
+        raise SurveyError("pilot capability limit reached")
+    out: dict = {}
+    caps: dict = {}
+    for c in cands:
+        token, hashed, cap = _new_capability(ent, message, c, now, lifetime)
+        # which email carried it (the message keeps the FIRST send's tag);
+        # /survey-tap logs this. His page ignores keys it does not check.
+        cap["send_tag"] = _template_id(tag)
+        out[c] = token
+        caps[hashed] = cap
+    _retry(lambda: mref.set({"capabilities": caps}, merge=True), _RETRY_DELAYS_PULL)
+    return out
+
+
+def tap_info(client: ClientConfig, token: str, *, db=None,
+             now: datetime | None = None) -> dict | None:
+    """/survey-tap (Block 25 A1): the capability behind a page token, checked
+    the way his store's _authorize() checks it (shape, message exists, gym,
+    sha256 match, scope, ids, not expired). {"email", "candidate", "tag"} or
+    None. Read-only; never raises (a bad token just gets no Taps row)."""
+    try:
+        if not isinstance(token, str) or not TOKEN_RE.fullmatch(token):
+            return None
+        if db is None:
+            if not mint_enabled(client):
+                return None
+            db = _db()
+        gid = gym_id(client)
+        mid = token.split(".")[0]
+        snap = _retry(db.collection("gyms").document(gid)
+                      .collection("messages").document(mid).get, _RETRY_DELAYS_MINT)
+        if not snap.exists:
+            return None
+        message = _check(snap.to_dict(), gid, "message")
+        hashed = hashlib.sha256(token.encode()).hexdigest()
+        cap = next((v for k, v in (message.get("capabilities") or {}).items()
+                    if hmac.compare_digest(k, hashed)), None)
+        now = now or datetime.now(timezone.utc)
+        if (not cap or cap.get("gym_id") != gid or cap.get("scope") != "survey"
+                or cap.get("message_id") != mid
+                or cap.get("session_id") != message.get("session_id")
+                or not isinstance(cap.get("expires_at"), str)
+                or cap["expires_at"] <= timestamp(now)):
+            return None
+        return {"email": (message.get("contact_email") or "").strip().lower(),
+                "candidate": cap.get("candidate"),
+                "tag": cap.get("send_tag") or message.get("template_id") or ""}
+    except Exception as exc:  # noqa: BLE001
+        print(f"  native survey: tap check FAILED ({type(exc).__name__})")
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -543,10 +668,14 @@ def pull(client: ClientConfig, *, db=None, now: datetime | None = None) -> list[
     # each is read under its own guard, skipped and counted.
     bad = 0
     email_by_session: dict[str, tuple[str, str]] = {}
+    test_sessions: set = set()
     for m in messages:
         try:
             d = m.to_dict() or {}
             sid, em, at = d.get("session_id"), d.get("contact_email"), d.get("planned_at")
+            if isinstance(sid, str) and str(d.get("customer_id") or "").startswith(
+                    TEST_CUSTOMER_PREFIX):
+                test_sessions.add(sid)
             if d.get("gym_id") != gid or not sid or em in (None, ""):
                 continue
             if (not isinstance(sid, str) or not isinstance(em, str)
@@ -571,7 +700,7 @@ def pull(client: ClientConfig, *, db=None, now: datetime | None = None) -> list[
         try:
             d = s.to_dict() or {}
             if (d.get("gym_id") != gid or d.get("survey_type") != "ftv"
-                    or d.get("state") != "completed"):
+                    or d.get("state") != "completed" or _s(d.get("id")) in test_sessions):
                 continue
             completion = d.get("completion") or {}
             answers = completion.get("answers") if isinstance(completion, dict) else None

@@ -18,13 +18,20 @@ This module is pure file I/O + lookups: no network, no eligibility logic.
 from __future__ import annotations
 
 import csv
+import os
 from dataclasses import dataclass, field
 from datetime import date
 
 from . import ingest
 from .config import ClientConfig
 
-FIELDS = ["sent_date", "email", "climber_id", "trigger_name", "tag", "mode"]
+# `esp` (ROADMAP Block 25 A1 session 2, 2026-10-23): which service sent the
+# email. "brevo" = a Brevo survey send (survey_dispatch); blank = Mailchimp,
+# the gym default, which is every row written before the column existed. The
+# stats push reads Brevo's event log for "brevo" rows and Mailchimp's for the
+# rest. SHIFT only: ABC sends everything through Brevo, so its log keeps the
+# six columns (livesend's extra key is dropped there by FIELDS).
+FIELDS = ["sent_date", "email", "climber_id", "trigger_name", "tag", "mode", "esp"]
 
 
 def _norm_email(s: str) -> str:
@@ -71,7 +78,7 @@ def load(client: ClientConfig) -> OutreachLog:
     path = client.outreach_log
     if not path.exists():
         return log
-    with open(path, encoding="utf-8", newline="") as f:
+    with open(path, encoding="utf-8-sig", newline="") as f:
         for row in csv.DictReader(f):
             email = _norm_email(row.get("email", ""))
             # trigger_name is the stable key; fall back to the tag for any
@@ -92,15 +99,49 @@ def append(client: ClientConfig, rows: list[dict]) -> int:
     if not rows:
         return 0
     path = client.outreach_log
-    new_file = not path.exists()
+    new_file = not path.exists() or path.stat().st_size == 0
+    fields = FIELDS if new_file else _upgrade(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS)
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         if new_file:
             w.writeheader()
         for r in rows:
-            w.writerow({k: r.get(k, "") for k in FIELDS})
+            w.writerow({k: r.get(k, "") for k in fields})
     return len(rows)
+
+
+def _header(path) -> list[str]:
+    """The log file's header row as written ([] for an empty file)."""
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        return [h.strip() for h in next(csv.reader(f), [])]
+
+
+def _upgrade(path) -> list[str]:
+    """The columns to append with. A log written before a column was added
+    (the 2026-10-23 `esp`) is rewritten ONCE with the missing columns added
+    at the end, every old row and every extra column kept, old rows blank in
+    the new column, so appended rows line up with the header readers see. The
+    rewrite goes to a temp file and replaces the log in one step, so a crash
+    leaves the old file whole. A header this code cannot read (no sent_date /
+    email, e.g. a blank first line) is left alone and appended to as before."""
+    hdr = _header(path)
+    if "sent_date" not in hdr or "email" not in hdr:
+        return FIELDS
+    missing = [k for k in FIELDS if k not in hdr]
+    if not missing:
+        return hdr
+    cols = hdr + missing
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        old = list(csv.DictReader(f))
+    tmp = path.with_name(path.name + ".upgrade.tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        for r in old:
+            w.writerow({k: (r.get(k) or "") for k in cols})
+    os.replace(tmp, path)
+    return cols
 
 
 def load_rows(client: ClientConfig) -> list[dict]:
@@ -110,7 +151,7 @@ def load_rows(client: ClientConfig) -> list[dict]:
     path = client.outreach_log
     if not path.exists():
         return []
-    with open(path, encoding="utf-8", newline="") as f:
+    with open(path, encoding="utf-8-sig", newline="") as f:
         return [{k: (row.get(k, "") or "") for k in FIELDS}
                 for row in csv.DictReader(f)]
 

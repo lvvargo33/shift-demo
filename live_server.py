@@ -35,7 +35,7 @@ import time
 import traceback
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from nudge_tool import config, email_results, engine, gym_metrics, ingest, livesend, outreach, survey
 from nudge_tool.config import DASHBOARD_TEMPLATE, load_client, load_settings
@@ -290,14 +290,35 @@ def send_now(client_slug: str, req: dict) -> dict:
             targets = [t for t in targets if t.climber_id in idset]
 
         mc = MailchimpClient(settings)
+        # Block 25 A1: survey emails go through the dispatch switch, same as
+        # the cron. An unreadable opt-out / Brevo block list = send nothing.
+        from nudge_tool.survey_dispatch import Dispatcher, DispatchError
+        disp = Dispatcher(client, mc, entrypoint="dashboard", asof=asof)
+        try:
+            disp.prepare(targets)
+        except DispatchError as e:
+            print(f"  /send: survey dispatch not ready ({e}); nothing sent")
+            return {"ok": False, "reason": "survey_dispatch",
+                    "message": "Survey emails couldn’t be got ready (setup or an "
+                               "opt-out list check failed), so nothing was sent. "
+                               "Try again in a moment; if it keeps happening, check "
+                               "the server log."}
         sent: list = []
         failed: list = []
         for t in targets:
             try:
-                mc.tag_member(t.email, t.first_name, t.tag)
-                sent.append(t)
+                o = disp.send(t)
             except (MailchimpError, RequestException) as e:
                 failed.append({"name": t.name, "email": t.email, "error": str(e)})
+                continue
+            if o.sent:
+                sent.append(t)
+            elif o.state == "failed":
+                failed.append({"name": t.name, "email": t.email, "error": o.detail})
+            else:
+                failed.append({"name": t.name, "email": t.email,
+                               "error": f"not sent ({o.state}"
+                                        + (f": {o.detail}" if o.detail else "") + ")"})
         if sent:
             outreach.append(client, livesend.log_rows(sent, asof))
             try:
@@ -529,6 +550,48 @@ def _redact(line: str) -> str:
     return _TOKEN_RE.sub(r"\1<redacted>", _PAGE_QUERY_RE.sub(r"\1<redacted>", line))
 
 
+# --- Block 25 A1 (2026-10-23): routes the Brevo survey emails link to --------
+# /survey-tap?token=   an embed email's rating button. The token was minted at
+#                      SEND time (native_survey.issue_send_tokens) and carries
+#                      the 1-5 candidate. Logs the tap to the Taps tab only when
+#                      the token checks out against Firestore (so, unlike /s,
+#                      nobody can forge rows), then 302s to /survey?token=.
+# /survey-preference   the Shift-only survey opt-out page (Chris's preference
+#                      page, adapted; nudge_tool/survey_optout.py). GET shows
+#                      it, POST .../opt-out saves (Bearer token), POST
+#                      .../one-click is the List-Unsubscribe one-click target.
+#                      A GET on .../one-click (a mail app that opens the header
+#                      link in a browser) shows the same page.
+# All unauthenticated (recipients have no dashboard login); the paths start with
+# /survey, so the log redaction below already keeps their tokens out of the log.
+_SURVEY_TOKEN_OK = _RE.compile(r"[a-f0-9]{64}\.[A-Za-z0-9_-]{43}")
+_OPTOUT_STATIC = {"/survey-preference.js": ("survey_optout_page.js",
+                                            "text/javascript; charset=utf-8"),
+                  "/survey-preference.css": ("survey_optout_page.css",
+                                             "text/css; charset=utf-8")}
+_OPTOUT_MESSAGES = {
+    "none_recorded": ("Click the button to stop survey emails from Shift. Other "
+                      "emails from Shift (news, offers) are not affected.", ""),
+    "opted_out": ("You’re already opted out of survey emails from Shift.", "hidden"),
+    None: ("This link is invalid or has expired.", "hidden"),
+    "error": ("We couldn’t load your choice right now. Please try again later.", "hidden"),
+}
+
+
+def _log_send_tap(slug: str, token: str) -> None:
+    """Background: check the token, then append its Taps row. Never raises."""
+    try:
+        from nudge_tool import native_survey
+        info = native_survey.tap_info(load_client(slug), token)
+        tap = _tap_cfg(slug)
+        if info and tap and info.get("email") and info.get("candidate") in (1, 2, 3, 4, 5):
+            _log_tap(tap, info["email"], str(info["candidate"]), info.get("tag", ""))
+        elif not info:
+            print("  /survey-tap: token did not check out; no tap logged")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  /survey-tap: tap log FAILED ({type(exc).__name__})")
+
+
 class Handler(survey_page.handler_base()):
     timeout = 30  # seconds a client may stall a connection (fresh-eyes 10/2: slowloris on the page POST)
 
@@ -599,6 +662,30 @@ class Handler(survey_page.handler_base()):
                 self._send(404, "text/plain; charset=utf-8", b"unknown survey")
             return
 
+        if parsed.path == "/survey-tap":  # Block 25 A1: Brevo embed button, unauthenticated
+            token = (params.get("token", [""])[0] or "").strip()
+            if not _SURVEY_TOKEN_OK.fullmatch(token):
+                self._send(404, "text/plain; charset=utf-8", b"unknown survey")
+                return
+            threading.Thread(target=_log_send_tap,
+                             args=(self.server.default_client, token), daemon=True).start()
+            self.send_response(302)
+            self.send_header("Location", "/survey?" + urlencode({"token": token}))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        if parsed.path in ("/survey-preference", "/survey-preference/one-click"):
+            self._optout_page((params.get("token", [""])[0] or "").strip())  # Block 25 A1
+            return
+        if parsed.path in _OPTOUT_STATIC:
+            from nudge_tool import survey_optout
+            name, ctype = _OPTOUT_STATIC[parsed.path]
+            self._send(200, ctype, survey_optout.page_asset(name))
+            return
+
         if survey_page.is_page_path(parsed.path):  # Block 18: Chris's survey page, unauthenticated like /s
             self.page_get()
             return
@@ -636,6 +723,9 @@ class Handler(survey_page.handler_base()):
         if survey_page.is_page_path(parsed.path):  # Block 18: the page's own save route (his checks apply)
             self.page_post()
             return
+        if parsed.path in ("/survey-preference/opt-out", "/survey-preference/one-click"):
+            self._optout_post(parsed)  # Block 25 A1: unauthenticated, the token is the key
+            return
         if not self._authed():
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="SHIFT live"')
@@ -664,6 +754,75 @@ class Handler(survey_page.handler_base()):
                                  "Check the report email."}
         body = json.dumps(result, ensure_ascii=False).encode("utf-8")
         self._send(200, "application/json; charset=utf-8", body)
+
+    def _optout_page(self, token: str) -> None:
+        """GET /survey-preference: Chris's page with the state for this link.
+        Read-only. The token stays in the page's own JS (it strips it from the
+        address bar and sends it as a Bearer header on the click)."""
+        from nudge_tool import survey_optout
+        state: str | None = None
+        if _SURVEY_TOKEN_OK.fullmatch(token or ""):
+            try:
+                state = survey_optout.status(load_client(self.server.default_client), token)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  /survey-preference: status FAILED ({type(exc).__name__})")
+                state = "error"
+        msg, button = _OPTOUT_MESSAGES[state]
+        from html import escape
+        body = (survey_optout.page_asset("survey_optout_page.html").decode("utf-8")
+                .replace("__MESSAGE__", escape(msg))
+                .replace("__BUTTON_STATE__", button)).encode("utf-8")
+        self.send_response(503 if state == "error" else 200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Robots-Tag", "noindex")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _optout_post(self, parsed) -> None:
+        """POST .../opt-out (page button: Bearer token + {"request_id"}) or
+        .../one-click?token= (RFC 8058, the mail app's own Unsubscribe).
+        200 saved, 403 bad link, 400 malformed body, 503 Firestore trouble."""
+        from nudge_tool import survey_optout
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            length = -1
+        if not 0 <= length <= 4096:
+            self._send(400, "application/json", b'{"error":"bad_request"}')
+            return
+        raw = self.rfile.read(length) if length else b""
+        if parsed.path.endswith("/one-click"):
+            token = (parse_qs(parsed.query).get("token", [""])[0] or "").strip()
+            request_id, source = "one_click", "list_unsubscribe"
+        else:
+            auth = self.headers.get("Authorization", "")
+            token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+            try:
+                req = json.loads(raw.decode("utf-8")) if raw else {}
+                request_id = str((req or {}).get("request_id") or "") if isinstance(req, dict) else ""
+            except Exception:  # noqa: BLE001
+                request_id = ""
+            source = "preference_page"
+        if not _SURVEY_TOKEN_OK.fullmatch(token or ""):
+            self._send(403, "application/json", b'{"error":"invalid"}')
+            return
+        try:
+            res = survey_optout.opt_out(load_client(self.server.default_client), token,
+                                        request_id, source=source)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  /survey-preference: opt-out FAILED ({type(exc).__name__})")
+            self._send(503, "application/json", b'{"error":"unavailable"}')
+            return
+        if res == "opted_out":
+            print(f"  /survey-preference: opt-out recorded ({source})")
+            self._send(200, "application/json", b'{"preference":"opted_out"}')
+        elif not request_id:
+            self._send(400, "application/json", b'{"error":"bad_request"}')
+        else:
+            self._send(403, "application/json", b'{"error":"invalid"}')
 
     def _send(self, code: int, ctype: str, body: bytes):
         self.send_response(code)
