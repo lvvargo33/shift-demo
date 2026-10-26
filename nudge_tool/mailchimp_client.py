@@ -99,6 +99,20 @@ class MailchimpClient:
             raise
         return body.get("activity", []) or []
 
+    def member_tags(self, email: str) -> list[dict]:
+        """The contact's tags ([{"name", "date_added", ...}]); [] for an
+        email Mailchimp does not know. Read by the day-14 check-in, which
+        uses the tag's date as its send ledger (member_checkin.send)."""
+        try:
+            body = self._request(
+                "GET", f"/lists/{self.s.audience_id}/members/{subscriber_hash(email)}/tags",
+                params={"count": 1000})
+        except MailchimpError as e:
+            if getattr(e, "status", None) == 404:
+                return []
+            raise
+        return list(body.get("tags") or [])
+
     def campaign_type(self, campaign_id: str) -> str:
         """The campaign's type: journey/automation emails are 'automation-email',
         one-off blasts are 'regular'. Lets the engagement engine credit an open

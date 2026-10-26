@@ -56,7 +56,8 @@ MEMBERSHIP_LABELS = frozenset({
     "Membership offer, test arm A",
     "2-week trial offer, test arm B",
 })
-MEMBER_PROGRAM_LABELS = frozenset({"Member survey (every 180 days)"})
+MEMBER_PROGRAM_LABELS = frozenset({"Member survey (every 180 days)",
+                                   "Member check-in (day 14)"})
 
 GROUPS = [
     ("surveys", "Survey emails"),

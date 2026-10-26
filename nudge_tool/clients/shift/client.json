@@ -55,6 +55,14 @@
     "window_days": 30
   },
   "_daypass_repeat_note": "A 'day-pass regular' = bought >= min_count day passes within window_days. Feeds the daypass_to_trial nudge (requires.daypass_repeat).",
+  "member_check_in": {
+    "enabled": false,
+    "tag": "send_it_member_check_in",
+    "day": 14,
+    "late_days": 7,
+    "go_live": ""
+  },
+  "_member_check_in_note": "Day-14 new-member check-in (ROADMAP Block 25 Part B, built 2026-10-26; nudge_tool/member_checkin.py). The daily send run tags `tag` in Mailchimp on the first run on or after a new membership episode's start + `day` days (new member or rejoiner after 30+ days with no plan; plan switches, youth plans, staff, frozen, ended, unsubscribed skipped), and Chris's Customer Journey on that tag sends the email. OFF until BOTH enabled:true and go_live (YYYY-MM-DD) are set; until then the send report only previews who would be tagged. Set go_live to the day the journey is published (a journey ignores tags added before it starts; it must also allow re-entry for rejoiners), and tell Isaac that date so he stops his hand emails. Only members whose day 14 is on or after go_live get it (no catch-up). late_days = how many days past day 14 a missed run may still send.",
   "min_days_between_sends": 2,
   "_min_days_between_sends_note": "S38 spacing guard (2026-07-29). Anyone whose last logged send (any trigger) is fewer than this many days old is skipped this run; they stay eligible and re-check next run. Protects the reminder -> return -> membership-offer chain from stacking emails. The existing flow already has natural 2+ day gaps, so this changes nothing for current triggers. 0 = off.",
   "reporting": {

@@ -247,9 +247,10 @@ SECTIONS = ["FTV funnel emails", "Day pass regulars", "Blocker nudges", "Surveys
 def section_of(trigger_name: str) -> str:
     """Which section of email results a trigger belongs to (sheet + site).
     member_survey = ABC's member program, one row under Surveys (Luke
-    2026-09-10). Day-pass regulars are NOT first-time visitors (3-10 visits
-    each), so they sit apart from the FTV funnel."""
-    if trigger_name in ("survey_request", "survey_reminder", "member_survey"):
+    2026-09-10); member_check_in = SHIFT's day-14 new-member email, next to it
+    (Luke 2026-10-26). Day-pass regulars are NOT first-time visitors (3-10
+    visits each), so they sit apart from the FTV funnel."""
+    if trigger_name in ("survey_request", "survey_reminder", "member_survey", "member_check_in"):
         return "Surveys"
     if trigger_name.startswith("nudge_") and trigger_name != "nudge_round_two":
         return "Blocker nudges"

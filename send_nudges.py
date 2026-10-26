@@ -64,7 +64,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env", override=False)
 
-from nudge_tool import engine, ingest, livesend, outreach, survey, survey_dispatch  # noqa: E402
+from nudge_tool import engine, ingest, livesend, member_checkin, outreach, survey, survey_dispatch  # noqa: E402
 from nudge_tool.config import load_client, load_settings  # noqa: E402
 from nudge_tool.mailchimp_client import MailchimpClient, MailchimpError  # noqa: E402
 from nudge_tool.stage import stage, versions  # noqa: E402
@@ -99,6 +99,40 @@ def _push_outreach_log(client) -> None:
     from nudge_tool import drive_io
     drive_io.push(str(client.outreach_log), file_id=fid, svc=drive_io._service(drive_io._RW))
     print(f"  pushed outreach log -> {fid}")
+
+
+def _send_member_checkins(client, mc, cfg: dict, due: list, asof) -> None:
+    """Tag the day-14 check-ins (only called on a live run with the switch
+    on). Runs BEFORE the first-timer sends so a Brevo or survey problem there
+    cannot hold them up, and never raises, so it cannot hold those up either.
+    Each tag that lands is logged even if a later one fails; a failure prints
+    FAILED and is retried next run (inside late_days). A member Mailchimp
+    already shows tagged this membership is not re-tagged; their lost log
+    row is written back."""
+    if not due:
+        return
+    try:
+        tag = cfg.get("tag") or member_checkin.DEFAULTS["tag"]
+        print(f"\n  LIVE: member check-in, tagging {len(due)} member(s) ...")
+        sent: list = []
+        for c in due:
+            try:
+                how = member_checkin.send(mc, c, tag)
+            except Exception as e:  # noqa: BLE001
+                print(f"    FAILED {tag:<16} {c.email}  member check-in NOT tagged, "
+                      f"retried next run ({type(e).__name__}: {e})")
+                continue
+            sent.append(c)
+            print(f"    ok    {tag:<16} {c.email}" + (
+                "  (already tagged in Mailchimp; log row restored, no second email)"
+                if how == "already" else ""))
+        written = outreach.append(client, member_checkin.log_rows(sent, asof, tag))
+        print(f"  member check-in: tagged {len(sent)}, logged {written} row(s).")
+        stage(f"member check-in done ({len(sent)} tagged)")
+    except Exception:  # noqa: BLE001
+        print("    member check-in FAILED (first-timer sends unaffected; Mailchimp's tag "
+              "dates stop a second email next run):\n" + traceback.format_exc())
+        stage("member check-in FAILED")
 
 
 def run_send(a) -> None:
@@ -172,6 +206,35 @@ def run_send(a) -> None:
         via = {"native": "  [Brevo]", "hold": "  [HOLD]"}.get(route, "")
         print(f"    {t.tag:<16} {t.name:<22.22} {t.email}{via}")
 
+    # Day-14 member check-in (Block 25 Part B): its own path off the plan rows,
+    # since build_queue skips every member. Switched off = preview lines only.
+    # Guarded: a failure here must never stop the first-timer sends (rule 5).
+    ci_cfg: dict = dict(member_checkin.DEFAULTS)
+    ci_live = False
+    ci_due: list = []
+    try:
+        ci_cfg = member_checkin.load_cfg(client)
+        ci_live = member_checkin.is_live(ci_cfg)
+        ci = member_checkin.find(
+            client.memberships_csv, asof, ci_cfg, log=log, unsubscribed=unsubscribed,
+            staff_emails=member_checkin.staff_emails_of(client, ds),
+            # inboxes that really get a first-timer email today (a "hold"
+            # route never sends, so it must not hold a check-in day after day)
+            skip_emails={t.email for t in targets
+                         if survey_dispatch.route_for(client, t) != "hold"},
+            min_days_between=client.min_days_between_sends, ignore_go_live=not ci_live)
+        ci_due = ci.due
+        print()
+        for line in member_checkin.report_lines(ci, ci_cfg, ci_live, asof):
+            print(line)
+        stage(f"member check-in: {len(ci_due)} due (live={ci_live})")
+    except Exception:  # noqa: BLE001
+        print("\n  member check-in FAILED (first-timer sends unaffected):\n"
+              + traceback.format_exc())
+        stage("member check-in FAILED")
+    if not ci_live:
+        ci_due = []
+
     # --- decide: send, or one of the safe no-op / preview paths ---
     if not a.i_have_shift_signoff:
         print("\n  NO-OP: --i-have-shift-signoff not passed. Tagged nobody.")
@@ -189,12 +252,20 @@ def run_send(a) -> None:
               "Tagged nobody.")
         stage("preview only (no --yes); tagged nobody")
         return
-    if not targets:
+    if not targets and not ci_due:
         print("\n  LIVE: nothing to tag this run.")
         stage("live: nothing to tag this run")
         return
 
     mc = MailchimpClient(settings)
+    _send_member_checkins(client, mc, ci_cfg, ci_due, asof)
+    if not targets:
+        print("\n  LIVE: no first-timer emails this run.")
+        if a.drive:
+            print("\n=== DRIVE PUSH (outreach log) ===")
+            _push_outreach_log(client)
+            stage("drive push done: outreach log")
+        return
     # Survey emails go through the dispatch switch (Block 25 A1): legacy =
     # Mailchimp tag as always, native = Brevo, hold = nobody. prepare() reads
     # the opt-out + Brevo block lists first and RAISES if it can't, which

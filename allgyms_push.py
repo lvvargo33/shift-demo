@@ -176,6 +176,8 @@ FUNNEL_LABELS = {
     # ABC-only member-survey program; listed here so the label + section +
     # glossary stay identical across the two copies (2026-09-10)
     "member_survey": "Member survey (every 180 days)",
+    # SHIFT day-14 new-member check-in (member_checkin.TRIGGER_NAME), 2026-10-26
+    "member_check_in": "Member check-in (day 14)",
 }
 # Order here is the order the Dashboard renders sections in. KEEP THIS LIST
 # IDENTICAL IN BOTH REPOS. Each gym's cron rebuilds the whole Dashboard from
@@ -1260,8 +1262,9 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                "converted_at": _ev_c[0] if _ev_c else "",
                "unsubscribed": unsubscribed,
                # History recount (2026-09-18): every SHIFT send is
-               # first-timer outreach (no member survey here yet)
-               "tapped": tapped, "ftv": True}
+               # first-timer outreach except the day-14 member check-in
+               # (2026-10-26), whose outcome credits are not summed
+               "tapped": tapped, "ftv": s["trig"] != "member_check_in"}
         records.append(rec)
         for bucket, key in ((by_trig, s["trig"] or s["tag"]), (by_tag, s["tag"])):
             _bucket_add(bucket[key], rec, mature_asof)

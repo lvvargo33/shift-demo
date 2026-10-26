@@ -1061,7 +1061,8 @@ _SURVEY_LINK_MARKERS = definitions.SURVEY_LINK_MARKERS  # incl. /s links (Block 
 # .TRIGGER_NAME, mailed to the gym's own inbox) and staff/auto replies to
 # survey responders (member_reply.REPLY_TRIGGER / AUTO_TRIGGER). None of
 # them belongs in an FTV funnel. String literals on purpose.
-MEMBER_PROGRAM_TRIGGERS = frozenset({"member_survey"})
+# + SHIFT's day-14 new-member check-in (member_checkin.TRIGGER_NAME, 2026-10-26)
+MEMBER_PROGRAM_TRIGGERS = frozenset({"member_survey", "member_check_in"})
 INTERNAL_TRIGGERS = frozenset({"member_checkin_alert", "member_reply",
                                "member_auto_reply"})
 NON_FTV_TRIGGERS = MEMBER_PROGRAM_TRIGGERS | INTERNAL_TRIGGERS

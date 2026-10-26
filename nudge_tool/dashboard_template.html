@@ -509,6 +509,7 @@ const TRIGGER_LABELS = {
   trial_offer: '2-week trial offer',
   daypass_to_trial: 'Day-pass regulars offer',
   comeback_soft: 'Trial win-back',
+  member_check_in: 'Member check-in (day 14)',
   MANUAL: 'Manager call (safety)'
 };
 function triggerLabel(name) {
@@ -517,7 +518,7 @@ function triggerLabel(name) {
 // Outreach-log rows that are not first-time-visitor emails (the member survey
 // program and its replies, the front-desk alert): they live on the Members
 // pages, not in Email activity (engine.NON_FTV_TRIGGERS).
-const NON_FTV_TRIGGERS = ['member_survey', 'member_reply', 'member_auto_reply', 'member_checkin_alert'];
+const NON_FTV_TRIGGERS = ['member_survey', 'member_check_in', 'member_reply', 'member_auto_reply', 'member_checkin_alert'];
 function isFtvTrigger(name) { return NON_FTV_TRIGGERS.indexOf(name) < 0; }
 function blockerLabel(b) {
   if (!b) return '';
