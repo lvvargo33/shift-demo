@@ -75,6 +75,32 @@ def _truthy(v: str | None) -> bool:
     return (v or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+# Per-email send failures (CLAUDE.md rule 5). Each send is caught on its own
+# row so one bad address cannot stop the rest, but that left the report at a
+# plain SUCCESS even when nobody got an email (2026-10-27: Brevo outage, 15 of
+# 15 ABC sends failed, subject said SUCCESS). run_send counts here; main() puts
+# the count in the subject and the banner.
+_SEND_TALLY: dict = {"tried": 0, "failed": 0}
+
+
+def _print_send_failure(tag: str, email: str, detail: str) -> None:
+    _SEND_TALLY["failed"] += 1
+    print(f"    FAILED {tag:<16} {email}  {detail}")
+
+
+def _failure_notice(gym: str) -> tuple[str, str]:
+    """(subject prefix, banner lines) for a SUCCESS run. Failed sends are
+    never logged, so each is retried next run while the person is still due."""
+    tried, failed = _SEND_TALLY["tried"], _SEND_TALLY["failed"]
+    if not failed:
+        return "SUCCESS", f"  SUCCESS - {gym}nudge send run complete.\n"
+    return (f"SUCCESS ({failed} of {tried} sends FAILED)",
+            f"  SUCCESS - {gym}nudge send run complete, BUT\n"
+            f"  FAILED: {failed} of {tried} email(s) did not send (lines marked FAILED\n"
+            f"  below). They were not logged, so each is retried next run while\n"
+            f"  still due.\n")
+
+
 def _pull_outreach_log(client) -> None:
     """Pull the canonical outreach log from Drive into the client's path (cloud).
     Missing id = skip (local runs use the on-disk log)."""
@@ -114,13 +140,14 @@ def _send_member_checkins(client, mc, cfg: dict, due: list, asof) -> None:
     try:
         tag = cfg.get("tag") or member_checkin.DEFAULTS["tag"]
         print(f"\n  LIVE: member check-in, tagging {len(due)} member(s) ...")
+        _SEND_TALLY["tried"] += len(due)
         sent: list = []
         for c in due:
             try:
                 how = member_checkin.send(mc, c, tag)
             except Exception as e:  # noqa: BLE001
-                print(f"    FAILED {tag:<16} {c.email}  member check-in NOT tagged, "
-                      f"retried next run ({type(e).__name__}: {e})")
+                _print_send_failure(tag, c.email, "member check-in NOT tagged, "
+                                    f"retried next run ({type(e).__name__}: {e})")
                 continue
             sent.append(c)
             print(f"    ok    {tag:<16} {c.email}" + (
@@ -277,19 +304,20 @@ def run_send(a) -> None:
     print(f"\n  LIVE: tagging {len(targets)} climber(s) ...")
     stage(f"tagging {len(targets)} climber(s) in Mailchimp ...")
     tagged: list = []
+    _SEND_TALLY["tried"] += len(targets)
     for i, t in enumerate(targets, 1):
         try:
             o = disp.send(t)
         except (MailchimpError, RequestException) as e:
-            print(f"    FAIL  {t.tag:<16} {t.email}  ({e})")
+            _print_send_failure(t.tag, t.email, f"({e})")
         else:
             if o.sent:
                 tagged.append(t)
                 print(f"    ok    {t.tag:<16} {t.email}"
                       + ("  (Brevo)" if o.transport == "brevo" else ""))
             elif o.state == "failed":
-                print(f"    FAILED {t.tag:<16} {t.email}  survey email NOT sent, "
-                      f"retried next run ({o.detail})")
+                _print_send_failure(t.tag, t.email, "survey email NOT sent, "
+                                    f"retried next run ({o.detail})")
             else:
                 print(f"    skip  {t.tag:<16} {t.email}  ({o.state}"
                       + (f": {o.detail}" if o.detail else "") + ")")
@@ -359,9 +387,10 @@ def main() -> None:
         import beta_pull
         when = getattr(__import__("refresh_beta_data"), "STAMP", "")
         if status == "SUCCESS":
-            subject = f"SUCCESS - nudge send run ({when})"
+            head, lines = _failure_notice("")
+            subject = f"{head} - nudge send run ({when})"
             banner = ("==================================================\n"
-                      "  SUCCESS - nudge send run complete.\n"
+                      + lines +
                       "==================================================\n\n")
         else:
             subject = f"FAILURE - nudge send run FAILED ({when})"
