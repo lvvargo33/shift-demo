@@ -170,6 +170,15 @@ class Climber:
     # the first purchase = the kid climbs, the parent gets the email).
     first_tx_time: str | None = None
     first_tx_items: list[str] = field(default_factory=list)
+    # First-timer types (ROADMAP Block 27, 2026-10-28): the days this climber
+    # paid their own way in (an own day-pass / trial / punch / membership
+    # purchase, a check-in on a pass bought in their name (SHIFT pass_type),
+    # or their membership start) and the pass text on their earliest check-in
+    # (SHIFT: "<pass> <pass_type>" lowercased; ABC: "", no pass column).
+    # engine._ftv_classifier reads both to tell a guest from a paid first-timer.
+    own_entry_days: set[str] = field(default_factory=set)
+    first_checkin_pass: str = ""
+    first_checkin_event: str = ""      # Beta's `event` on that check-in (a comp, a camp); ABC: ""
 
     @property
     def ftv_date(self) -> str | None:
@@ -352,6 +361,7 @@ def load(client: ClientConfig) -> Dataset:
 
     # --- Sessions: distinct entry-days per climber ---
     ses_dates: list[str] = []
+    first_pass: dict[str, tuple] = {}          # climber_id -> (entry stamp, pass text)
     with open(client.sessions_csv, encoding="utf-8") as f:
         for row in csv.DictReader(f):
             cid = (row.get("climber_key") or "").strip()
@@ -361,6 +371,12 @@ def load(client: ClientConfig) -> Dataset:
             ses_dates.append(e)
             c = get(cid)
             c.visit_days.add(e)
+            # the pass on the earliest check-in (Block 27: a youth guest pass)
+            stamp = (row.get("entry") or "")[:19]
+            if cid not in first_pass or stamp < first_pass[cid][0]:
+                first_pass[cid] = (stamp, " ".join(
+                    (row.get(k) or "").strip() for k in ("pass", "pass_type")).lower(),
+                    (row.get("event") or "").strip())
             if e in bulk_days:
                 mnt = definitions.minute_of_day(row.get("entry"))
                 if mnt is not None and mnt < bulk_times.get((cid, e), 24 * 60):
@@ -460,6 +476,14 @@ def load(client: ClientConfig) -> Dataset:
 
     for c in climbers.values():
         c.daypass_dates.sort()
+        # Block 27: what engine._ftv_classifier reads (own_buys is this
+        # function's; a membership start is an own entry too, as for groups)
+        c.own_entry_days = set(own_buys.get(c.climber_id, set()))
+        if c.membership_created:
+            c.own_entry_days.add(c.membership_created)
+        fp = first_pass.get(c.climber_id, ("", "", ""))
+        c.first_checkin_pass = fp[1].strip()
+        c.first_checkin_event = fp[2]
 
     return Dataset(
         climbers=climbers,

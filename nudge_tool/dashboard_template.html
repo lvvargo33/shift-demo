@@ -936,22 +936,36 @@ function gymCard() {
 function ftvCard() {
   const w = homeWindow(homeRef()), rw = reportWindows();
   const on = reportingOn() && w;
-  const ftvs = on ? allFtvs() : [];
+  // Block 27 (2026-10-28, Luke's decisions 1, 2 and 8): the card counts ALL
+  // first-timers (qualified + guests + day-one joins, each person once, on
+  // the day their clock starts: DATA.reporting.ftvs_all, compact records
+  // d / r2 / j) when the payload carries them, with the title and the one
+  // small line from DATA.reporting.home. Insights and the Dashboard tiles
+  // keep the qualified records (allFtvs()). Older payloads fall back.
+  const home = (DATA.reporting && DATA.reporting.home) || null;
+  const all = home && Array.isArray(DATA.reporting.ftvs_all) ? DATA.reporting.ftvs_all : null;
+  const ftvs = on ? (all || allFtvs()) : [];
   const hasR2 = ftvs.some(f => 'r2' in f);
   const inW = (d, a, b) => !!d && d >= a && d <= b;
+  const joinDay = f => f.j != null ? f.j : (f.dtc != null ? addDays(f.d, f.dtc) : null);
   const count = (a, b) => ({
     first: ftvs.filter(f => inW(f.d, a, b)).length,
     back: hasR2 ? ftvs.filter(f => f.r2 && f.r2 <= addDays(f.d, rw.return_days) && inW(f.r2, a, b)).length : null,
-    joined: ftvs.filter(f => f.dtc != null && inW(addDays(f.d, f.dtc), a, b)).length,
+    joined: ftvs.filter(f => inW(joinDay(f), a, b)).length,
   });
   const cur = on ? count(w.start, w.end) : {}, prev = on ? count(w.prev_start, w.prev_end) : {};
   const vs = on ? homeVs(w) : '';
-  const how = 'Counts of what happened in the period, for ' + (groupIsScorecard() ? 'the Qualified first-timers (the people the Pilot scorecard counts)' : 'everyone whose first purchase was a day pass or a youth program') + ', the same people as Insights. ' +
+  const who = all
+    ? 'all first-time visitors: qualified first-timers (the people the Pilot scorecard counts), guests (their own profile, first visit paid for by someone else), and people who joined or bought a trial on their first visit. Each person counts once, from their first visit; a guest who later buys a pass is not counted again. Comps, event entries, school and party groups, staff, youth passes and family on someone else\'s plan are out. '
+    : (groupIsScorecard() ? 'the Qualified first-timers (the people the Pilot scorecard counts)' : 'everyone whose first purchase was a day pass or a youth program') + ', the same people as Insights. ';
+  const how = 'Counts of what happened in the period, for ' + who +
     '\nFirst-timers: their first visit was in the period. ' +
     '\nCame back: their second visit, on a later day and within ' + rw.return_days + ' days of the first, was in the period. ' +
-    '\nBecame members: they joined in the period (a paid membership that is not a youth plan), however long after their first visit. ' +
-    '\nThe period is the one next to Showing. The rates (came back within ' + rw.return_days + ' days, joined within 30 / 60 / 90 days) are on Insights.';
-  return '<div class="card"><div class="card-header"><div class="card-title">First-time visitors</div></div>' +
+    '\nBecame members: they joined in the period (a paid membership that is not a youth plan), however long after their first visit' + (all ? ', day-one joins included' : '') + '. ' +
+    '\nThe period is the one next to Showing. The rates (came back within ' + rw.return_days + ' days, joined within 30 / 60 / 90 days) are on Insights' + (all ? ', which count qualified first-timers only, like the Pilot scorecard' : '') + '.';
+  const title = all ? (home.title || 'All first-time visitors') : 'First-time visitors';
+  const sub = all && home.note ? '<div class="auto-sub">' + escapeHtml(home.note) + '</div>' : '';
+  return '<div class="card"><div class="card-header"><div><div class="card-title">' + escapeHtml(title) + '</div>' + sub + '</div></div>' +
     '<div class="card-content"><div class="mini-grid">' +
     homeTile('First-timers', on ? homeNum(cur.first) : 'n/a', on ? trendHtml(cur.first, prev.first, vs) : '', '') +
     homeTile('Came back', on ? homeNum(cur.back) : 'n/a', on ? trendHtml(cur.back, prev.back, vs) : '', '') +

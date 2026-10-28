@@ -671,8 +671,32 @@ def build_reporting(ds: Dataset, client: ClientConfig, asof: date) -> dict:
         for key, days in zip(("j30", "j60", "j90"), join_windows):
             rec[key] = definitions.joined_within(jd, fd, days)
         ftvs.append(rec)
+    # Block 27 (2026-10-28): the Home page card counts ALL first-timers
+    # (definitions.FTV_TYPE_HOME: qualified + guests + day-one joins), each
+    # person once, on the day their clock starts; Insights and the tiles keep
+    # `ftvs` (qualified). Compact records: d = the clock day, r2 = the first
+    # check-in on a later day, j = the reporting join date on/after d.
+    classify = _ftv_classifier(ds, client)
+    ftvs_all: list[dict] = []
+    home = None
+    if classify is not None:
+        home = {"type": definitions.FTV_TYPE_HOME,
+                "label": definitions.ftv_type_label(definitions.FTV_TYPE_HOME),
+                "title": definitions.FTV_HOME_TITLE, "note": definitions.FTV_HOME_NOTE}
+        for c in ds.climbers.values():
+            s = definitions.ftv_type_start(definitions.FTV_TYPE_HOME, **classify(c))
+            if not s or (opening and s < opening):
+                continue
+            jd = c.join_date
+            ftvs_all.append({
+                "d": s,
+                "r2": min((str(v)[:10] for v in c.visit_days if str(v)[:10] > s), default=None),
+                "j": jd if jd and jd >= s else None,
+            })
     return {
         "enabled": True,
+        "home": home,
+        "ftvs_all": ftvs_all,
         "group": "scorecard" if screen is not None else "wide",
         "post_opening_date": opening,
         "scorecard_start": (sc.get("start") or None) if screen is not None else None,
@@ -698,7 +722,7 @@ def scorecard_pilot_ids(ds: Dataset, client: ClientConfig) -> set | None:
     build_engagement's "sent to paid first-timers" split use the same people
     the scorecard counts (2026-09-22)."""
     parts = _scorecard_parts(ds, client)
-    return None if parts is None else {c.climber_id for c in parts["pilot"]}
+    return None if parts is None else {c.climber_id for c, _s in parts["pilot"]}
 
 
 def build_scorecard(ds: Dataset, client: ClientConfig) -> dict:
@@ -782,13 +806,19 @@ def _scorecard_screen(ds: Dataset, client: ClientConfig):
     return screen
 
 
-def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
+def _scorecard_parts(ds: Dataset, client: ClientConfig,
+                     ftv_type: str = definitions.FTV_TYPE_DEFAULT) -> dict | None:
     """The scorecard's cohorts and result in one pass (shared by
-    build_scorecard and scorecard_pilot_ids)."""
+    build_scorecard, build_scorecard_types and scorecard_pilot_ids).
+    `ftv_type` (ROADMAP Block 27, 2026-10-28) picks WHO and the day each
+    person's clock starts (definitions.ftv_type_start): "qualified" is the
+    Pilot scorecard exactly as before (clock = the first paid visit); the
+    other types feed the All Gyms Scorecard tab's picker and carry no goals.
+    pilot / base = [(climber, clock day)] lists."""
     rep = client.reporting or {}
     cfg = rep.get("scorecard") or {}
-    screen = _scorecard_screen(ds, client)
-    if screen is None:
+    classify = _ftv_classifier(ds, client)
+    if classify is None:
         return None
     start = cfg.get("start")
     smax = ds.sessions_max_date
@@ -805,18 +835,22 @@ def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
     base_shift = (data_end - base_hi).days
 
     def cohort(lo: str, hi: str) -> list:
-        return [c for c in ds.climbers.values()
-                if screen(c) and lo <= c.ftv_date <= hi]
+        out = []
+        for c in ds.climbers.values():
+            s = definitions.ftv_type_start(ftv_type, **classify(c))
+            if s and lo <= s <= hi:
+                out.append((c, s))
+        return out
 
     # came back / joined = the shared definitions (Block 15, 2026-09-24): the
     # sheet's Scorecard tab and this slide read the same functions, and a
     # youth plan is never a join (join_date skips it; the email screen above
     # keeps membership_created because the SENDER stops on any membership)
-    def back_within(c: Climber, days: int) -> bool:
-        return definitions.came_back_within(c.visit_days, c.ftv_date, days)
+    def back_within(c: Climber, s: str, days: int) -> bool:
+        return definitions.came_back_within(c.visit_days, s, days)
 
-    def joined_within(c: Climber, days: int) -> bool:
-        return definitions.joined_within(c.join_date, c.ftv_date, days)
+    def joined_within(c: Climber, s: str, days: int) -> bool:
+        return definitions.joined_within(c.join_date, s, days)
 
     def bars(grp: list, shift: int) -> dict:
         out: dict = {"n": len(grp)}
@@ -828,34 +862,134 @@ def _scorecard_parts(ds: Dataset, client: ClientConfig) -> dict | None:
                               ("join_early", early_days, joined_within),
                               ("join", join_days, joined_within)):
             cut = (data_end - timedelta(days=days + shift)).isoformat()
-            m = [c for c in grp if c.ftv_date <= cut]
-            out[key] = {"n": sum(1 for c in m if fn(c, days)), "of": len(m)}
+            m = [(c, s) for c, s in grp if s <= cut]
+            out[key] = {"n": sum(1 for c, s in m if fn(c, s, days)), "of": len(m)}
         return out
 
     def split(grp: list, shift: int) -> dict:
         return {
             "all": bars(grp, shift),
-            "day_pass": bars([c for c in grp if c.ftv_category not in trial_cats], shift),
-            "trials": bars([c for c in grp if c.ftv_category in trial_cats], shift),
+            "day_pass": bars([cs for cs in grp if cs[0].ftv_category not in trial_cats], shift),
+            "trials": bars([cs for cs in grp if cs[0].ftv_category in trial_cats], shift),
         }
 
     pilot = cohort(start_d.isoformat(), "9999-12-31")
     base = cohort(base_lo.isoformat(), base_hi.isoformat())
+    qualified = ftv_type == definitions.FTV_TYPE_DEFAULT
     result = {
         "enabled": True,
+        "ftv_type": ftv_type,
+        "ftv_type_label": definitions.ftv_type_label(ftv_type),
         "start": start_d.isoformat(),
         "data_through": data_end.isoformat(),
         "baseline_start": base_lo.isoformat(),
         "baseline_through": base_hi.isoformat(),
         "windows": {"return_days": ret_days, "join_early_days": early_days,
                     "join_days": join_days, "converted_within_days": screen_days},
-        "goals": dict(cfg.get("goals") or {}),
+        # the goal is set on Qualified only (Luke 2026-10-26, decision 5)
+        "goals": dict(cfg.get("goals") or {}) if qualified else {},
         "categories": sorted(cats),
         "trial_categories": sorted(trial_cats),
         "pilot": split(pilot, 0),
         "baseline": split(base, base_shift),
     }
     return {"pilot": pilot, "base": base, "result": result}
+
+
+def _ftv_classifier(ds: Dataset, client: ClientConfig):
+    """The three dates behind the first-timer types (ROADMAP Block 27, Luke
+    2026-10-26; definitions.ftv_type_start): a function Climber -> {"q", "g",
+    "d1"} (YYYY-MM-DD or None each), or None when the client has no
+    scorecard.
+      q  = the qualified first paid visit: _scorecard_screen, unchanged, so
+           the Pilot scorecard cannot move.
+      g  = the first visit as a guest: has check-ins; the first check-in day
+           is before any paid entry of their own (Climber.own_entry_days: an
+           own day pass / trial / punch / membership purchase, a check-in on
+           a pass bought in their name, or their membership start) and before
+           any qualified date (a rental-only first purchase keeps someone
+           qualified, Luke 2026-09-22, never a guest); not staff; no youth
+           word (the scorecard's exclude_first_item_keywords) in the earliest
+           purchase or on the first check-in's pass; not on the gym's member
+           list without a plan of their own (ABC: family on someone else's
+           plan); a member with no start date on file is never placed; own
+           unshared email, as for qualified. Group visitors have no leading
+           check-ins left (ingest moved them out), so they are never guests.
+      d1 = a day-one join / trial starter: a first paid entry in the
+           scorecard's categories or a direct membership, checked in, not
+           staff, not youth, own unshared email, NOT qualified, with a
+           membership (or a trial after the first visit) within
+           converted_within_days of that first visit. A youth plan is never a
+           join, so a day-one youth membership is out (the keyword screen)."""
+    cfg = (client.reporting or {}).get("scorecard") or {}
+    screen = _scorecard_screen(ds, client)
+    if screen is None:
+        return None
+    cats = set(cfg.get("categories") or [])
+    excl_kw = [str(k).lower() for k in cfg.get("exclude_first_item_keywords", []) if k]
+    screen_days = int(cfg.get("converted_within_days", 2))
+
+    counts: dict[str, int] = {}
+    for c in ds.climbers.values():
+        e = (c.email or "").strip().lower()
+        if e:
+            counts[e] = counts.get(e, 0) + 1
+    shared = {e for e, n in counts.items() if n > 1}
+
+    def dd(s: str) -> date:
+        return date.fromisoformat(s[:10])
+
+    def own_email(c: Climber) -> bool:
+        e = (c.email or "").strip().lower()
+        return bool(e) and e not in shared
+
+    def keyword_out(c: Climber) -> bool:
+        return any(k in n for n in c.first_tx_items for k in excl_kw)
+
+    def pass_out(c: Climber) -> bool:
+        # a program / class / youth pass, or a check-in that carried an event
+        # (a comp, a camp): decision 7, see definitions.GUEST_PASS_EXCLUDE_WORDS
+        p = getattr(c, "first_checkin_pass", "") or ""
+        return (bool(getattr(c, "first_checkin_event", "") or "")
+                or any(k in p for k in excl_kw)
+                or any(k in p for k in definitions.GUEST_PASS_EXCLUDE_WORDS))
+
+    def classify(c: Climber) -> dict:
+        q = c.ftv_date if screen(c) else None
+        g = None
+        if c.visit_days and not c.is_staff and not (c.is_member and not c.membership_created):
+            d0 = min(c.visit_days)
+            own = getattr(c, "own_entry_days", None) or set()
+            if ((q is None or d0 < q) and not any(o <= d0 for o in own)
+                    and not (c.on_member_list and not c.membership_created)
+                    and not keyword_out(c) and not pass_out(c) and own_email(c)):
+                g = d0
+        d1 = None
+        fd = c.ftv_date
+        if (q is None and fd and not c.is_staff and c.visit_count >= 1
+                and (c.ftv_category in cats or c.ftv_category == "MEMBERSHIP")
+                and not keyword_out(c) and own_email(c)):
+            mc = c.membership_created
+            td, fv = c.trial_date, c.first_visit_date
+            if (c.ftv_category == "MEMBERSHIP"
+                    or (mc and 0 <= (dd(mc) - dd(fd)).days <= screen_days)
+                    or (td and fv and td > fv and 0 <= (dd(td) - dd(fd)).days <= screen_days)):
+                d1 = fd
+        return {"q": q, "g": g, "d1": d1}
+    return classify
+
+
+def build_scorecard_types(ds: Dataset, client: ClientConfig) -> dict:
+    """{ftv_type: build_scorecard-shaped result} for every first-timer type
+    (ROADMAP Block 27): the All Gyms Scorecard tab's picker. "qualified" is
+    build_scorecard's own result. {} when the client has no scorecard."""
+    out = {}
+    for t in definitions.FTV_TYPES:
+        parts = _scorecard_parts(ds, client, t)
+        if parts is None:
+            return {}
+        out[t] = parts["result"]
+    return out
 
 
 def build_config_view(client: ClientConfig) -> dict:

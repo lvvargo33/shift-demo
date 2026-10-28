@@ -829,6 +829,9 @@ SEND_RECORDS: list[dict] = []
 # The Pilot scorecard from the last collect() (engine.build_scorecard, the same
 # call the site's Insights slide makes), for the Scorecard tab (Block 15).
 SCORECARD: dict = {}
+# Block 27 (2026-10-28): {ftv_type: build_scorecard-shaped result} for the
+# Scorecard tab's "First-timer type" picker (engine.build_scorecard_types)
+SCORECARD_TYPES: dict = {}
 # The maturity cut-off date of the last collect() (the data's last check-in
 # day), read by the History recount so both tabs cut at the same day.
 MATURE_ASOF: list = [None]
@@ -1326,8 +1329,12 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     # the Scorecard tab's numbers; guarded so a scorecard bug can never cost
     # the Data / Dashboard / History push, and loud (rule 5) when it breaks
     SCORECARD.clear()
+    SCORECARD_TYPES.clear()
     try:
         SCORECARD.update(engine.build_scorecard(ds, client))
+        if SCORECARD.get("enabled"):
+            # Block 27: every first-timer type, for the tab's picker
+            SCORECARD_TYPES.update(engine.build_scorecard_types(ds, client))
     except Exception:
         print("  allgyms: Scorecard build FAILED (tab left as it was): "
               + traceback.format_exc())
@@ -2066,10 +2073,15 @@ def _sc_ratio(n, of):
 
 def _scorecard_rows(sc: dict, stamp: str) -> list[list]:
     """This gym's two Scorecard rows from engine.build_scorecard's result
-    (none when the gym has no scorecard switched on)."""
+    (none when the gym has no scorecard switched on). A result for a
+    first-timer type other than Qualified (Block 27) carries no goals: its
+    pilot row says "no goal set" (Luke 2026-10-26, decision 5)."""
     if not sc or not sc.get("enabled"):
         return []
     goals = sc.get("goals") or {}
+    no_goal = (definitions.FTV_NO_GOAL
+               if (sc.get("ftv_type") or definitions.FTV_TYPE_DEFAULT) != definitions.FTV_TYPE_DEFAULT
+               else "")
     out = []
     for pilot, part, lo, hi in (
             (True, sc["pilot"]["all"], sc["start"], sc["data_through"]),
@@ -2081,41 +2093,131 @@ def _scorecard_rows(sc: dict, stamp: str) -> list[list]:
             GYM, "Pilot" if pilot else f"Same dates in {str(lo)[:4]}",
             f"{lo} to {hi}", part["n"],
             r["n"], r["of"], _sc_ratio(r["n"], r["of"]),
-            goals.get("return", "") if pilot else "",
+            (goals.get("return") or no_goal) if pilot else "",
             j30["n"], j30["of"], _sc_ratio(j30["n"], j30["of"]),
             j60["n"], j60["of"], _sc_ratio(j60["n"], j60["of"]),
             j90["n"], j90["of"], _sc_ratio(j90["n"], j90["of"]),
-            goals.get("join", "") if pilot else "",
+            (goals.get("join") or no_goal) if pilot else "",
             sc["data_through"], stamp])
     return out
 
 
-def _maintain_scorecard(svc, sc: dict, stamp: str) -> None:
-    """Rewrite this gym's Scorecard rows, keep every other gym's (read back
-    unformatted and re-laid by header name, like History)."""
-    _widen_tab(svc, SCORECARD_TAB, SCORECARD_NCOLS)
+# Block 27 (2026-10-28, Luke 2026-10-26 decisions 4 + 5): the tab has two
+# blocks. The TOP block is a picker ("Show:" + a First-timer type dropdown in
+# B2, like the Dashboard's gym picker) over one FILTER formula that pulls the
+# picked type's rows out of the bottom block. The BOTTOM block holds every
+# type's rows for every gym (the pilot and the same dates a year earlier),
+# and is what each cron rewrites: its own gym's rows replaced, the other gym's
+# kept. Row numbers are fixed so the formula, the picker and the reconcile
+# script (_verify_reconcile.py) can all find both blocks.
+SC_TITLE_ROW = 1
+SC_PICK_ROW = 2                       # "Show:" | <type label>, B2 = the dropdown
+SC_VIEW_HEADER_ROW = 4                # SCORECARD_HEADER
+SC_VIEW_FIRST_ROW = 5                 # the FILTER formula spills from here
+SC_VIEW_ROWS = 12                     # room for six gyms x two rows
+SC_DATA_BAND_ROW = SC_VIEW_FIRST_ROW + SC_VIEW_ROWS + 1        # 18
+SC_DATA_HEADER_ROW = SC_DATA_BAND_ROW + 1                      # 19
+SC_DATA_FIRST_ROW = SC_DATA_HEADER_ROW + 1                     # 20
+SC_DATA_LAST_ROW = 200
+SC_TYPE_COL = "First-timer type"
+SC_DATA_HEADER = [SC_TYPE_COL] + SCORECARD_HEADER
+SC_DATA_NCOLS = len(SC_DATA_HEADER)
+SC_TITLE = ("Pilot scorecard by first-timer type: pick a type in B2 "
+            "(Qualified = the pilot's group, the only one with a goal)")
+SC_DATA_BAND = ("Every first-timer type, every gym (the picker above reads "
+                "this table; each gym's morning run rewrites its own rows)")
+SC_PICK_NOTE = ("Pick who to count. Qualified = the Pilot scorecard's group "
+                "(first paid visit was a day pass or trial, own email, not a "
+                "member within 2 days); Guests = own profile, first visit paid "
+                "by someone else, counted on that guest visit; Qualified + "
+                "guests = both, each person once; All = both plus people who "
+                "joined or bought a trial on their first visit. Every type has "
+                "its own 2025 row. The goal is set on Qualified only. Full "
+                "wording on the Definitions tab.")
+
+
+def _scorecard_type_rows(types: dict, stamp: str) -> list[list]:
+    """The bottom block's rows for this gym: every first-timer type's two
+    rows, each prefixed with the type's label (none when the gym has no
+    scorecard switched on)."""
+    out = []
+    for t in definitions.FTV_TYPES:
+        for r in _scorecard_rows(types.get(t) or {}, stamp):
+            out.append([definitions.ftv_type_label(t)] + r)
+    return out
+
+
+def _sc_pick_formula() -> str:
+    d0, d1 = SC_DATA_FIRST_ROW, SC_DATA_LAST_ROW
+    last = _a1col(SC_DATA_NCOLS - 1)
+    return f'=IFERROR(FILTER(B{d0}:{last}{d1},A{d0}:A{d1}=$B$2),"no rows yet")'
+
+
+def _maintain_scorecard(svc, types: dict, stamp: str) -> None:
+    """Rewrite the whole Scorecard tab: the picker block (the user's current
+    pick in B2 kept) and the bottom block with this gym's rows replaced and
+    every other gym's kept (read back unformatted and re-laid by header name,
+    like History). A sheet still on the pre-Block 27 layout (SCORECARD_HEADER
+    in row 1, no type column) is read as the other gym's Qualified rows, so
+    nothing is lost on the first run of the new code. The data rows go in
+    RAW (a date must stay the text the site compares against); only the
+    FILTER cell goes in as a formula (USER_ENTERED)."""
+    _widen_tab(svc, SCORECARD_TAB, SC_DATA_NCOLS)
     got = svc.spreadsheets().values().get(
-        spreadsheetId=ALLGYMS_SHEET_ID, range=f"{SCORECARD_TAB}!A1:{_SC_LASTCOL}100",
+        spreadsheetId=ALLGYMS_SHEET_ID,
+        range=f"{SCORECARD_TAB}!A1:{_SC_LASTCOL}{SC_DATA_LAST_ROW}",
         valueRenderOption="UNFORMATTED_VALUE",
         ).execute(num_retries=_NUM_RETRIES).get("values", [])
-    old_header = [str(x).strip() for x in (got[0] if got else [])]
+    rows = [[x.strip() if isinstance(x, str) else x for x in r] for r in got]
+    labels = [definitions.ftv_type_label(t) for t in definitions.FTV_TYPES]
+    pick = definitions.ftv_type_label(definitions.FTV_TYPE_DEFAULT)
+    if (len(rows) >= SC_PICK_ROW and len(rows[SC_PICK_ROW - 1]) > 1
+            and str(rows[SC_PICK_ROW - 1][1]) in labels):
+        pick = str(rows[SC_PICK_ROW - 1][1])
+
+    def relay(vals: dict, header: list) -> list:
+        return [vals.get(h, vals.get(_SC_OLD_NAMES.get(h, ""), "")) for h in header]
+
     kept = []
-    for r in got[1:]:
-        if not r or not str(r[0]).strip() or str(r[0]).strip() == GYM:
-            continue
-        vals = dict(zip(old_header, r))
-        kept.append([vals.get(h, vals.get(_SC_OLD_NAMES.get(h, ""), ""))
-                     for h in SCORECARD_HEADER])
-    out = kept + _scorecard_rows(sc, stamp)
-    out.sort(key=lambda r: (GYM_ORDER.get(str(r[0]), 9),
-                            0 if str(r[1]) == "Pilot" else 1))
+    hdr_idx = next((i for i, r in enumerate(rows) if r and str(r[0]) == SC_TYPE_COL), None)
+    if hdr_idx is not None:                       # the Block 27 layout
+        old_header = [str(x) for x in rows[hdr_idx]]
+        for r in rows[hdr_idx + 1:]:
+            if not r or not str(r[0]).strip():
+                continue
+            vals = dict(zip(old_header, r))
+            if str(vals.get("Gym", "")).strip() == GYM:
+                continue
+            kept.append(relay(vals, SC_DATA_HEADER))
+    elif rows and rows[0] and str(rows[0][0]) == SCORECARD_HEADER[0]:   # pre-Block 27
+        old_header = [str(x) for x in rows[0]]
+        for r in rows[1:]:
+            if not r or not str(r[0]).strip() or str(r[0]).strip() == GYM:
+                continue
+            kept.append([definitions.ftv_type_label(definitions.FTV_TYPE_DEFAULT)]
+                        + relay(dict(zip(old_header, r)), SCORECARD_HEADER))
+    data = kept + _scorecard_type_rows(types, stamp)
+    type_order = {lbl: i for i, lbl in enumerate(labels)}
+    data.sort(key=lambda r: (type_order.get(str(r[0]), 9), GYM_ORDER.get(str(r[1]), 9),
+                             0 if str(r[2]) == "Pilot" else 1))
+    grid: list[list] = [[f"{SC_TITLE}  (updated {stamp})"], ["Show:", pick], [],
+                        list(SCORECARD_HEADER), []]
+    while len(grid) < SC_DATA_BAND_ROW - 1:
+        grid.append([])
+    grid.append([SC_DATA_BAND])
+    grid.append(list(SC_DATA_HEADER))
+    grid.extend(data)
     svc.spreadsheets().values().clear(
         spreadsheetId=ALLGYMS_SHEET_ID,
         range=f"{SCORECARD_TAB}!A:{_SC_LASTCOL}").execute(num_retries=_NUM_RETRIES)
     svc.spreadsheets().values().update(
         spreadsheetId=ALLGYMS_SHEET_ID, range=f"{SCORECARD_TAB}!A1",
         valueInputOption="RAW",
-        body={"values": [SCORECARD_HEADER] + out}).execute(num_retries=_NUM_RETRIES)
+        body={"values": grid}).execute(num_retries=_NUM_RETRIES)
+    svc.spreadsheets().values().update(
+        spreadsheetId=ALLGYMS_SHEET_ID, range=f"{SCORECARD_TAB}!A{SC_VIEW_FIRST_ROW}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [[_sc_pick_formula()]]}).execute(num_retries=_NUM_RETRIES)
 
 
 def _scorecard_fmt_requests(sheet_id: int, existing_cf: int) -> list:
@@ -2123,52 +2225,73 @@ def _scorecard_fmt_requests(sheet_id: int, existing_cf: int) -> list:
             for _ in range(existing_cf)]
     reqs.append({"repeatCell": {"range": {"sheetId": sheet_id}, "cell": {},
                  "fields": "userEnteredFormat,note"}})
+    # the picker block stays in view while scrolling down to the full table
     reqs.append({"updateSheetProperties": {
         "properties": {"sheetId": sheet_id,
-                       "gridProperties": {"frozenRowCount": 1,
-                                          "frozenColumnCount": 2}},
+                       "gridProperties": {"frozenRowCount": SC_VIEW_HEADER_ROW,
+                                          "frozenColumnCount": 0}},
         "fields": "gridProperties.frozenRowCount,"
                   "gridProperties.frozenColumnCount"}})
-    reqs.append({"repeatCell": {
-        "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1},
-        "cell": {"userEnteredFormat": {"textFormat": {"bold": True},
-                                       "backgroundColor": _hex(HEADER_BG),
-                                       "wrapStrategy": "WRAP",
-                                       "horizontalAlignment": "CENTER"}},
-        "fields": "userEnteredFormat.textFormat,"
-                  "userEnteredFormat.backgroundColor,"
-                  "userEnteredFormat.wrapStrategy,"
-                  "userEnteredFormat.horizontalAlignment"}})
-    reqs.append({"repeatCell": {
-        "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 100,
-                  "startColumnIndex": 3, "endColumnIndex": SCORECARD_NCOLS},
-        "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
-        "fields": "userEnteredFormat.horizontalAlignment"}})
-    for c in _SC_PCT_COLS:
-        reqs.append({"repeatCell": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 100,
-                      "startColumnIndex": c, "endColumnIndex": c + 1},
-            "cell": {"userEnteredFormat": {
-                "numberFormat": {"type": "PERCENT", "pattern": "0.0%"}}},
-            "fields": "userEnteredFormat.numberFormat"}})
+
+    def rng(r0: int, r1: int, c0: int = 0, c1: int | None = None) -> dict:
+        return {"sheetId": sheet_id, "startRowIndex": r0 - 1, "endRowIndex": r1,
+                "startColumnIndex": c0,
+                "endColumnIndex": SC_DATA_NCOLS if c1 is None else c1}
+
+    def cell_fmt(r: dict, fmt: dict, fields: list) -> dict:
+        return {"repeatCell": {"range": r, "cell": {"userEnteredFormat": fmt},
+                               "fields": ",".join(f"userEnteredFormat.{f}" for f in fields)}}
+
+    header_fmt = {"textFormat": {"bold": True}, "backgroundColor": _hex(HEADER_BG),
+                  "wrapStrategy": "WRAP", "horizontalAlignment": "CENTER"}
+    header_fields = ["textFormat", "backgroundColor", "wrapStrategy", "horizontalAlignment"]
+    reqs.append(cell_fmt(rng(SC_TITLE_ROW, SC_TITLE_ROW),
+                         {"textFormat": {"bold": True, "fontSize": 12}}, ["textFormat"]))
+    reqs.append(cell_fmt(rng(SC_PICK_ROW, SC_PICK_ROW, 0, 1),
+                         {"textFormat": {"bold": True}}, ["textFormat"]))
+    reqs.append({"setDataValidation": {
+        "range": rng(SC_PICK_ROW, SC_PICK_ROW, 1, 2),
+        "rule": {"condition": {"type": "ONE_OF_LIST", "values": [
+            {"userEnteredValue": definitions.ftv_type_label(t)} for t in definitions.FTV_TYPES]},
+            "strict": True, "showCustomUi": True}}})
+    reqs.append(cell_fmt(rng(SC_VIEW_HEADER_ROW, SC_VIEW_HEADER_ROW, 0, SCORECARD_NCOLS),
+                         header_fmt, header_fields))
+    reqs.append(cell_fmt(rng(SC_DATA_BAND_ROW, SC_DATA_BAND_ROW),
+                         {"backgroundColor": _hex(BAND_BG),
+                          "textFormat": {"bold": True, "foregroundColor": _hex(BAND_FG)}},
+                         ["backgroundColor", "textFormat"]))
+    reqs.append(cell_fmt(rng(SC_DATA_HEADER_ROW, SC_DATA_HEADER_ROW), header_fmt, header_fields))
+    view_rows = (SC_VIEW_FIRST_ROW, SC_VIEW_FIRST_ROW + SC_VIEW_ROWS - 1)
+    data_rows = (SC_DATA_FIRST_ROW, SC_DATA_LAST_ROW)
+    # the view block's columns are the data block's shifted one left (no type column)
+    for (r0, r1), shift in ((view_rows, 0), (data_rows, 1)):
+        reqs.append(cell_fmt(rng(r0, r1, 3 + shift, SCORECARD_NCOLS + shift),
+                             {"horizontalAlignment": "CENTER"}, ["horizontalAlignment"]))
+        for c in _SC_PCT_COLS:
+            reqs.append(cell_fmt(rng(r0, r1, c + shift, c + shift + 1),
+                                 {"numberFormat": {"type": "PERCENT", "pattern": "0.0%"}},
+                                 ["numberFormat"]))
+    notes = [(SC_PICK_ROW - 1, 0, SC_PICK_NOTE)]
     for cidx, text in SCORECARD_NOTES.items():
+        notes.append((SC_VIEW_HEADER_ROW - 1, cidx, text))
+        notes.append((SC_DATA_HEADER_ROW - 1, cidx + 1, text))
+    for ridx, cidx, text in notes:
         reqs.append({"updateCells": {
             "rows": [{"values": [{"note": text}]}], "fields": "note",
-            "start": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": cidx}}})
-    for i, w in enumerate([70, 150, 190] + [110] * (SCORECARD_NCOLS - 3)):
+            "start": {"sheetId": sheet_id, "rowIndex": ridx, "columnIndex": cidx}}})
+    for i, w in enumerate([130, 150, 190] + [110] * (SC_DATA_NCOLS - 3)):
         reqs.append({"updateDimensionProperties": {
             "range": {"sheetId": sheet_id, "dimension": "COLUMNS",
                       "startIndex": i, "endIndex": i + 1},
             "properties": {"pixelSize": w}, "fields": "pixelSize"}})
     for gym, (base, _alt) in GYM_FILLS.items():
-        reqs.append({"addConditionalFormatRule": {"rule": {
-            "ranges": [{"sheetId": sheet_id, "startRowIndex": 1,
-                        "endRowIndex": 100, "startColumnIndex": 0,
-                        "endColumnIndex": SCORECARD_NCOLS}],
-            "booleanRule": {
-                "condition": {"type": "CUSTOM_FORMULA",
-                              "values": [{"userEnteredValue": f'=$A2="{gym}"'}]},
-                "format": {"backgroundColor": _hex(base)}}}}})
+        for (r0, r1), col in ((view_rows, "A"), (data_rows, "B")):
+            reqs.append({"addConditionalFormatRule": {"rule": {
+                "ranges": [rng(r0, r1)],
+                "booleanRule": {
+                    "condition": {"type": "CUSTOM_FORMULA",
+                                  "values": [{"userEnteredValue": f'=${col}{r0}="{gym}"'}]},
+                    "format": {"backgroundColor": _hex(base)}}}}})
     return reqs
 
 
@@ -2620,11 +2743,11 @@ def push(slug: str = "shift") -> None:
     # Scorecard tab (Block 15): guarded so it can never cost the rest of the
     # push, and loud when it breaks (CLAUDE.md rule 5)
     try:
-        if SCORECARD.get("enabled"):
-            _maintain_scorecard(svc, SCORECARD, stamp)
+        if SCORECARD.get("enabled") and SCORECARD_TYPES:
+            _maintain_scorecard(svc, SCORECARD_TYPES, stamp)
             fmt_reqs += _scorecard_fmt_requests(sheet_ids[SCORECARD_TAB],
                                                 cf_counts.get(SCORECARD_TAB, 0))
-            stage("Scorecard tab maintained")
+            stage("Scorecard tab maintained (every first-timer type)")
         else:
             # no scorecard this run (switched off, or its build FAILED above):
             # this gym's rows stay exactly as the last good run wrote them

@@ -239,6 +239,74 @@ def group_send(group_visit_days, visit_days, sent) -> bool:
     return own_first is None or str(sent or "")[:10] <= own_first
 
 
+# --- first-timer types (ROADMAP Block 27, Luke 2026-10-26, built 2026-10-28) ------
+# Chris (10/25): segment adult first-timers. Luke's rulings: the Pilot scorecard
+# stays on qualified first-timers everywhere (the 2025 comparison and the goals
+# are built on it); the All Gyms Scorecard tab gets a "First-timer type" picker;
+# the Home page's first-timer card shows All. A person's clock under a type
+# starts on ONE day, chosen from three dates engine._ftv_classifier finds:
+#   q  = the qualified first paid visit (today's scorecard rule, unchanged);
+#   g  = the first visit as a guest: own profile, entry paid by someone else (a
+#        member's guest pass, a pass a friend bought), before any paid entry of
+#        their own and before any qualified date, the same email screen as
+#        qualified; youth passes, groups, staff and family on someone else's
+#        plan stay out;
+#   d1 = the first visit of a day-one join / trial starter: a membership (or a
+#        trial after the visit) within the scorecard's converted_within_days of
+#        the first paid visit. They never get the first-timer emails, so they
+#        are not qualified; All counts them (Chris: the gym's new-customer
+#        acquisition as a whole).
+# Nobody is counted twice across a guest visit and a later paid visit
+# (decision 3): the guest visit came first, so it wins in the combined types.
+# The Pilot scorecard keeps today's rule (that later paid visit is a new
+# qualified first-timer), so its numbers never move.
+FTV_TYPES = ("qualified", "guests", "qualified_guests", "all")
+FTV_TYPE_LABELS = {
+    "qualified": "Qualified",
+    "guests": "Guests",
+    "qualified_guests": "Qualified + guests",
+    "all": "All",
+}
+# A guest visit on one of these passes is a program, a class or a youth
+# entry, not a first-time visitor in Chris's sense (decision 7: comps, events,
+# groups and youth passes stay out of every type). Matched on the pass text of
+# the first check-in (SHIFT's Beta export: "Middle/High Meetup", "Day Pass -
+# Youth", "Homeschool Membership", "Shift Sessions"); ABC's check-ins carry no
+# pass text, so this never fires there. A check-in that carries an EVENT
+# (Beta's `event` column: a comp, a summer camp, a homeschool session) is out
+# too. Found on the 2026-10-22 cut (Block 27 build): 15 event check-ins and 5
+# meetup passes among SHIFT's 240 pilot "guests".
+GUEST_PASS_EXCLUDE_WORDS = ("youth", "meetup", "homeschool", "camp", "class", "lesson",
+                            "sessions", "staff", "spectator", "birthday", "party")
+FTV_TYPE_DEFAULT = "qualified"     # the Scorecard tab's picker on a fresh sheet
+FTV_TYPE_HOME = "all"              # the Home page first-timer card (decision 1)
+FTV_NO_GOAL = "no goal set"        # the goal cells of every type but Qualified
+# The Home card's title and the one small line under it (decision 8).
+FTV_HOME_TITLE = "All first-time visitors"
+FTV_HOME_NOTE = ("Includes guests and day-one joins. The pilot scorecard counts "
+                 "qualified first-timers only.")
+
+
+def ftv_type_label(ftv_type: str) -> str:
+    return FTV_TYPE_LABELS.get(ftv_type, ftv_type)
+
+
+def ftv_type_start(ftv_type: str, q=None, g=None, d1=None) -> str | None:
+    """The day a person's clock starts under `ftv_type` (YYYY-MM-DD), or None
+    when they are not in that type. q / g / d1 as above. The guest visit is
+    the earliest of the three whenever it exists (engine sets g only before
+    any paid entry), so it wins in the two combined types."""
+    if ftv_type == "qualified":
+        return q or None
+    if ftv_type == "guests":
+        return g or None
+    if ftv_type == "qualified_guests":
+        return g or q or None
+    if ftv_type == "all":
+        return g or q or d1 or None
+    raise ValueError(f"unknown first-timer type {ftv_type!r}")
+
+
 # --- sections -------------------------------------------------------------------
 # Order = the order the sheet's Dashboard and the site's email slides show them.
 SECTIONS = ["FTV funnel emails", "Day pass regulars", "Blocker nudges", "Surveys"]
@@ -418,6 +486,53 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  "year earlier, the same screens, each person given the same "
                  "number of days as their twin date this year.",
                  "", "Pilot scorecard"]),
+        # Block 27 (2026-10-28): the Scorecard tab's "First-timer type" picker
+        # and the Home page card. Chris's 10/25 segments, Luke's 10/26 rulings.
+        ("band", ["First-timer types: the Scorecard tab's picker, and the Home "
+                  "page's first-timer card"]),
+        ("header", ["Type", "Who counts", "The clock starts on", "Where you see it"]),
+        ("row", [FTV_TYPE_LABELS["qualified"],
+                 "The Pilot scorecard's group, unchanged (see 'Qualified "
+                 "first-timer' above). The only type with a goal: the 2025 "
+                 "comparison and the goals are built on it.",
+                 "Their first paid visit",
+                 "Scorecard tab (the picker's default), the Pilot scorecard "
+                 "slide, the Dashboard tiles and Insights on each gym's page"]),
+        ("row", [FTV_TYPE_LABELS["guests"],
+                 "Someone with their own profile whose first visit was paid for "
+                 "by someone else: a member's guest pass, or a pass a friend "
+                 "bought (SHIFT: the check-in names the host, or is on a "
+                 "single-visit pass they did not buy; ABC: no purchase of their "
+                 "own on or before that day). Same email screen as qualified: "
+                 "own email on file, not shared with another climber. Out: "
+                 "youth passes, school and party groups, staff, family on "
+                 "someone else's plan, and anyone who had paid their own way in "
+                 "before. Counted once, on that first guest visit, even if they "
+                 "later buy their own pass; the Pilot scorecard still counts "
+                 "that later paid visit as a new qualified first-timer, so its "
+                 "numbers do not move. ABC's check-ins carry no pass type, so a "
+                 "child on a guest pass cannot be told apart there.",
+                 "Their first visit as a guest",
+                 "Scorecard tab"]),
+        ("row", [FTV_TYPE_LABELS["qualified_guests"],
+                 "Both groups together. A person counts once: a guest who later "
+                 "paid their own way in counts on the guest visit only.",
+                 "The guest visit, else the first paid visit",
+                 "Scorecard tab"]),
+        ("row", [FTV_TYPE_LABELS["all"],
+                 "Qualified + guests, plus people who joined or bought a trial "
+                 "on their first visit (the same 2-day screen the qualified "
+                 "rule uses). They never get the first-timer emails, so they are "
+                 "not qualified; All shows the gym's new-customer acquisition "
+                 "as a whole. Still out: comps, event entries, group visits, "
+                 "staff, youth passes, family on someone else's plan.",
+                 "The guest visit, else the first paid visit",
+                 f"Scorecard tab; the Home page's '{FTV_HOME_TITLE}' card"]),
+        ("row", ["Goals and 2025 for each type",
+                 "Every type gets its own 'same dates a year earlier' row, "
+                 f"counted the same way. The goal is set on {FTV_TYPE_LABELS['qualified']} "
+                 f"only; the other types say '{FTV_NO_GOAL}'.",
+                 "", "Scorecard tab"]),
         ("row", ["Email sections",
                  f"This sheet groups emails as {', '.join(SECTIONS[:-1])} and "
                  f"{SECTIONS[-1]}. Each gym's page shows the same rows as four "
