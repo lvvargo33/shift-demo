@@ -613,7 +613,8 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
         # as consistent as possible, and say where the card differs from the
         # pilot's "Joined" (it answers a GM's question, not the pilot's).
         # Block 24 (2026-10-16 call): a period switch and arrows on the card.
-        ("band", [f"Home page Gym card: four numbers for the GM, this month so far "
+        # Block 29 (2026-10-28): + average member lifespan (a today number).
+        ("band", [f"Home page Gym card: five numbers for the GM, this month so far "
                   f"or the last {gm_window} days"]),
         ("header", ["Term", "What it means", "Window", "Used in"]),
         ("row", ["Member count",
@@ -625,6 +626,25 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  f"compares with the same date last month (or {gm_window} days "
                  "ago); at ABC that earlier count comes from the weekly member "
                  "count until the daily status record reaches back that far.",
+                 "Today", "Each gym's Home page"]),
+        ("row", ["Avg member lifespan",
+                 "The plain average time since joining, in months, for the "
+                 "people in Member count (frozen left out). The clock starts at "
+                 f"the member's current stretch: a plan switch within {gm_gap} "
+                 "days keeps it running, a comeback after more than "
+                 f"{gm_gap} days away starts it again. SHIFT: Beta's membership "
+                 "start dates. ABC: the member's own membership purchases on "
+                 "RGP invoices (the New members rule); a member with no "
+                 "purchase of their own (a family member on someone else's "
+                 f"plan), or whose own purchases ran out more than {gm_gap} "
+                 "days ago, is left out (their start cannot be seen), and the "
+                 "card says how many were dated. RGP shows who paid, not who "
+                 "was covered, so a gap in a member's own purchases does not "
+                 "restart the clock when their check-ins show they kept "
+                 "climbing through it (2+ visit days a month, no break over 2 "
+                 "months, under a quarter of those visits paid as day passes). "
+                 "Someone who joined before the gym's data begins counts from "
+                 "that first day. No arrow.",
                  "Today", "Each gym's Home page"]),
         ("row", ["Period and arrows",
                  "The Home page shows this month so far (the default), compared "

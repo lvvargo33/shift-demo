@@ -402,6 +402,7 @@ details.held[open] > summary { border-bottom: 1px solid var(--border-soft); }
 /* Block 23 (2026-10-16): the Home "Gym" card, four numbers across, above the other cards */
 .gym-card { margin-bottom: 14px; }
 .mini-grid.four { grid-template-columns: repeat(4, 1fr); }
+.mini-grid.five { grid-template-columns: repeat(5, 1fr); }   /* Block 29: + Avg member lifespan */
 .mini .mini-sub { font-size: 11.5px; color: var(--fg-hint); margin-top: 2px; }
 .home-period { margin: 0 0 12px; }
 .mini.has-trend .mini-value { display: inline-block; }
@@ -416,10 +417,12 @@ details.held[open] > summary { border-bottom: 1px solid var(--border-soft); }
 #how-gym { white-space: pre-line; }   /* one line per number */
 @media (max-width: 880px) {
   .mini-grid.four { grid-template-columns: repeat(2, 1fr); row-gap: 14px; }
+  .mini-grid.five { grid-template-columns: repeat(3, 1fr); row-gap: 14px; }
   .two-col { grid-template-columns: 1fr; }
   .todo-row { flex-wrap: wrap; }
   .tbl { min-width: 560px; }   /* the card scrolls sideways instead of squeezing the cells (tester 2026-10-08) */
 }
+@media (max-width: 480px) { .mini-grid.five { grid-template-columns: repeat(2, 1fr); } }
 </style>
 </head>
 <body>
@@ -915,10 +918,23 @@ function gymCard() {
     '\nCancellations: people whose last plan was cancelled in the period and who held no plan at its end. Beta\'s cancel date may be the day the cancel was entered rather than the last day of access. ' +
     '\nPeople, not plans: switching to another plan within a month is not a cancellation or a new member. ' +
     '\nNet sales: paid sales before sales tax, minus refunds, counted the way Beta\'s sales report counts them: a sale on the day it was paid, a refund on the day it was made. Unpaid (open) and cancelled sales, and gift card sales (counted when the card is spent), are left out. ';
-  const howAll = how + '\nPeriod: it ends on the last day with sales in the data (the data is pulled each morning, so today is not in yet). Arrows: green is better, red is worse; hover one to see the change. This month so far is compared with the same days last month, Last 30 days with the 30 days before. A number with no arrow has no count for the earlier date or period yet.';
-  h += '<div class="card-content"><div class="mini-grid four">' +
+  // Block 29 (2026-10-28): average member lifespan, a today number like Member count
+  const life = g.lifespan || null;
+  const lifeOk = life && life.avg_months != null;
+  const lifeHow = !life ? '' :
+    '\nAvg member lifespan: the plain average time since joining, in months, for the members in Member count (frozen left out). The clock starts at the member\'s current stretch: switching plans within a month keeps it running, coming back after more than a month away starts it again. ' +
+    (rgp ? 'Dated from the member\'s own membership purchases (the same rule as New members); members with no purchase of their own (such as family members on someone else\'s plan), or whose own purchases ran out more than a month ago, are left out, because their start cannot be seen' + (life.of != null ? ' (' + homeNum(life.n) + ' of ' + homeNum(life.of) + ' dated)' : '') + '. ' +
+      (life.checkins ? 'RGP shows who paid, not who was covered, so a gap in a member\'s own purchases does not restart the clock when their check-ins show they kept climbing through it (2 or more visit days a month on average, no break longer than 2 months, and under a quarter of those visits paid as day passes). ' : '') : '') +
+    (life.data_since ? (rgp ? 'RGP purchases' : 'Beta plans') + ' in the data go back to ' + shortDate(life.data_since) + ', so anyone who joined before that counts from then. ' : '') +
+    (lifeOk ? 'Exactly: ' + Number(life.avg_months).toFixed(1) + ' months. ' : '') + 'It has no arrow and does not follow the period switch.';
+  const howAll = how + lifeHow + '\nPeriod: it ends on the last day with sales in the data (the data is pulled each morning, so today is not in yet). Arrows: green is better, red is worse; hover one to see the change. This month so far is compared with the same days last month, Last 30 days with the 30 days before. A number with no arrow has no count for the earlier date or period yet.';
+  h += '<div class="card-content"><div class="mini-grid ' + (life ? 'five' : 'four') + '">' +
     homeTile('Member count', homeNum(mem.active), mp ? trendHtml(mem.active, mp.active, memVs) : '',
       mem.frozen ? '+ ' + mem.frozen.toLocaleString() + ' frozen' : 'None frozen') +
+    // the small line says what it is (current members, time so far: not how long members last)
+    // and that it is a today number, not the period's (Luke 2026-10-28)
+    (life ? homeTile('Avg member lifespan', lifeOk ? Math.round(life.avg_months).toLocaleString() + ' months' : 'n/a', '',
+      'Current members, so far' + (lifeOk && life.of != null && life.n < life.of ? ' (' + homeNum(life.n) + ' of ' + homeNum(life.of) + ' dated)' : '')) : '') +
     homeTile('New members', homeNum(p.new_members), vs ? trendHtml(p.new_members, p.prev_new_members, vs) : '', '') +
     homeTile('Cancellations', homeNum(c.n), vs ? trendHtml(c.n, pc.n, vs, { down: true }) : '', '') +
     homeTile('Net sales', s.amount == null ? 'n/a' : '$' + Math.round(s.amount).toLocaleString(),

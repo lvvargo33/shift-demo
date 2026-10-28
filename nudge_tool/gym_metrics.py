@@ -48,6 +48,25 @@ transactions file, never after today), not on today: the files are pulled
 at 3 AM, so today has no sales or new plans yet, and ending on today would
 compare 15 days of data with 16 and tilt every arrow down.
 
+Block 29 (Chris's Tasks row B25, interviewed with Luke 2026-10-28) adds a
+fifth number, average member lifespan:
+
+  * the members in Member count today (paying; frozen left out), each one's
+    time since the start of their CURRENT stretch (a plan switch within
+    SWITCH_GAP days keeps the clock; a comeback after a real gap restarts it);
+  * a plain average in months (Luke declined a trimmed/capped average and a
+    median line), no arrow, no period: it is a today number like Member count;
+  * SHIFT: the open plan episodes above. ABC: the person's latest
+    rgp_join_events date (the same rule New members uses); a member with no
+    membership purchase of their own (a family member on someone else's
+    plan), or whose own purchases ran out more than SWITCH_GAP days ago
+    (OK in RGP for a reason the invoices do not show), cannot be dated and
+    is left out, and the card says "n of N"; a gap in someone's own
+    purchases that they kept climbing through (check-ins, BRIDGE_* below)
+    is not a real break, because RGP shows who paid, not who was covered;
+  * each gym's data has a first day (SHIFT's plans, ABC's invoices), so a
+    member who joined before it counts from that day; the note names it.
+
 Nothing here sends, writes to Drive, or raises into a page render: build_*
 returns {"error": ...} on any surprise and the card shows that instead.
 """
@@ -150,6 +169,20 @@ def _base(today: date, ref: date | None = None) -> dict:
     start, end = window(ref)
     return {"as_of": today.isoformat(), "data_through": ref.isoformat(), "window_days": WINDOW_DAYS,
             "window_start": start.isoformat(), "window_end": end.isoformat()}
+
+
+MONTH_DAYS = 365.25 / 12
+
+
+def lifespan(starts: list[date], today: date, of: int, data_since: date | None) -> dict:
+    """Block 29: {"avg_months", "n", "of", "data_since"} for the members whose
+    current stretch began on `starts` (one date per person). avg_months is
+    the plain average of (today - start) in months, None with nobody dated;
+    `of` = Member count, so n < of says some members could not be dated."""
+    days = [(today - s).days for s in starts if s is not None and s <= today]
+    return {"avg_months": round(sum(days) / len(days) / MONTH_DAYS, 2) if days else None,
+            "n": len(days), "of": of,
+            "data_since": data_since.isoformat() if data_since else None}
 
 
 def _period_block(start, end, prev_start, prev_end) -> dict:
@@ -329,12 +362,21 @@ def _beta_episodes(memberships_csv, today: date) -> tuple[list[dict], dict]:
     return episodes, dict(skipped)
 
 
+def _beta_active_eps(eps) -> tuple[list[dict], list[dict]]:
+    """(paying, frozen) open episodes: frozen = every running plan is frozen."""
+    paying, frozen = [], []
+    for e in eps:
+        if e["end"] is None:
+            is_frozen = bool(e["open_rows"]) and all(r["frozen"] for r in e["open_rows"])
+            (frozen if is_frozen else paying).append(e)
+    return paying, frozen
+
+
 def _beta_members_on(mem_rows, day: date) -> dict:
     """Active (paying) and frozen people on `day`, from the plan rows."""
     eps, _skipped = _beta_episodes(mem_rows, day)
-    open_eps = [e for e in eps if e["end"] is None]
-    frozen = [e for e in open_eps if e["open_rows"] and all(r["frozen"] for r in e["open_rows"])]
-    return {"active": len(open_eps) - len(frozen), "frozen": len(frozen)}
+    active, frozen = _beta_active_eps(eps)
+    return {"active": len(active), "frozen": len(frozen)}
 
 
 def _beta_flows(eps, start: date, end: date) -> tuple[int, int]:
@@ -375,10 +417,13 @@ def build_beta(memberships_csv, transactions_csv, today: date) -> dict:
                 "prev_net_sales": beta_net_sales(tx_rows, ps, pe),
             })
             pers[key] = blk
+        active, _frozen = _beta_active_eps(eps)
+        first_plan = min((_d(r.get("created_date")) for r in mem_rows if _d(r.get("created_date"))), default=None)
         r30 = pers["r30"]
         out.update({
             "source": "beta",
             "members": members,
+            "lifespan": lifespan([e["start"] for e in active], today, members["active"], first_plan),
             "periods": pers,
             # Block 23's fields, kept = the last-30-days period
             "new_members": r30["new_members"],
@@ -511,14 +556,9 @@ def _rgp_cover(desc: str) -> tuple[int, bool]:
     return 31, True
 
 
-def rgp_join_events(transactions_csv) -> list[tuple[date, str]]:
-    """(date, person) for every membership purchase that is either the
-    person's first ever, or comes more than SWITCH_GAP days after their
-    earlier membership ran out (a comeback). The run-out date uses each
-    purchase's length, so a one-month or six-month prepaid member renewing a
-    few days late is a renewal, not a new member (fresh-eyes tester
-    2026-10-16). The person on the invoice (the payer). A purchase is judged
-    only on the ones before it, so one list serves every window."""
+def _rgp_buys(transactions_csv) -> dict[str, list[tuple[date, int, bool]]]:
+    """person -> [(day, days covered, is a join/renewal)] for every paid
+    membership line on a SUCCEEDED invoice (penny lines skipped)."""
     buys: dict[str, list[tuple[date, int, bool]]] = defaultdict(list)
     for r in _rows(transactions_csv):
         if str(r.get("state", "")).strip().upper() != "SUCCEEDED":
@@ -532,8 +572,104 @@ def rgp_join_events(transactions_csv) -> list[tuple[date, str]]:
                 cover, join = _rgp_cover(desc)
                 if cover:
                     buys[cid].append((d, cover, join))
+    return buys
+
+
+def rgp_covered_until(transactions_csv) -> dict[str, date]:
+    """person -> the day their own membership purchases run out (Block 29:
+    a member whose purchases ran out long ago is OK in RGP for a reason the
+    invoices do not show, so their current stretch cannot be dated)."""
+    return {cid: max(d + timedelta(days=cover) for d, cover, _j in bl)
+            for cid, bl in _rgp_buys(transactions_csv).items()}
+
+
+# Block 29 (Luke 2026-10-28, after the fresh-eyes tester): RGP shows who PAID,
+# not who was covered, so a family member paying for a while looks like a gap
+# in the member's own purchases. A gap is NOT a real break when, during it,
+# the member kept climbing about like a member: 2+ visit days a month on
+# average, no break longer than BRIDGE_MAX_BREAK days, and they paid for under
+# a quarter of those visits themselves (Day Use lines). Read off all 66 gaps
+# of today's OK members on 2026-10-28 (e.g. 93 visit days in a 26-month gap
+# with no pass bought = covered by someone; 17 day passes for 31 visits = not).
+BRIDGE_PER_MONTH = 2.0
+BRIDGE_MAX_BREAK = 62
+BRIDGE_PAID_SHARE = 0.25
+
+
+def _rgp_day_use(transactions_csv) -> dict[str, list[date]]:
+    """person -> days they bought a Day Use line (a paid visit) themselves."""
+    out: dict[str, list[date]] = defaultdict(list)
+    for r in _rows(transactions_csv):
+        if str(r.get("state", "")).strip().upper() != "SUCCEEDED":
+            continue
+        d = _d(r.get("time"))
+        cid = str(r.get("climber_id") or "").strip()
+        if d is None or not cid:
+            continue
+        for cat, _desc, line in _items(r.get("items")):
+            if (cat or "").lower() == "day use" and line is not None and line > 0:
+                out[cid].append(d)
+    return out
+
+
+def _gap_bridged(a: date, b: date, visits: set, paid: list) -> bool:
+    """True when the gap a..b (exclusive) looks covered (see BRIDGE_*)."""
+    vs = sorted(v for v in visits if a < v < b)
+    days = (b - a).days
+    if not vs or len(vs) < BRIDGE_PER_MONTH * days / MONTH_DAYS:
+        return False
+    pts = [a] + vs + [b]
+    if max((y - x).days for x, y in zip(pts, pts[1:])) > BRIDGE_MAX_BREAK:
+        return False
+    return sum(1 for d in paid if a < d < b) < BRIDGE_PAID_SHARE * len(vs)
+
+
+def rgp_stretch_starts(transactions_csv, today: date, visits: dict | None = None) -> dict[str, date]:
+    """person -> the start of their current stretch, for people whose own
+    purchases still cover them (run out no more than SWITCH_GAP days ago).
+    A join after a gap starts a new stretch unless the gap is bridged by the
+    person's check-ins (`visits`: person -> set of visit days; None = no
+    bridging, the plain purchase rule). Freeze payments keep someone covered."""
+    paid = _rgp_day_use(transactions_csv) if visits else {}
+    out = {}
+    for cid, bl in _rgp_buys(transactions_csv).items():
+        start, covered = None, None
+        for d, cover, join in sorted(bl):
+            if d > today:
+                break
+            if join and (covered is None or (d - covered).days > SWITCH_GAP):
+                if not (covered is not None and visits
+                        and _gap_bridged(covered, d, visits.get(cid, set()), paid.get(cid, []))):
+                    start = d
+            run_out = d + timedelta(days=cover)
+            covered = run_out if covered is None else max(covered, run_out)
+        if start is not None and (today - covered).days <= SWITCH_GAP:
+            out[cid] = start
+    return out
+
+
+def rgp_visits(sessions_csv, people: set) -> dict[str, set]:
+    """person -> set of check-in days, for `people` only (keeps it small)."""
+    out: dict[str, set] = defaultdict(set)
+    for r in _rows(sessions_csv):
+        cid = str(r.get("climber_key") or "").strip()
+        if cid in people:
+            d = _d(r.get("entry"))
+            if d is not None:
+                out[cid].add(d)
+    return out
+
+
+def rgp_join_events(transactions_csv) -> list[tuple[date, str]]:
+    """(date, person) for every membership purchase that is either the
+    person's first ever, or comes more than SWITCH_GAP days after their
+    earlier membership ran out (a comeback). The run-out date uses each
+    purchase's length, so a one-month or six-month prepaid member renewing a
+    few days late is a renewal, not a new member (fresh-eyes tester
+    2026-10-16). The person on the invoice (the payer). A purchase is judged
+    only on the ones before it, so one list serves every window."""
     events = []
-    for cid, bl in buys.items():
+    for cid, bl in _rgp_buys(transactions_csv).items():
         bl.sort()
         covered_until = None
         for d, cover, join in bl:
@@ -590,7 +726,7 @@ def _rgp_cancels(hist: list[dict], start: date, end: date) -> dict:
 
 
 def build_rgp(member_status_csv, transactions_csv, today: date, history_csv=None,
-              count_rows=None) -> dict:
+              count_rows=None, sessions_csv=None) -> dict:
     """The card's block for an RGP gym (ABC). Never raises.
 
     members: member_status.csv, OK vs FROZEN (the same count as the Members
@@ -601,7 +737,8 @@ def build_rgp(member_status_csv, transactions_csv, today: date, history_csv=None
     history does not fully cover has no number (and the page no arrow)."""
     out = _base(today)
     try:
-        statuses = [_status(r.get("status")) for r in _rows(member_status_csv)]
+        ms_rows = _rows(member_status_csv)
+        statuses = [_status(r.get("status")) for r in ms_rows]
         if not statuses:
             raise RuntimeError("member_status.csv is missing or empty")
         tx_rows = _rows(transactions_csv)
@@ -626,10 +763,22 @@ def build_rgp(member_status_csv, transactions_csv, today: date, history_csv=None
                 "prev_net_sales": rgp_net_sales(tx_rows, ps, pe),
             })
             pers[key] = blk
+        # lifespan: each OK member's current stretch start, only while their
+        # own purchases still cover them (within SWITCH_GAP days): otherwise
+        # something the invoices do not show keeps them OK and the start is
+        # unknown. Gaps the member kept climbing through are bridged.
+        ok_keys = {str(r.get("climber_key") or "").strip() for r in ms_rows if _status(r.get("status")) == "OK"}
+        ok_keys.discard("")
+        visits = rgp_visits(sessions_csv, ok_keys) if sessions_csv is not None else None
+        starts = rgp_stretch_starts(tx_rows, today, visits)
+        first_sale = min((_d(r.get("time")) for r in tx_rows if _d(r.get("time"))), default=None)
         r30 = pers["r30"]
         out.update({
             "source": "rgp",
             "members": members,
+            "lifespan": dict(lifespan([starts[k] for k in ok_keys if k in starts], today,
+                                      members["active"], first_sale),
+                             checkins=visits is not None),
             "periods": pers,
             # Block 23's fields, kept = the last-30-days period
             "new_members": r30["new_members"],
