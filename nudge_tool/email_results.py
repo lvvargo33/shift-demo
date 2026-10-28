@@ -22,6 +22,11 @@ Groups (the order the site shows them):
                   people who already came back, so "came back" is the wrong
                   yardstick; Luke 2026-09-24);
   * regulars    - day-pass regulars (the sheet's "Day pass regulars").
+  * checkin     - SHIFT's day-14 member check-in email (the sheet's "Member
+                  check-in (day 14)" row under Surveys). Not first-timer
+                  outreach, so it is never summed into the groups above; the
+                  site shows it as its own block under the Survey emails
+                  slide (Luke 2026-10-28), only when it has sends.
 
 I/O lives in `fetch_rows` only (one Sheets read, read-only scope); the rest is
 pure. The web service calls `refresh()` from a background thread every few
@@ -56,15 +61,18 @@ MEMBERSHIP_LABELS = frozenset({
     "Membership offer, test arm A",
     "2-week trial offer, test arm B",
 })
+CHECKIN_LABEL = "Member check-in (day 14)"   # allgyms_push.FUNNEL_LABELS["member_check_in"]
 MEMBER_PROGRAM_LABELS = frozenset({"Member survey (every 180 days)",
-                                   "Member check-in (day 14)"})
+                                   CHECKIN_LABEL})
 
 GROUPS = [
     ("surveys", "Survey emails"),
     ("comeback", "Come-back offers"),
     ("membership", "Membership and trial offers"),
     ("regulars", "Day-pass regulars"),
+    ("checkin", CHECKIN_LABEL),   # its own block, never summed with the first-timer groups
 ]
+FTV_GROUPS = ("surveys", "comeback", "membership", "regulars")   # first-timer outreach only
 
 # sheet header -> key. Counts only: every rate is recomputed from counts after
 # the group is summed (the sheet's own % cells cannot be added up). The
@@ -96,8 +104,12 @@ class LayoutError(ValueError):
 
 
 def group_of(section: str, label: str) -> str | None:
-    """Which site group a sheet row belongs to (None = not first-timer
-    outreach, e.g. ABC's member survey)."""
+    """Which site group a sheet row belongs to (None = not shown on the
+    first-timer site, e.g. ABC's member survey). The day-14 member check-in
+    gets its own group so the Survey emails slide can show it as a separate
+    block (Luke 2026-10-28) without touching the first-timer sums."""
+    if label == CHECKIN_LABEL:
+        return "checkin"
     if label in MEMBER_PROGRAM_LABELS:
         return None
     if section == "Surveys":

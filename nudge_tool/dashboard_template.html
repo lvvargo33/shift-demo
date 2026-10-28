@@ -259,6 +259,9 @@ button, input, textarea, select { font-family: inherit; }
 .bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary) 0%, #A53D22 100%); transition: width var(--t-norm); }
 .bar-fill.bar-green { background: linear-gradient(90deg, #16A34A 0%, #15803D 100%); }
 .bar-sub { font-size: 11px; color: var(--fg-hint); margin-top: 2px; }
+/* a second block on an email slide (the day-14 member check-in under Survey emails) */
+.er-sub { margin: 18px 0 2px; padding-top: 14px; border-top: 1px solid var(--border-soft); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-subtle); font-weight: 700; }
+.er-sub-note { font-size: 11.5px; color: var(--fg-hint); margin-bottom: 10px; }
 
 /* --- period toggle --- */
 .period-toggle { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; flex-wrap: wrap; }
@@ -1693,12 +1696,18 @@ const ENG_INFO = {
       '<p>The email system (sends, opens, clicks), the register (redemptions), and the check-in system (come-backs).</p>',
   },
 };
+// The day-14 member check-in paragraph for the email explainer, shown only
+// while that block is on the Survey emails slide (Block 25 Part B, 2026-10-28).
+const CHECKIN_EXPLAINER = '<p><strong>Member check-in (day 14)</strong>: one email to each new member, 14 days after the membership starts (a plan switch counts as the same membership). It sits under Survey emails because it is a check-in, not an offer. It is never added into any first-timer number: its sent, opened and clicked counts are its own.</p>';
 function showEngInfo(kind) {
   const info = ENG_INFO[kind];
   if (!info) return;
+  let body = info.body;
+  const ci = kind === 'emails' ? erGroup('checkin') : null;
+  if (ci && ci.sends) body = body.replace('<h4>How each number is counted</h4>', CHECKIN_EXPLAINER + '<h4>How each number is counted</h4>');
   $('modal-card').classList.add('modal-wide');
   openModal('<div class="modal-head">' + icon('sparkles') + escapeHtml(info.title) + '</div>' +
-    '<div class="modal-body">' + info.body + '</div>' +
+    '<div class="modal-body">' + body + '</div>' +
     '<div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Got it</button></div>');
 }
 function engInfoBtn(kind) {
@@ -1842,12 +1851,23 @@ function emailResultSlides() {
     i === 0 ? 'Joined = a paid membership that is not a youth plan, with this as the last email before it.' : '', d)).join('');
   const out = [];
   let g = erGroup('surveys');
-  if (g && g.sends) {
-    const inner = head(g) + opened(g) + clicked(g) +
+  // Block 25 Part B (Luke 2026-10-28): the day-14 member check-in sits under
+  // the survey bars as its own block, read from its own sheet row and never
+  // summed with the first-timer survey. Hidden until it has sends, so a gym
+  // without it (ABC; SHIFT before go-live) looks exactly as before.
+  const ci = erGroup('checkin');
+  const ciOn = !!(ci && ci.sends);
+  if ((g && g.sends) || ciOn) {
+    let inner = '';
+    if (g && g.sends) inner += head(g) + opened(g) + clicked(g) +
       erBar('Answered the survey', g.responses, g.m_resp14, g.m_sends14,
         'Answered within ' + W.answer + ' days of a survey email, credited to the last survey email before the answer.', W.answer);
+    if (ciOn) inner += '<div class="er-sub">' + escapeHtml(ci.label) + '</div>' +
+      '<div class="er-sub-note">Sent to each new member 14 days after the membership starts. Not a first-timer email: it is left out of every other number on this page.</div>' +
+      head(ci) + opened(ci) + clicked(ci);
     out.push({ title: 'Survey emails', pilot: true,
-      desc: 'The first-visit survey email and what came of it.' + per + src, html: inner + engInfoBtn('emails') });
+      desc: 'The first-visit survey email and what came of it.' + (ciOn ? ' Below it, the day-14 member check-in email.' : '') + per + src,
+      html: inner + engInfoBtn('emails') });
   }
   g = erGroup('comeback');
   if (g && g.sends) {
