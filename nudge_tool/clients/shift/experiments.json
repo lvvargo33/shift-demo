@@ -8,18 +8,27 @@
       "gym": "SHIFT",
       "audience": "Day Pass FTV",
       "type": "FTV survey email",
-      "categories": ["subject_style"],
+      "categories": [
+        "subject_style"
+      ],
       "variant_a": "Thanks for climbing with us!",
       "variant_b": "How was your first visit to Shift?",
       "arms": {
-        "A": ["FTV_survey_subject_a", "FTV_survey_subject_a_embed"],
-        "B": ["FTV_survey_subject_b", "FTV_survey_subject_b_embed"]
+        "A": [
+          "FTV_survey_subject_a",
+          "FTV_survey_subject_a_embed"
+        ],
+        "B": [
+          "FTV_survey_subject_b",
+          "FTV_survey_subject_b_embed"
+        ]
       },
       "primary_outcome": "opened_7d",
-      "baseline": 0.30,
+      "baseline": 0.3,
       "mwe": 0.05,
       "started": "2026-07-03",
-      "active": true
+      "active": false,
+      "_ended": "2026-10-30"
     },
     {
       "exp_id": "shift_offer_subject_01",
@@ -28,10 +37,19 @@
       "gym": "SHIFT",
       "audience": "Day Pass FTV",
       "type": "Follow-up email",
-      "categories": ["subject_style"],
+      "categories": [
+        "subject_style"
+      ],
       "variant_a": "A little something to get you back on the wall",
       "variant_b": "Your Next Climb Is 50% Off",
-      "arms": {"A": ["FTV_reengage_subject_a"], "B": ["FTV_reengage_subject_b"]},
+      "arms": {
+        "A": [
+          "FTV_reengage_subject_a"
+        ],
+        "B": [
+          "FTV_reengage_subject_b"
+        ]
+      },
       "primary_outcome": "opened_7d",
       "baseline": 0.32,
       "mwe": 0.05,
@@ -45,10 +63,19 @@
       "gym": "SHIFT",
       "audience": "Day Pass FTV",
       "type": "Offer",
-      "categories": ["offer"],
+      "categories": [
+        "offer"
+      ],
       "variant_a": "Membership offer (Lite $38 / Full $69)",
       "variant_b": "2-Week Trial $29",
-      "arms": {"A": ["send_it_membership_offer_a"], "B": ["send_it_trial_offer"]},
+      "arms": {
+        "A": [
+          "send_it_membership_offer_a"
+        ],
+        "B": [
+          "send_it_trial_offer"
+        ]
+      },
       "primary_outcome": "converted_30d",
       "_outcome_note": "converted_60d until 2026-09-18; now joined within 30 days of the membership offer email (Chris's 9/16 comment, Tasks tab step 1.2). Baseline 0.09 was set for the 60-day yardstick and has not been re-estimated.",
       "baseline": 0.09,
@@ -65,20 +92,40 @@
       "gym": "SHIFT",
       "audience": "Day Pass FTV",
       "type": "FTV survey email",
-      "categories": ["follow_up"],
+      "categories": [
+        "follow_up"
+      ],
       "variant_a": "No reminder",
       "variant_b": "One reminder 2 days after the survey email, only if unanswered",
       "bucket": "survey_reminder_ab",
-      "population": {"tags": ["FTV_survey_subject_a", "FTV_survey_subject_a_embed", "FTV_survey_subject_b", "FTV_survey_subject_b_embed", "send_it_survey_request"], "since": ""},
-      "arms": {"A": [], "B": ["FTV_survey_reminder_embed"]},
+      "population": {
+        "tags": [
+          "FTV_survey_subject_a",
+          "FTV_survey_subject_a_embed",
+          "FTV_survey_subject_b",
+          "FTV_survey_subject_b_embed",
+          "send_it_survey_request"
+        ],
+        "since": "2026-10-30"
+      },
+      "arms": {
+        "A": [],
+        "B": [
+          "FTV_survey_reminder_embed"
+        ]
+      },
       "primary_outcome": "responded_14d",
-      "baseline": 0.013,
+      "baseline": 0.03,
       "mwe": 0.026,
-      "_bucket_note": "Bucket test (Tasks step 2.2, built 2026-09-23, GATED OFF). Everyone who gets a survey email on or after population.since is in the test; the arm is the hash of email + 'survey_reminder_ab', the same hash the survey_reminder trigger uses to decide who gets the reminder. Arm A sends nothing, so it has no tag. Judged on answered within 14 days of the FIRST survey email. Baseline 1.3% / MWE +2.6 pts = the ROADMAP Block 10 timing row (587 per arm, about 29 weeks at SHIFT alone, 18 pooled); re-estimate at launch if the embed email is the standard by then (answers about 3%). The swap commit sets active:true, started and population.since to the start morning.",
-      "pooled": {"id": "survey_reminder_01", "sheet_id": "P-006"},
+      "_bucket_note": "Bucket test (Tasks step 2.2, built 2026-09-23, ON since 2026-10-30). Everyone who gets a survey email on or after population.since is in the test; the arm is the hash of email + 'survey_reminder_ab', the same hash the survey_reminder trigger uses to decide who gets the reminder. Arm A sends nothing, so it has no tag. Judged on answered within 14 days of the FIRST survey email. Baseline 1.3% / MWE +2.6 pts = the ROADMAP Block 10 timing row (587 per arm, about 29 weeks at SHIFT alone, 18 pooled); re-estimate at launch if the embed email is the standard by then (answers about 3%). The swap commit sets active:true, started and population.since to the start morning.",
+      "pooled": {
+        "id": "survey_reminder_01",
+        "sheet_id": "P-006"
+      },
       "_pooled_note": "Pooled with ABC's E-007 (Tasks step 1.4, Block 14, 2026-09-28): same pooled id in both registries = one extra row P-006 (Gym 'Both') on the Experiments tab, read from both gyms' arms. Nothing is written while this entry is inactive.",
-      "started": "",
-      "active": false
+      "started": "2026-10-30",
+      "active": true,
+      "_baseline_note": "2026-10-30: baseline 0.013 -> 0.03 by golive_a1.py: every first survey email is now the embed version (Block 10 row 'if embed is standard'). MWE kept at 0.026 to match ABC's E-007 (pooled P-006)."
     },
     {
       "exp_id": "shift_membership_vs_trial_02",
@@ -87,10 +134,19 @@
       "gym": "SHIFT",
       "audience": "Day Pass FTV",
       "type": "Offer",
-      "categories": ["offer"],
+      "categories": [
+        "offer"
+      ],
       "variant_a": "Membership offer, new copy (Lite removed)",
       "variant_b": "2-Week Trial, new copy",
-      "arms": {"A": ["send_it_membership_offer_a"], "B": ["send_it_trial_offer"]},
+      "arms": {
+        "A": [
+          "send_it_membership_offer_a"
+        ],
+        "B": [
+          "send_it_trial_offer"
+        ]
+      },
       "sends_since": "2026-10-23",
       "_since_note": "Same arm tags as E-005, so sends_since keeps E-005's sends (2026-08-13 to 2026-10-19, old copy) out of this row. Anyone who got an E-005 email is left out. Chris's new copy went live in Mailchimp 2026-10-22; triggers back on in SHIFT client.json at 023925d, first sends 2026-10-23 11 AM ET.",
       "primary_outcome": "converted_30d",

@@ -56,11 +56,11 @@
   },
   "_daypass_repeat_note": "A 'day-pass regular' = bought >= min_count day passes within window_days. Feeds the daypass_to_trial nudge (requires.daypass_repeat).",
   "member_check_in": {
-    "enabled": false,
+    "enabled": true,
     "tag": "send_it_member_check_in",
     "day": 14,
     "late_days": 7,
-    "go_live": ""
+    "go_live": "2026-10-30"
   },
   "_member_check_in_note": "Day-14 new-member check-in (ROADMAP Block 25 Part B, built 2026-10-26; nudge_tool/member_checkin.py). The daily send run tags `tag` in Mailchimp on the first run on or after a new membership episode's start + `day` days (new member or rejoiner after 30+ days with no plan; plan switches, youth plans, staff, frozen, ended, unsubscribed skipped), and Chris's Customer Journey on that tag sends the email. OFF until BOTH enabled:true and go_live (YYYY-MM-DD) are set; until then the send report only previews who would be tagged. Set go_live to the day the journey is published (a journey ignores tags added before it starts; it must also allow re-entry for rejoiners), and tell Isaac that date so he stops his hand emails. Only members whose day 14 is on or after go_live get it (no catch-up). late_days = how many days past day 14 a missed run may still send.",
   "min_days_between_sends": 2,
@@ -346,7 +346,17 @@
         }
       },
       "_map_note": "Chris's page stores option CODES (left); the Form sheet holds the option TEXT. Each code maps to the label from his FTV_V1 definition so the existing blocker_map / intent_map above keep working unchanged on native rows (e.g. 'Climbing felt too hard' contains 'too hard' -> too_hard; 'No issues' -> no blocker). Q1 is the 1-5 integer as text, Q4 is free text, neither needs a map."
-    }
+    },
+    "dispatch": {
+      "ftv": "native",
+      "emergency_stop": false,
+      "warmup": {
+        "start": "2026-10-30",
+        "days": 14,
+        "per_day": 25
+      }
+    },
+    "_dispatch_note": "2026-10-30: Brevo go-live by golive_a1.py (ROADMAP Block 25 A1). ftv native = the first-timer survey and its reminder go out through Brevo; warm-up cap 25/day for 14 days. Emergency stop: set survey.dispatch.ftv to \"hold\" (send no survey email; people stay queued), then rebuild + commit + push. \"legacy\" (back to Mailchimp tags) is only safe while the Mailchimp survey journeys are still switched on: once Chris pauses them, a legacy tag sends nothing but is logged as sent."
   },
   "triggers": [
     {
@@ -363,12 +373,13 @@
           "test": "survey_reminder_ab",
           "variant": "B"
         },
-        "survey_sent_on_or_after": "",
+        "survey_sent_on_or_after": "2026-10-30",
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": false,
-      "_active_note": "GATED OFF until the swap morning (Luke 9/23: build now, switch on when Chris says go). The go-live commit sets active:true AND survey_sent_on_or_after to the start date (so the population = survey emails sent from that morning on), ends E-001 + the embed 2x2 in the same commit, and flips E-006 active in experiments.json. `swap_2a.py --date YYYY-MM-DD` in SHIFT_Automation makes all of those edits."
+      "active": true,
+      "_active_note": "ON since 2026-10-30 (golive_a1.py, A1 go-live on Brevo). Population = survey emails sent on or after 2026-10-30; arm B of survey_reminder_ab gets it (E-006).",
+      "_swap_note": "Switched ON 2026-10-30 by golive_a1.py (via swap_2a.plan). Population = survey emails sent on or after 2026-10-30."
     },
     {
       "name": "first_visit_reengage",
@@ -397,23 +408,7 @@
     },
     {
       "name": "survey_request",
-      "tag": "send_it_survey_request",
-      "ab_tags": {
-        "A": "FTV_survey_subject_a",
-        "B": "FTV_survey_subject_b"
-      },
-      "_ab_tags_note": "Subject-line A/B test (2026-07-06). Chris repointed the survey journey to trigger on FTV_survey_subject_a (renamed 'FTV Survey (subject a, preview a)') and built a B copy on FTV_survey_subject_b. The engine buckets each recipient deterministically and applies the variant tag; send_it_survey_request no longer triggers any journey (it stopped sending 2026-07-04, which is how we found out).",
-      "ab_body_tags": {
-        "A": {
-          "A": "FTV_survey_subject_a",
-          "B": "FTV_survey_subject_a_embed"
-        },
-        "B": {
-          "A": "FTV_survey_subject_b",
-          "B": "FTV_survey_subject_b_embed"
-        }
-      },
-      "_ab_body_tags_note": "2x2 grid (2026-07-28): outer key = subject bucket (same hash as ab_tags, so nobody flips subject arms mid-test), inner key = an independent body bucket (':body' salt). Inner A = current link email (the two existing journeys), inner B = the embed email (Q1 as five /s rating buttons; journeys 'Send It - FTV Survey (subject a/b, embed)', both live-tested 2026-07-28). Wins over ab_tags while present. To END the embed test, delete this key and sends revert to the plain subject split.",
+      "tag": "FTV_survey_subject_a_embed",
       "_tag_note": "Mailchimp tag the journey listens for. Uses the send_it_ prefix because SHIFT's Mailchimp already had a pre-existing 'survey_request' tag that collided with our journey trigger (2026-06-17). Namespacing avoids that. The Mailchimp Journey 'Send It - Survey' triggers on this exact tag.",
       "template_id": "survey_v1",
       "description": "EMAIL 1 (two-email flow): the 4-question feedback survey, sent to EVERY first-timer 1-2 days after their first visit, ALL pass types, even if they have already come back (we still want their first-visit feedback). NOT in the 'second_visit' group, so it always goes; the day-5-7 offer (email 2) is separate.",
@@ -425,7 +420,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true
+      "active": true,
+      "_swap_note": "2026-10-30: subject test (E-001) + embed 2x2 ENDED by golive_a1.py (via swap_2a.plan); one version under 'FTV_survey_subject_a_embed' (keeper subject A, rating buttons in the email). Base tag was 'send_it_survey_request'."
     },
     {
       "name": "nudge_round_two",
