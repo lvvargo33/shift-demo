@@ -594,7 +594,7 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  "not."]),
         ("row", ["Day-pass regulars email",
                  "Two or more day passes bought in 30 days, not a member; a "
-                 "Membership Lite offer, at most every 30 days.",
+                 "membership offer, once per person.",
                  "Three or more check-in days in 30 days, a day pass of their "
                  "own at least once, never a member (incl. RGP's member "
                  "list), no email of any kind in the last 30 days; a "

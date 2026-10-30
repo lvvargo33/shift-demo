@@ -1,15 +1,22 @@
-Subject: Looking to climb more often?
+Subject: Climbing at Shift regularly?
 
-Hey {first_name},
+Hi {first_name},
 
-It's been great seeing you back in the gym lately!
+It's been great seeing you in the gym lately!
 
-Since you've already come in a few times, we wanted to make sure you knew about Membership Lite. It includes 3 visits per month and is often a better value than purchasing individual day passes.
+Since you've been climbing with us regularly, we wanted to make sure you knew about our membership options.
 
-[Sign up for Membership Lite]({membership_lite_signup_link})
+If you're visiting three or more times a month, a membership can actually cost less than purchasing individual day passes, plus you'll get some great additional perks!
 
-If you're not sure whether it's the right fit for how often you climb, just reply to this email and we'd be happy to help you figure it out.
+Full Membership ($69/month)
+- Unlimited climbing and fitness
+- One free guest pass every month
+- Exclusive discounts on select classes, events, and retail
 
-Hope to see you back in the gym soon!
+[Become a Shift member]({membership_page_link})
 
-- The Shift Team
+If you're not sure whether membership is the right fit for how often you climb, just reply to this email or stop by the front desk. We'd be happy to help.
+
+Hope to see you back soon!
+
+The Shift Team
