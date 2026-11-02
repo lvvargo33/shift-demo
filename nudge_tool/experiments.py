@@ -36,6 +36,19 @@ along on that person's record list, so a response credited to the reminder
 still counts for the person. The outcome clock is the person's FIRST
 population send (both arms judged "within N days of the first email").
 
+Ride-along tags (friend-offer test, ROADMAP stage 2b, 2026-11-02). Credit is
+last touch, so a return after the day 9-10 reminder credits the REMINDER, not
+the day 5-7 offer. A bucket entry may list `"ride_along": [tags]`: a send
+under one of them joins its person's record list only when that person is
+already in the population, and is otherwise ignored without a note (the
+offer reminder also follows the blocker emails, which are not in the test).
+Unlike arm tags, ride-along sends are not checked against the person's arm.
+`"ignore_before_since": true` skips arm-tag sends dated before
+population.since entirely: the friend test's arm A tag is the plain offer,
+which has months of sends from before the start, and each would otherwise be
+noted as "outside the population" every day. After the start, a plain offer
+to an arm-B person is still noted (the deploy-missed-the-morning case).
+
 Send-date cutoff for tag tests (E-008, 2026-10-23). When an old test's arm
 tags are reused for a new one (new copy in the same Mailchimp journeys), the
 new entry sets `"sends_since": "YYYY-MM-DD"`: arm sends before that day are
@@ -193,6 +206,8 @@ def load_registry(client_dir: Path) -> tuple[list[dict], list[str]]:
             pop["since"] = str(pop.get("since") or "")[:10]
             e["population"] = pop
             e["bucket"] = bucket
+            ride = e.get("ride_along") or []
+            e["ride_along"] = [ride] if isinstance(ride, str) else [t for t in ride if t]
         e.setdefault("primary_outcome", DEFAULT_OUTCOME)
         if e["primary_outcome"] not in OUTCOMES:
             notes.append(f"{e['exp_id']}: unknown primary_outcome "
@@ -300,9 +315,12 @@ def _person_table_bucket(exp: dict, records: list[dict]) -> tuple[dict, list[str
         if (tag in pop_tags or vt in pop_tags) and (not since or r["sent"] >= since):
             arms[bucket_of(r["email"], test)].setdefault(r["email"], []).append(r)
     arm_tags = {k: set(v) for k, v in exp["arms"].items()}
+    skip_old = bool(exp.get("ignore_before_since")) and bool(since)
     stray = outside = 0
     for r in records:
         tag, vt = r.get("tag"), r.get("var_tag")
+        if skip_old and r["sent"] < since:
+            continue
         for arm, ts in arm_tags.items():
             if not ts or (tag not in ts and vt not in ts):
                 continue
@@ -315,6 +333,15 @@ def _person_table_bucket(exp: dict, records: list[dict]) -> tuple[dict, list[str
                 stray += 1
             if r not in arms[mine][email]:
                 arms[mine][email].append(r)
+    ride = set(exp.get("ride_along") or [])
+    if ride:
+        for r in records:
+            if r.get("tag") not in ride and r.get("var_tag") not in ride:
+                continue
+            if not since or r["sent"] >= since:
+                lst = arms[bucket_of(r["email"], test)].get(r["email"])
+                if lst is not None and r not in lst:
+                    lst.append(r)
     notes = []
     if stray:
         notes.append(f"{exp['exp_id']}: {stray} arm-tag send(s) went to a person the "

@@ -27,7 +27,9 @@ paths, because the two gyms' systems record these facts differently:
                 starts; the card says "since <date>" until it covers 30 days.
                 New members come from the membership purchases in
                 transactions.csv (first purchase, or a comeback after
-                the last one ran out; rgp_new_members).
+                the last one ran out; rgp_new_members). Since 2026-11-02
+                a comeback the person kept climbing through (check-ins,
+                the lifespan bridge) is not a new member (Luke 10/30).
                 Revenue is read from transactions.csv's items text, whose
                 "($price)" is RGP's line total (20 day passes = $320 on one
                 line; checked on the 6/17 invoice pull, 2026-10-16).
@@ -660,21 +662,29 @@ def rgp_visits(sessions_csv, people: set) -> dict[str, set]:
     return out
 
 
-def rgp_join_events(transactions_csv) -> list[tuple[date, str]]:
+def rgp_join_events(transactions_csv, visits: dict | None = None) -> list[tuple[date, str]]:
     """(date, person) for every membership purchase that is either the
     person's first ever, or comes more than SWITCH_GAP days after their
     earlier membership ran out (a comeback). The run-out date uses each
     purchase's length, so a one-month or six-month prepaid member renewing a
     few days late is a renewal, not a new member (fresh-eyes tester
     2026-10-16). The person on the invoice (the payer). A purchase is judged
-    only on the ones before it, so one list serves every window."""
+    only on the ones before it, so one list serves every window.
+
+    visits (Block 29 decision, Luke 2026-10-30): person -> set of check-in
+    days. A comeback whose gap the person kept climbing through
+    (_gap_bridged, the same rule as the lifespan clock) is NOT a new member:
+    someone else paid for a while. None = no bridging (the plain rule)."""
+    paid = _rgp_day_use(transactions_csv) if visits else {}
     events = []
     for cid, bl in _rgp_buys(transactions_csv).items():
         bl.sort()
         covered_until = None
         for d, cover, join in bl:
             if join and (covered_until is None or (d - covered_until).days > SWITCH_GAP):
-                events.append((d, cid))
+                if not (covered_until is not None and visits
+                        and _gap_bridged(covered_until, d, visits.get(cid, set()), paid.get(cid, []))):
+                    events.append((d, cid))
             run_out = d + timedelta(days=cover)
             covered_until = run_out if covered_until is None else max(covered_until, run_out)
     return events
@@ -744,7 +754,17 @@ def build_rgp(member_status_csv, transactions_csv, today: date, history_csv=None
         tx_rows = _rows(transactions_csv)
         ref = data_through(tx_rows, today)
         out = _base(today, ref)
-        events = rgp_join_events(tx_rows)
+        # check-ins for today's OK members (lifespan) and for everyone with
+        # more than one membership purchase (only they can have a comeback),
+        # so New members and the lifespan clock bridge gaps the same way
+        ok_keys = {str(r.get("climber_key") or "").strip() for r in ms_rows if _status(r.get("status")) == "OK"}
+        ok_keys.discard("")
+        repeat = {cid for cid, bl in _rgp_buys(tx_rows).items() if len(bl) > 1}
+        # a missing / empty check-in file reads as {} -> None, so the flags
+        # below (and the page's how-text) never claim a bridge that did not
+        # run (fresh-eyes finding 2026-11-02: live_server always passes a path)
+        visits = (rgp_visits(sessions_csv, ok_keys | repeat) or None) if sessions_csv is not None else None
+        events = rgp_join_events(tx_rows, visits)
         hist = load_history(history_csv or history_path(member_status_csv))
         members = {"active": statuses.count("OK"), "frozen": statuses.count("FROZEN"), "prev": {}}
         for key, day in compare_dates(today).items():
@@ -767,9 +787,6 @@ def build_rgp(member_status_csv, transactions_csv, today: date, history_csv=None
         # own purchases still cover them (within SWITCH_GAP days): otherwise
         # something the invoices do not show keeps them OK and the start is
         # unknown. Gaps the member kept climbing through are bridged.
-        ok_keys = {str(r.get("climber_key") or "").strip() for r in ms_rows if _status(r.get("status")) == "OK"}
-        ok_keys.discard("")
-        visits = rgp_visits(sessions_csv, ok_keys) if sessions_csv is not None else None
         starts = rgp_stretch_starts(tx_rows, today, visits)
         first_sale = min((_d(r.get("time")) for r in tx_rows if _d(r.get("time"))), default=None)
         r30 = pers["r30"]
@@ -780,6 +797,8 @@ def build_rgp(member_status_csv, transactions_csv, today: date, history_csv=None
                                       members["active"], first_sale),
                              checkins=visits is not None),
             "periods": pers,
+            # New members used the check-in bridge too (the how-text says so)
+            "new_checkins": visits is not None,
             # Block 23's fields, kept = the last-30-days period
             "new_members": r30["new_members"],
             "cancels": dict(r30["cancels"],

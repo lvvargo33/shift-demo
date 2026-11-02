@@ -401,6 +401,29 @@
       "_swap_note": "Switched ON 2026-10-30 by golive_a1.py (via swap_2a.plan). Population = survey emails sent on or after 2026-10-30."
     },
     {
+      "name": "first_visit_reengage_friend",
+      "tag": "send_it_reengage_friend",
+      "template_id": "reengage_friend_v1",
+      "description": "Friend-offer test, arm B (ROADMAP stage 2b, built 2026-11-02): the day 5-7 offer with 50% off for the climber AND 50% off for a friend they bring (same front-desk button, so friend visits are not countable; judged on the emailed person coming back within 30 days). Same rules as first_visit_reengage plus arm B of friend_offer_ab. Listed directly above it, so arm B gets this email and everyone else falls through to the plain offer; same 'second_visit' group, so still one offer email per person.",
+      "anchor": "first_visit",
+      "days_since_min": 5,
+      "days_since_max": 7,
+      "requires": {
+        "no_return": true,
+        "not_surveyed": true,
+        "ab_bucket": {
+          "test": "friend_offer_ab",
+          "variant": "B"
+        },
+        "first_visit_on_or_after": "2026-06-19"
+      },
+      "once_only": true,
+      "active": false,
+      "group": "second_visit",
+      "_active_note": "GATED OFF until the start morning (Luke 2026-11-02: build now, start when Chris's friend copy is in). swap_friend.py --date YYYY-MM-DD switches this trigger, its partner and the registry entry on together, and refuses while the 2026-11-02 placeholder copy (the plain email + one friend line, NOT Chris's) is still in the template.",
+      "_tag_note": "Placeholder Mailchimp tag (2026-11-02). SHIFT's offer emails go out through Mailchimp journeys, so arm B needs a journey on this tag that Chris builds (or SHIFT's offers move to Brevo, a separate build). Asked in the 11/02 reply to Chris. swap_friend.py also asks you to confirm the journeys exist."
+    },
+    {
       "name": "first_visit_reengage",
       "tag": "first_visit_reengage",
       "ab_tags": {
@@ -577,6 +600,25 @@
       "once_only": true,
       "active": true,
       "group": "second_visit"
+    },
+    {
+      "name": "ftv_reminder_friend",
+      "tag": "send_it_ftv_reminder_friend",
+      "template_id": "reminder_friend_v1",
+      "description": "Friend-offer test, arm B reminder (built 2026-11-02): day 9-10, only for people whose day 5-7 email was the friend offer (prior_trigger_send), so the reminder follows the person's arm. Listed directly above ftv_reminder. Both reminders share group 'offer_reminder' once the test starts (swap_friend.py adds it to ftv_reminder), so nobody gets two reminders.",
+      "anchor": "first_visit",
+      "days_since_min": 9,
+      "days_since_max": 10,
+      "requires": {
+        "no_return": true,
+        "prior_trigger_send": "first_visit_reengage_friend",
+        "first_visit_on_or_after": "2026-06-19"
+      },
+      "once_only": true,
+      "active": false,
+      "group": "offer_reminder",
+      "_active_note": "GATED OFF until the start morning (Luke 2026-11-02: build now, start when Chris's friend copy is in). swap_friend.py --date YYYY-MM-DD switches this trigger, its partner and the registry entry on together, and refuses while the 2026-11-02 placeholder copy (the plain email + one friend line, NOT Chris's) is still in the template.",
+      "_tag_note": "Placeholder Mailchimp tag (2026-11-02). SHIFT's offer emails go out through Mailchimp journeys, so arm B needs a journey on this tag that Chris builds (or SHIFT's offers move to Brevo, a separate build). Asked in the 11/02 reply to Chris. swap_friend.py also asks you to confirm the journeys exist."
     },
     {
       "name": "ftv_reminder",

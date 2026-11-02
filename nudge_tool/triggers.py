@@ -21,6 +21,10 @@ message catalog. A trigger now has:
                                       ANY trigger in this campaign group (S38:
                                       the ftv_reminder only follows an offer
                                       email). Fails closed with no outreach log.
+              prior_trigger_send (str|list)  the person already has a logged
+                                      send from one of these TRIGGER names
+                                      (friend test: the friend reminder only
+                                      follows the friend offer). Fails closed.
               second_visit_within_days_of_first (int)  2nd visit happened
                                       within n days of the 1st (S38: the
                                       membership offer's 30-day cohort rule)

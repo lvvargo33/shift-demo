@@ -159,6 +159,8 @@ FUNNEL_LABELS = {
     "survey_request": "FTV survey (day 1-2)",
     "survey_reminder": "Survey reminder (day 2-3 after the survey)",
     "first_visit_reengage": "Reengage 50% offer (day 5-7)",
+    # friend-offer test arm B (ROADMAP stage 2b, built 2026-11-02, off until it starts)
+    "first_visit_reengage_friend": "Reengage 50% + friend 50% offer (day 5-7)",
     "nudge_round_two": "Round two (high intent)",
     "nudge_pricing": "Blocker: pricing",
     "nudge_crowding": "Blocker: crowding",
@@ -168,6 +170,7 @@ FUNNEL_LABELS = {
     "nudge_confusing": "Blocker: confusing",
     "nudge_routes": "Blocker: routes",
     "ftv_reminder": "Offer reminder (day 9-10)",
+    "ftv_reminder_friend": "Offer + friend reminder (day 9-10)",
     "membership_offer": "Membership offer (2-3d after 2nd visit)",
     "membership_offer_control": "Membership offer, test arm A",
     "trial_offer": "2-week trial offer, test arm B",

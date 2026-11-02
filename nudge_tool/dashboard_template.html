@@ -582,6 +582,8 @@ const TRIGGER_LABELS = {
   survey_reminder: 'Survey reminder',
   first_visit_reengage: 'Come-back offer',
   ftv_reminder: 'Come-back offer reminder',
+  first_visit_reengage_friend: 'Come-back offer + friend',
+  ftv_reminder_friend: 'Come-back offer + friend reminder',
   nudge_round_two: 'Round-two invite',
   nudge_pricing: 'Come-back offer (price)',
   nudge_crowding: 'Come-back offer (crowding)',
@@ -991,6 +993,7 @@ function gymCard() {
   const how = rgp ?
     'Member count: RGP members whose status is OK today. Everyone on a family plan has their own status and counts. Frozen members are not in the number; they are on the line under it. Its arrow compares with the same date last month (or 30 days ago): from the daily status record once it reaches back that far, until then from the weekly member count taken that week. ' +
     '\nNew members: people whose first membership purchase falls in the period, plus people coming back more than a month after their last membership ran out. A late renewal is not a new member. Counted by the person who pays, so a family plan counts once. ' +
+    (g.new_checkins ? 'A comeback does not count when the person\'s check-ins show they kept climbing through the gap (the same rule as Avg member lifespan below): RGP shows who paid, not who was covered. ' : '') +
     '\nCancellations: members who went from active or frozen to terminated and did not come back within a month. RGP does not keep cancel dates, so Send It writes down every member\'s status each morning; this number only counts from the day that record began' + (c.since ? ' (' + shortDate(c.since) + ')' : '') + ', and has no arrow until the record covers the earlier period too. ' +
     '\nNet sales: everything sold on paid invoices, before sales tax, with refunds taken off. Voided invoices, gift card sales (counted when the card is spent) and bookkeeping lines are left out. ' :
     'Member count: people with a plan running today. A family or dual plan counts once (the account holder). Frozen members are not in the number; they are on the line under it. Staff plans and freeze fees are left out. Its arrow compares with the same date last month (or 30 days ago), worked out from the plans\' start and cancel dates. ' +
@@ -1227,7 +1230,9 @@ function setExportPeriod(v) { EXPORT_PERIOD = v; renderActivity(); }
 function sentCutoff(days) {
   const asof = DATA.as_of || '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asof)) return null;
-  const d = new Date(asof); d.setDate(d.getDate() - days);
+  // UTC math (2026-11-02): new Date('YYYY-MM-DD') is UTC midnight, and local setDate shifted the
+  // cutoff a day early across a clock change, so 'Last 30 days' counted 31 after 11/1
+  const d = new Date(asof + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - days);
   return d.toISOString().slice(0, 10);
 }
 function filteredSentLog() {

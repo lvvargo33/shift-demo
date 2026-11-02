@@ -155,6 +155,55 @@
       "_baseline_note": "Copied from E-005, not re-estimated.",
       "started": "2026-10-23",
       "active": true
+    },
+    {
+      "exp_id": "shift_friend_offer_01",
+      "sheet_id": "E-010",
+      "name": "SHIFT - come-back offer (50% vs 50% + 50% for a friend)",
+      "gym": "SHIFT",
+      "audience": "Day Pass FTV",
+      "type": "Offer",
+      "categories": [
+        "offer"
+      ],
+      "variant_a": "50% off your next visit",
+      "variant_b": "50% off your next visit + 50% off for a friend",
+      "bucket": "friend_offer_ab",
+      "population": {
+        "tags": [
+          "first_visit_reengage",
+          "FTV_reengage_subject_a",
+          "FTV_reengage_subject_b",
+          "send_it_reengage_friend"
+        ],
+        "since": ""
+      },
+      "arms": {
+        "A": [
+          "first_visit_reengage",
+          "FTV_reengage_subject_a",
+          "FTV_reengage_subject_b"
+        ],
+        "B": [
+          "send_it_reengage_friend"
+        ]
+      },
+      "ignore_before_since": true,
+      "ride_along": [
+        "send_it_ftv_reminder",
+        "send_it_ftv_reminder_friend"
+      ],
+      "primary_outcome": "returned_30d",
+      "baseline": 0.094,
+      "mwe": 0.05,
+      "_bucket_note": "Bucket test (ROADMAP stage 2b, built 2026-11-02, GATED OFF). Everyone who gets a day 5-7 PLAIN or FRIEND offer email on or after population.since is in the test; the arm is the hash of email + 'friend_offer_ab', the same hash the friend triggers use (same salt at both gyms so the two can pool). Arm A = 50% off, arm B = 50% off + 50% for a friend. ride_along = the day 9-10 reminders: credit is last touch, so a return after the reminder credits the reminder, and it must still count for the person. Blocker emails are not in the test. Judged on came back within 30 days (friend visits use the same button, so they cannot be counted). Baseline 9.4% / MWE +5 pts = the ROADMAP Block 10 friend-offer row (658 per arm, about 26 weeks pooled). swap_friend.py sets active, started and population.since on the start morning. Arm A = the plain offer's tags, arm B = the friend tag; ignore_before_since skips arm sends from before the start (months of plain offers would otherwise be flagged daily as outside the test). After the start, a plain offer to an arm-B person or a friend offer to an arm-A person is flagged in the report.",
+      "pooled": {
+        "id": "friend_offer_01",
+        "sheet_id": "P-009"
+      },
+      "_pooled_note": "Pooled with the other gym's friend test (same pooled id = one row P-009, Gym 'Both'). Nothing is written while this entry is inactive.",
+      "started": "",
+      "active": false
     }
   ]
 }

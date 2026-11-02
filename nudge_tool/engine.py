@@ -131,6 +131,18 @@ def _requires_ok(c: Climber, req: dict, asof: date, client: ClientConfig,
                 return False
             if not any(log.sent_dates(email, n) for n in names):
                 return False
+        elif key == "prior_trigger_send":
+            # Friend-offer test (ROADMAP stage 2b, 2026-11-02): only follow up
+            # someone whose logged send came from one of these TRIGGER NAMES
+            # (a str or a list), so the friend reminder follows the friend
+            # offer and nothing else. Same fail-closed rules as
+            # prior_group_send: no log, blank email or no names -> False.
+            email = (c.email or "").strip().lower()
+            names = [val] if isinstance(val, str) else list(val or [])
+            if log is None or not email or not names:
+                return False
+            if not any(log.sent_dates(email, n) for n in names):
+                return False
         elif key == "no_prior_trial":
             # Trial-swap 2026-08-07: SHIFT's 2-week trial is one per person
             # EVER (Isaac 7/31), so any trial evidence (purchase tx OR a

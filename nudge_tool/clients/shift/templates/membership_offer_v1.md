@@ -1,27 +1,19 @@
-Subject: Thinking about climbing more often?
+Subject: Keep the climbing going
 
 Hi {first_name},
 
 It was great seeing you back at Shift!
 
-Making it back for a second visit is a big step. If you're planning to keep climbing, becoming a member is the easiest way to make it part of your routine.
+If you're enjoying your time on the wall and want to make climbing a regular part of your routine, a Shift membership makes it easy to keep coming back.
 
-Whether you're looking to climb a few times a month or make Shift part of your weekly routine, we have membership options to fit both.
-
-Membership Lite ($38/month)
-- Climb up to 3 times each month
-- Extra visits for just $10
-- Member discounts and exclusive perks
-
-Full Membership ($69/month)
+Full Membership: $69/month
 - Unlimited climbing and fitness
 - One free guest pass every month
-- Retail discounts and additional member perks
+- Exclusive discounts on select classes, events, and retail
 
-You can check out all of the membership options here:
-{membership_lite_link}
+[Become a Shift member]({membership_lite_link})
 
-If you're not sure which membership is the best fit, just reply to this email. We'd be happy to help.
+If you have any questions about membership, just reply to this email or stop by the front desk. We'd be happy to help.
 
 Hope to see you back soon!
 

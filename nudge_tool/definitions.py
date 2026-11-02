@@ -665,7 +665,10 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  f"and only counts a first-ever join; this asks how many members "
                  f"the gym added. SHIFT: Beta's membership start dates. ABC: "
                  f"membership purchases on RGP invoices, counted for the person "
-                 f"who paid (a family plan once).",
+                 f"who paid (a family plan once); a comeback is not new when the "
+                 f"person's check-ins show they kept climbing through the gap "
+                 f"(the Avg member lifespan rule: RGP shows who paid, not who "
+                 f"was covered).",
                  "The Home period", "Each gym's Home page"]),
         ("row", ["Cancellations",
                  f"People who stopped being members: their last membership ended "
