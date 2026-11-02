@@ -69,6 +69,11 @@ from dotenv import load_dotenv
 OPERATIONS = {
     "survey_request": ("ftv", "invitation"),
     "survey_reminder": ("ftv", "reminder"),
+    # A2 (2026-11-02): the emailed member survey. Program "member" defaults to
+    # "hold" (routing() below): nothing sends until client.json says
+    # survey.dispatch.member = "native". It has no legacy (Mailchimp) path; a
+    # "legacy" setting is treated as hold.
+    "member_survey": ("member", "invitation"),
 }
 ENTRYPOINTS = frozenset({"scheduler", "dashboard", "cli"})
 ROUTES = ("legacy", "native", "hold")
@@ -103,6 +108,8 @@ def routing(client, program: str) -> str:
     if not isinstance(config, dict) or config.get("emergency_stop", False) is not False:
         return "hold"
     route = config.get(program, "legacy" if program == "ftv" else "hold")
+    if program == "member" and route == "legacy":
+        return "hold"   # no Mailchimp member survey exists
     return route if route in ROUTES else "hold"
 
 
@@ -253,8 +260,11 @@ class Dispatcher:
             return None, f"  survey dispatch: Brevo warm-up ended {last.isoformat()}; no daily cap"
         from . import outreach
         stamps = {today.isoformat()} | ({self.asof.isoformat()} if self.asof else set())
+        # survey emails only: a staff member reply (member_reply, also esp
+        # brevo, A2 step 4) must not eat first-timer warm-up slots
         self.brevo_today = sum(1 for r in outreach.load_rows(self.client)
                                if (r.get("esp") or "").strip().lower() == "brevo"
+                               and (r.get("trigger_name") or "").strip() in OPERATIONS
                                and (r.get("sent_date") or "").strip()[:10] in stamps
                                and (r.get("mode") or "").strip() != "test")
         return per_day, (f"  survey dispatch: Brevo warm-up cap {per_day}/day through "
@@ -304,10 +314,26 @@ class Dispatcher:
         email when the outreach log write is lost after a send (Mailchimp's
         "enters a journey once" did that job before; tester 2026-10-23)."""
         from . import survey_mail
+        # A2: a member survey repeats every 90 days. Its ledger entry is ONE
+        # doc per member (t.ledger_key = "member_survey") that counts only for
+        # t.ledger_window_days: inside the window a lost log row is restored
+        # and a Brevo timeout is never retried, even on a later day; after it
+        # the entry is spent and the next survey may go (fresh-eyes 11/02: a
+        # per-day key re-sent the next day). FTV keeps its one-per-person key.
+        lkey = getattr(t, "ledger_key", "") or t.trigger_name
+        window = int(getattr(t, "ledger_window_days", 0) or 0)
         try:
-            ref, prior = _ledger(self.client, self.db, email, t.trigger_name)
+            ref, prior = _ledger(self.client, self.db, email, lkey)
         except Exception as exc:  # noqa: BLE001
             return Outcome("none", "failed", f"send ledger unavailable ({type(exc).__name__})")
+        if window > 0 and prior:
+            stamp = str(prior.get("sent_at") or prior.get("reserved_at") or "")[:10]
+            try:
+                spent = (self._today() - date.fromisoformat(stamp)).days >= window
+            except ValueError:
+                spent = False      # unreadable date: keep the guard
+            if spent:
+                prior = {}
         if prior.get("state") == "sent":
             day = str(prior.get("sent_at", ""))[:10]
             return Outcome("brevo", "submitted",
@@ -325,7 +351,7 @@ class Dispatcher:
             return Outcome("none", "failed", f"{type(exc).__name__}: {exc}")
         try:
             ref.set({"schema_version": 1, "gym_id": _gid(self.client), "email": email,
-                     "trigger": t.trigger_name, "tag": t.tag, "state": "reserved",
+                     "trigger": lkey, "tag": t.tag, "state": "reserved",
                      "reserved_at": _now_iso(self.now)})
         except Exception as exc:  # noqa: BLE001
             return Outcome("none", "failed", f"send ledger unavailable ({type(exc).__name__})")

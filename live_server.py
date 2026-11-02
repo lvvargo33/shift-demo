@@ -38,6 +38,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from nudge_tool import config, email_results, engine, gym_metrics, ingest, livesend, outreach, survey
+# A2 step 4 (2026-11-02): ABC's Members views, fed by the native member survey
+from nudge_tool import (member_followups, member_reply, member_reply_edits,  # noqa: E402
+                        member_responses_native, member_survey, member_views)
 from nudge_tool.config import DASHBOARD_TEMPLATE, load_client, load_settings
 
 DEFAULT_CLIENT = "shift_demo_live"
@@ -81,6 +84,15 @@ def _ensure_beta_data(client) -> None:
     if _OUTREACH_DRIVE_ID:
         drive_io.pull(_OUTREACH_DRIVE_ID, str(client.outreach_log), svc=svc)
         pulled.append("outreach_log")
+    # A2 step 4: member-reply state, same fail-soft pulls as ABC's live_server
+    # (MEMBER_FOLLOWUPS_DRIVE_ID / MEMBER_REPLY_EDITS_DRIVE_ID, both optional)
+    for name, mod in (("member_followups", member_followups),
+                      ("member_reply_edits", member_reply_edits)):
+        try:
+            if mod.pull(client, svc=svc):
+                pulled.append(name)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ({name} pull failed: {e})")
     _last_pull = now
     print(f"  pulled from Drive: {', '.join(pulled)}")
 
@@ -367,9 +379,264 @@ def render(client_slug: str, asof: date) -> str:
     payload["gym"] = gym_metrics.build_beta(client.memberships_csv, client.transactions_csv,
                                             gym_metrics.eastern_today())
 
+    # A2 step 4: the Members section (ABC parity). Only when client.json has a
+    # member_survey block (member_views.wants_block); answers are read from
+    # Firestore by member_responses_native. Never takes the FTV page down.
+    if member_views.wants_block(client) and _members_visible(client):
+        try:
+            payload["members"] = member_views.build_live(
+                client, asof, outreach_rows=outreach.load_rows(client))
+            # Brevo is SHIFT's reply path, not the Mailchimp creds behind
+            # send_enabled: the page's Send button follows this instead
+            payload["members"]["config"]["reply_send_enabled"] = _reply_send_ready(client)
+        except Exception:  # noqa: BLE001
+            tb = traceback.format_exc()
+            print("  ERROR building members block:\n" + tb)
+            payload["members"] = {"as_of": asof.isoformat(), "error": tb.strip().splitlines()[-1],
+                                  "responses": [], "waves": [], "dims": [],
+                                  "sheet_ok": False, "sheet_error": tb.strip().splitlines()[-1]}
+
     template = DASHBOARD_TEMPLATE.read_text(encoding="utf-8")
     data_str = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
     return template.replace("__DATA_JSON__", data_str)
+
+
+# --- A2 step 4: member survey replies (ported from ABC's live_server) ------------
+_followup_lock = threading.Lock()
+_reply_lock = threading.Lock()
+
+
+def _members_visible(client) -> bool:
+    """Luke 2026-11-02: SHIFT's Members section stays hidden until the member
+    survey is switched on (member_survey.enabled true + go_live reached), so
+    staff never see an empty section. A non-native client (none here) shows
+    whenever it has the block, as at ABC."""
+    ms = getattr(client, "member_survey", None) or {}
+    if str(ms.get("source", "") or "") != "native":
+        return True
+    from nudge_tool import member_checkin
+    gl = member_checkin.go_live_date(ms)
+    return ms.get("enabled") is True and gl is not None and gl <= gym_metrics.eastern_today()
+
+
+def _reply_send_ready(client) -> bool:
+    """Live sending on (same switch as /send) AND Brevo creds on THIS service."""
+    if not (_truthy(os.getenv("NUDGE_LIVE_ENABLED")) or getattr(client, "live_enabled", False)):
+        return False
+    from nudge_tool import survey_dispatch
+    try:
+        survey_dispatch.brevo_settings(client)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def followup_now(client_slug: str, req: dict) -> dict:
+    """POST /followup, as ABC's (kept for parity; ABC's page no longer shows
+    the follow-up card since 10/16, but a reply still writes a row)."""
+    with _followup_lock:
+        client = load_client(client_slug)
+        if not member_views.wants_block(client):
+            return {"ok": False, "reason": "no_member_survey",
+                    "message": "Membership surveys aren\u2019t set up for this account."}
+        ms = client.member_survey or {}
+        allowed = [str(a).strip() for a in (ms.get("assignees") or []) if str(a).strip()]
+        try:
+            member_followups.pull(client)
+        except Exception as e:  # noqa: BLE001
+            print(f"  (followup: Drive pull failed, appending to local copy: {e})")
+        try:
+            state = member_followups.record(
+                client, req.get("mid", ""), status=req.get("status"),
+                assignee=req.get("assignee"), note=req.get("note"),
+                by=req.get("by"), allowed_assignees=allowed)
+        except member_followups.FollowupError as e:
+            return {"ok": False, "reason": "bad_request", "message": str(e)}
+        pushed, warning = False, ""
+        try:
+            pushed = member_followups.push(client)
+        except Exception as e:  # noqa: BLE001
+            warning = f"Saved here, but the Drive copy didn\u2019t update ({type(e).__name__}). It will retry on the next save."
+            print(f"  (followup: Drive push failed: {e})")
+        return {"ok": True, "mid": str(req.get("mid", "")).strip(), "state": state,
+                "pushed": pushed, "warning": warning}
+
+
+def _reply_suppressed(client, brevo) -> set:
+    """Who a member reply must not go to: Brevo delivery blocks + Shift-sender
+    unsubscribes (the shared account also holds ABC's unsubscribes, which do
+    not count here; same rule as survey_dispatch) plus Mailchimp
+    unsubscribed/cleaned. Raises when either list cannot be read."""
+    from nudge_tool import survey_dispatch
+    from nudge_tool.mailchimp_client import MailchimpClient
+    own = (getattr(getattr(brevo, "s", None), "sender_email", "") or "").strip().lower()
+    out = {r["email"] for r in brevo.blocked_contacts() if survey_dispatch._blocks_shift(r, own)}
+    out |= {e.strip().lower() for e in MailchimpClient(load_settings(client, require=True)).suppressed_emails()}
+    return out
+
+
+def reply_now(client_slug: str, req: dict) -> dict:
+    """POST /reply: ABC's reply_now (one member reply template, sent through
+    Brevo from the response page), with SHIFT's pieces swapped in: Brevo
+    settings from survey_dispatch (SHIFT's Mailchimp-default config), the
+    Shift-branded shell (clients/shift/brevo_shell.html), the member list
+    from Beta's Memberships.csv and a FRESH Firestore read of the answers."""
+    with _reply_lock:
+        client = load_client(client_slug)
+        if not member_views.wants_block(client):
+            return {"ok": False, "reason": "no_member_survey",
+                    "message": "Membership surveys aren\u2019t set up for this account."}
+        if not (_truthy(os.getenv("NUDGE_LIVE_ENABLED")) or getattr(client, "live_enabled", False)):
+            return {"ok": False, "reason": "not_enabled",
+                    "message": "Sending isn\u2019t switched on for this account yet. Use Copy email for now."}
+        from nudge_tool import survey_dispatch
+        try:
+            settings = survey_dispatch.brevo_settings(client)
+        except Exception:  # noqa: BLE001
+            return {"ok": False, "reason": "no_creds",
+                    "message": "Email sending isn\u2019t set up on this server yet. "
+                               "Add the Brevo key on the host, then try again."}
+
+        mid = str(req.get("mid", "") or "").strip()
+        template_key = str(req.get("template_key", "") or "").strip()
+        by = str(req.get("by", "") or "").strip()
+        force = bool(req.get("force"))
+        subject = req.get("subject")
+        body = req.get("body")
+        subject = None if subject is None else str(subject)
+        body = None if body is None else str(body)
+        if (subject is not None or body is not None) and \
+                not ((subject or "").strip() and (body or "").strip()):
+            return {"ok": False, "reason": "bad_request",
+                    "message": "The subject and the email text cannot be blank."}
+        if not mid:
+            return {"ok": False, "reason": "bad_request", "message": "mid is required."}
+        if template_key not in member_reply.reply_templates():
+            return {"ok": False, "reason": "bad_request",
+                    "message": f"{template_key or '(blank)'} is not a member reply template."}
+
+        from requests.exceptions import RequestException
+
+        from nudge_tool.brevo_client import BrevoClient
+        from nudge_tool.config import ESPError
+        from nudge_tool.mailchimp_client import MailchimpError
+
+        _ensure_beta_data(client)
+        members = member_responses_native.member_index(client)
+        m = members.get(mid)
+        if m is None:
+            return {"ok": False, "reason": "no_member",
+                    "message": "This response isn\u2019t matched to a member, so there is nobody to email."}
+        email = (m.get("email") or "").strip().lower()
+        if not email:
+            return {"ok": False, "reason": "no_email",
+                    "message": "This member has no email address on file."}
+        try:
+            rr = member_responses_native.read(client, fresh=True)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "reason": "sheet",
+                    "message": f"Couldn\u2019t read the survey answers ({type(e).__name__}), so nothing was sent. Try again in a moment."}
+        rid = str(req.get("rid", "") or "").strip()
+        mine = sorted((r for r in rr.responses if r.mid == mid),
+                      key=lambda r: (r.answered_at, r.respondent_id))
+        resp = next((r for r in mine if r.rid == rid), None) if rid else (mine[-1] if mine else None)
+        if resp is None:
+            return {"ok": False, "reason": "no_response",
+                    "message": "That response is no longer on file. Refresh the page."}
+
+        esp_client = BrevoClient(settings, client)
+        try:
+            unsub = _reply_suppressed(client, esp_client)
+        except (RuntimeError, ESPError, MailchimpError, RequestException):
+            return {"ok": False, "reason": "no_unsub",
+                    "message": "Couldn\u2019t reach the email service to check unsubscribes, "
+                               "so nothing was sent. Try again in a moment."}
+        if email in unsub:
+            return {"ok": False, "reason": "suppressed",
+                    "message": "This member has unsubscribed or their address bounced, so the email service won\u2019t deliver to them."}
+
+        prior = member_reply.replied_since(
+            member_reply.replies_by_mid(outreach.load_rows(client)).get(mid, []),
+            resp.answered_at)
+        if prior and not force:
+            last = prior[-1]
+            return {"ok": False, "reason": "already_replied", "replies": prior,
+                    "message": f"A reply already went out on {last['date']} "
+                               f"({member_reply.title_of(last['template_key'])}). "
+                               f"Click Send again to send another anyway."}
+
+        today = date.today().isoformat()
+        first_name = m.get("first_name") or ""
+        try:
+            orig_subject, orig_body = member_reply.rendered_for(client, template_key, first_name)
+            row = member_reply.send(esp_client, client, mid=mid, email=email,
+                                    first_name=first_name,
+                                    template_key=template_key, today=today,
+                                    subject=subject, body=body)
+        except member_reply.ReplyError as e:
+            return {"ok": False, "reason": "bad_request", "message": str(e)}
+        except (ESPError, RequestException) as e:
+            return {"ok": False, "reason": "send_failed",
+                    "message": f"The email service refused the send ({e}). Nothing was logged."}
+        sent_subject = member_reply.fill_name(subject, first_name).strip() if subject is not None else orig_subject
+        sent_body = member_reply.fill_name(body, first_name).strip() if body is not None else orig_body
+        outreach.append(client, [row])
+        pushed, warning = False, ""
+        try:
+            _push_outreach_log(client)
+            pushed = bool(os.getenv("OUTREACH_DRIVE_ID"))
+        except Exception as e:  # noqa: BLE001
+            warning = f"Sent, but the Drive copy of the log didn\u2019t update ({type(e).__name__})."
+            print(f"  (reply: outreach push failed: {e})")
+
+        state = None
+        thr = member_survey.load_config(client).positive_threshold
+        if resp.is_detractor(thr):
+            try:
+                try:
+                    member_followups.pull(client)
+                except Exception as e:  # noqa: BLE001
+                    print(f"  (reply: followup pull failed, appending to local copy: {e})")
+                cur = member_followups.latest_by_mid(client).get(mid)
+                status = "waiting" if (cur is None or cur["status"] in ("open", "in_progress")) else None
+                state = member_followups.record(
+                    client, mid, status=status,
+                    note=f"Emailed the reply: {member_reply.title_of(template_key)}",
+                    by=by or "dashboard")
+                try:
+                    member_followups.push(client)
+                except Exception as e:  # noqa: BLE001
+                    print(f"  (reply: followup push failed: {e})")
+            except Exception as e:  # noqa: BLE001
+                print(f"  (reply: follow-up note not recorded: {e})")
+
+        edit_saved, edit_changed = False, False
+        try:
+            try:
+                member_reply_edits.pull(client)
+            except Exception as e:  # noqa: BLE001
+                print(f"  (reply: edits pull failed, appending to local copy: {e})")
+            erow = member_reply_edits.record(
+                client, mid=mid, template_key=template_key, by=by or "dashboard",
+                original_subject=orig_subject, edited_subject=sent_subject,
+                original_body=orig_body, edited_body=sent_body)
+            edit_saved, edit_changed = True, erow["changed"] == "1"
+            try:
+                member_reply_edits.push(client)
+            except Exception as e:  # noqa: BLE001
+                print(f"  (reply: edits push failed: {e})")
+                warning = warning or "Sent, but the Drive copy of the edit record didn\u2019t update."
+        except Exception as e:  # noqa: BLE001
+            print(f"  (reply: edit pair NOT saved: {e})")
+            warning = warning or "Sent, but the edit record could not be saved."
+
+        reply = {"date": today, "template_key": template_key,
+                 "trigger": member_reply.REPLY_TRIGGER, "auto": False,
+                 "edited": edit_changed}
+        return {"ok": True, "mid": mid, "email": email, "reply": reply,
+                "title": member_reply.title_of(template_key), "state": state,
+                "pushed": pushed, "warning": warning,
+                "edit_saved": edit_saved, "edit_changed": edit_changed}
 
 
 def _inject_refresh(html: str, seconds: int) -> str:
@@ -542,7 +809,7 @@ from nudge_tool import survey_page  # noqa: E402
 # A survey capability must never reach the log. On the page paths the WHOLE
 # query goes (covers tok%65n=, "token= <x>", any spelling); elsewhere token=.
 _RE = __import__("re")
-_PAGE_QUERY_RE = _RE.compile(r'(/survey[^\s?"]*\?)[^"]*')
+_PAGE_QUERY_RE = _RE.compile(r'(/(?:member-)?survey[^\s?"]*\?)[^"]*')  # A2: /member-survey too
 _TOKEN_RE = _RE.compile(r"(token=)[^\s&\"']+")
 
 
@@ -732,7 +999,7 @@ class Handler(survey_page.handler_base()):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        if parsed.path != "/send":
+        if parsed.path not in ("/send", "/followup", "/reply"):  # A2: + member reply routes
             self._send(404, "application/json", b'{"ok":false,"message":"Not found."}')
             return
         try:
@@ -744,6 +1011,21 @@ class Handler(survey_page.handler_base()):
         except Exception:
             req = {}
         slug = self.server.default_client
+        if parsed.path in ("/followup", "/reply"):  # A2 step 4 (ABC's handlers, ported)
+            fn = followup_now if parsed.path == "/followup" else reply_now
+            try:
+                result = fn(slug, req)
+            except Exception:
+                tb = traceback.format_exc()
+                print(f"  ERROR in {parsed.path}:\n" + tb)
+                result = {"ok": False,
+                          "message": ("Something went wrong while sending the reply; it may not have gone out. "
+                                      "Refresh the page: a sent reply shows under Replies sent.")
+                          if parsed.path == "/reply" else
+                          "Something went wrong saving the follow-up. Refresh and check whether it stuck."}
+            body = json.dumps(result, ensure_ascii=False).encode("utf-8")
+            self._send(200, "application/json; charset=utf-8", body)
+            return
         try:
             result = send_now(slug, req)
         except Exception:

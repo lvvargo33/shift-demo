@@ -27,6 +27,7 @@ import time
 
 from .. import native_survey as island
 from ..config import load_client
+from .member_routes import MEMBER_PATHS, MemberRoutesMixin, experience_config
 from .native_survey import GymContext, SurveyError
 from .native_survey_production import ProductionConfig, ProductionRepository
 from .native_survey_service import ProductionHandler
@@ -76,9 +77,10 @@ def build(client, *, db=None) -> tuple[ProductionConfig, MountedRepository]:
     return config, MountedRepository(config, db=db if db is not None else island._db())
 
 
-class MountedHandler(ProductionHandler):
+class MountedHandler(MemberRoutesMixin, ProductionHandler):
     """Base class for the dashboard Handler. Adds page_get / page_post; keeps
-    his do_GET / do_POST untouched (reached through super())."""
+    his do_GET / do_POST untouched (reached through super()). The /member-survey
+    paths (A2) go to member_routes.MemberRoutesMixin on the same mount."""
 
     _page_lock = threading.Lock()
 
@@ -101,6 +103,12 @@ class MountedHandler(ProductionHandler):
                 # repository is the lock-free readiness flag: assign it LAST
                 srv.config = config
                 srv.support_email = config.support_email
+                try:
+                    srv.member_config = experience_config(client)
+                except Exception as exc:  # noqa: BLE001 (a bad member block must not take the FTV page down)
+                    from .member_assets import MemberExperienceConfig
+                    print(f"  survey page: member config FAILED ({type(exc).__name__}: {exc}); Shift defaults")
+                    srv.member_config = MemberExperienceConfig()
                 srv.repository = repository
                 print(f"  survey page: mounted for {config.gym_id} at {config.public_origin}")
                 return True
@@ -112,17 +120,22 @@ class MountedHandler(ProductionHandler):
                 srv._page_retry_at = time.monotonic() + _NEGATIVE_CACHE_SECONDS
                 return False
 
+    def _is_member_path(self) -> bool:
+        return self.path.split("?", 1)[0] in MEMBER_PATHS
+
     def page_get(self) -> None:
         if not self._page_ready():
             self._page_disabled()
             return
-        self._guarded(ProductionHandler.do_GET)
+        self._guarded(MemberRoutesMixin.member_do_GET if self._is_member_path()
+                      else ProductionHandler.do_GET)
 
     def page_post(self) -> None:
         if not self._page_ready():
             self._page_disabled()
             return
-        self._guarded(ProductionHandler.do_POST)
+        self._guarded(MemberRoutesMixin.member_do_POST if self._is_member_path()
+                      else ProductionHandler.do_POST)
 
     def _guarded(self, method) -> None:
         """His handler answers its own error kinds; anything else (a

@@ -562,6 +562,89 @@ def issue_send_tokens(client: ClientConfig, email: str, climber_id: str,
     return out
 
 
+MEMBER_PAGE_PATH = "/member-survey"
+
+
+def member_cycle_id(send_date) -> str:
+    """One member survey session per person per send: cycle id = 'm' + the
+    send date (YYYYMMDD). A resend the SAME day reuses the session; the next
+    90-day survey is a new session (his occurrence_id keys on the cycle id)."""
+    return "m" + send_date.strftime("%Y%m%d")
+
+
+def issue_member_token(client: ClientConfig, email: str, climber_id: str, cycle_id: str,
+                       tag: str = "", *, db=None, now: datetime | None = None,
+                       lifetime: timedelta = SEND_CAPABILITY_LIFETIME,
+                       context: dict | None = None) -> str:
+    """SEND time (A2, 2026-11-02): create (or reuse) this member's survey
+    session for `cycle_id` on Chris's member instrument (client.json
+    survey.native.member, default shift_v3 with his default modules), add one
+    capability to its invitation message, and return the page token (the
+    caller builds base + MEMBER_PAGE_PATH + ?token=). Same records, token shape
+    and lifetime as issue_send_tokens; candidate is always None (no embedded
+    rating). `context` (inactive flag, days since last check-in, member
+    since, plan) is stored on the message as `member_context` for the reply
+    screen; his page never reads it. RAISES on any failure, never falls back."""
+    from .survey_page import native_survey as core
+    from .survey_page.member_routes import experience_config
+    if not timedelta(0) < lifetime <= timedelta(days=90):
+        raise SurveyError("invalid capability lifetime")
+    if db is None:
+        if not mint_enabled(client):
+            raise SurveyError("native survey not enabled on this service "
+                              "(client flag, Firestore env or public base URL missing)")
+        db = _db()
+    now = now or datetime.now(timezone.utc)
+    definition = experience_config(client).assets[0]
+    cfg = native_cfg(client)
+    ctx = core.GymContext(gym_id(client))
+    source = identifier(str(cfg.get("source") or "beta"))
+    customer_id = identifier(str(climber_id or "").strip())
+    email = (email or "").strip().lower()
+    if not email:
+        raise SurveyError("email required")
+    root = db.collection("gyms").document(ctx.gym_id)
+    delays = _RETRY_DELAYS_PULL
+
+    session = core.new_session(ctx, source, customer_id, definition, now, identifier(cycle_id))
+    sref = root.collection("sessions").document(session["id"])
+    snap = _retry(sref.get, delays)
+    if snap.exists:
+        session = _check(snap.to_dict(), ctx.gym_id, "session")
+    else:
+        pref = root.collection("subjects").document(session["subject_id"])
+        ps = _retry(pref.get, delays)
+        if ps.exists:
+            subject = _check(ps.to_dict(), ctx.gym_id, "subject")
+            if subject.get("identity_source") != source:
+                raise SurveyError("subject: identity source mismatch")
+        else:
+            pref.set(new_subject(ctx, source, customer_id, session["subject_id"]))
+        try:
+            sref.create(session)
+        except Exception:  # noqa: BLE001 (AlreadyExists: a rerun won the race)
+            again = _retry(sref.get, delays)
+            if not again.exists:
+                raise
+            session = _check(again.to_dict(), ctx.gym_id, "session")
+    # An existing session keeps the instrument it was created with (the page
+    # reads the session's own pin), so only a non-member session is an error.
+    if session.get("survey_type") != "member":
+        raise SurveyError("session: not a member survey")
+    ent = {"root": root, "ctx": ctx, "source": source, "customer_id": customer_id,
+           "email": email, "session": session}
+    mref, message = _open_message(ent, tag, now, delays)
+    if len(message.get("capabilities") or {}) + 1 > CAPABILITY_LIMIT:
+        raise SurveyError("pilot capability limit reached")
+    token, hashed, cap = _new_capability(ent, message, None, now, lifetime)
+    cap["send_tag"] = _template_id(tag)
+    update = {"capabilities": {hashed: cap}}
+    if context:
+        update["member_context"] = dict(context)
+    _retry(lambda: mref.set(update, merge=True), delays)
+    return token
+
+
 def tap_info(client: ClientConfig, token: str, *, db=None,
              now: datetime | None = None) -> dict | None:
     """/survey-tap (Block 25 A1): the capability behind a page token, checked

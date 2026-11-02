@@ -37,6 +37,7 @@ import html as _html
 import re
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import quote
 
 import requests
@@ -477,6 +478,18 @@ class BrevoClient:
 
     _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
+    def _shell(self) -> str:
+        """The branded wrapper. `_SHELL` is ABC's (logo, name). A gym with
+        its own `clients/<slug>/brevo_shell.html` (same four placeholders:
+        __HEADLINE__, __BODY__, __CONTACT__, __UNSUB__) uses that instead:
+        SHIFT's member replies, A2 2026-11-02. ABC has no such file, so its
+        emails are unchanged."""
+        d = getattr(self.client, "client_dir", None)
+        p = (Path(d) / "brevo_shell.html") if d else None
+        if p is not None and p.exists():
+            return p.read_text(encoding="utf-8")
+        return _SHELL
+
     def _html_body(self, subject: str, body: str) -> str:
         """Wrap the rendered template copy in the branded `_SHELL`. The subject
         becomes the headline. Markdown links render as inline bold-orange
@@ -513,7 +526,7 @@ class BrevoClient:
         body_html = "\n              ".join(paras)
 
         contact = self.client.links.get("contact_email", "") or self._account_email
-        return (_SHELL
+        return (self._shell()
                 .replace("__HEADLINE__", _html.escape(subject))
                 .replace("__BODY__", body_html)
                 .replace("__CONTACT__", _html.escape(contact))

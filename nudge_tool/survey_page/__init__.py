@@ -12,6 +12,20 @@ What lives here
       _verify_survey_page.py so drift shows up. `native_survey.py` is HIS
       module (ids, hashes, transitions); OUR island module of the same name
       lives one level up (nudge_tool/native_survey.py) and is untouched.
+      EXCEPTION (A2, 2026-11-02): native_survey.py and
+      native_survey_definitions.py now carry his 10/21 package's patch 0001
+      diff for them, applied exactly (not_contains condition, max_selections +
+      exclusive_options on multi-choice, get_definition falls through to the
+      member instruments); pins updated. FTV records are unaffected (no FTV
+      question uses the new fields, FTV_V1's fingerprint is unchanged).
+  native_survey_presentation.py, member_instrument.py, member_module_extensions.py,
+  shift_member_instrument.py, member_assets.py, member_page.html / .js / .css
+      Chris's member survey instrument (shift_v3 = the approved wording) and
+      page, copied BYTE FOR BYTE from the same 10/21 package (pinned below).
+      Pure data + page assets; his member engine (member_http / repository /
+      cycles / QR) is NOT taken (ROADMAP decision 2026-10-28).
+  member_routes.py
+      OURS (A2): serves his member page on the mount, same tokens + save engine.
   mount.py
       Our adapter: a request-handler base class that serves his five routes
       (/survey, /survey.js, /survey.css, /survey/state, /survey/answer) from
@@ -42,11 +56,18 @@ from http.server import BaseHTTPRequestHandler
 
 PAGE_PATHS = frozenset({"/survey", "/survey.js", "/survey.css",
                         "/survey/state", "/survey/answer"})
+# A2 (2026-11-02): the member survey page, served by member_routes.py (ours) on
+# the same mount. Same literal as member_routes.MEMBER_PATHS (kept here so this
+# module stays stdlib only).
+MEMBER_PAGE_PATHS = frozenset({"/member-survey", "/member-survey.js", "/member-survey.css",
+                               "/member-survey/state", "/member-survey/answer"})
 
-# sha256 of Chris's files as extracted from the bundle on 2026-10-02.
+# sha256 of Chris's files as extracted from the bundle on 2026-10-02; the two
+# core files + the 8 member files below are from his 10/21 package (A2,
+# 2026-11-02), each hash found in that package's own manifests.
 CHRIS_FILES = {
-    "native_survey.py": "b2ebc601146dd3872beaefe3ae665d6af93f968e3684eb8f5bbfbba5bbc28045",
-    "native_survey_definitions.py": "cf3985957b70f8629756b1b1d62de8ad7619baac34414717e1029b1191de4a53",
+    "native_survey.py": "e06be1a4ad4f24f57a0e318084a2542f14c28fcd27fbab16bd46564498202bf3",
+    "native_survey_definitions.py": "94711d405b3ca77f48f61285b67daa58a4ef6fefb65c2902867510b1e42a6970",
     "native_survey_http.py": "89890f08a8e83311492afedaf7361dff5e7592e4c25122d8ef5cf417c0bd5938",
     "native_survey_production.py": "409a13ab03903176ccae64f74f8cc23ea29f6cde8401518dc33a2b8eac0f3b3e",
     "native_survey_service.py": "ce8a82f4044c0aab27f0852b33c71adceff16e510b988973eb87bfaeb08375f6",
@@ -54,13 +75,21 @@ CHRIS_FILES = {
     "native_survey_page.html": "ed8de56a1b41acb495bfdf05f82851787b270d212e92e44201812dc95c497f9d",
     "native_survey_page.js": "a413407f9c739ec423e315924b0e2d95bd490217a98c398aab28415db19aeea6",
     "native_survey_page.css": "c1b2c80144c1dd56f9b1d022d5b5c2717436b502561de635c0a250d67ccd6b96",
+    "native_survey_presentation.py": "2dc302d7396e36e2465924801a5bffb556ce6dccee680ac402381707082d4819",
+    "member_instrument.py": "6f4f9f2d17095ccc735d5bbab703bd3b4ea3e4baa12f02374a422f8b318ff345",
+    "member_module_extensions.py": "2b1fd0086b7ddbd544f383f24abc7b13b7332e5177655e20a9cceec4dfb85cdb",
+    "shift_member_instrument.py": "38843f4a3e97f4cc52c7fd4bd957b4ef6df3adc33934bf01c54b10a6412ac62d",
+    "member_assets.py": "099f3b94553fd2c9bb2ed74cc60926d9263bf4f9f3069793dcbfc2efdddb15b4",
+    "member_page.html": "794f2174acb23e8ef91361e754a2228e09dbe64c43dba60d76ee7bb8d0c1240f",
+    "member_page.js": "88626e581fcb99e477e3efdb695b975797d2e1953fa2f9adaba4daa9b3eaf14a",
+    "member_page.css": "f38933ba3fb640cc28ee3a9c42c50e1eaa4e0e94c6a321707347dc61209cddcf",
 }
 
 _DISABLED = b'{"status":"disabled"}'
 
 
 def is_page_path(path: str) -> bool:
-    return path in PAGE_PATHS
+    return path in PAGE_PATHS or path in MEMBER_PAGE_PATHS
 
 
 def env_ready() -> bool:

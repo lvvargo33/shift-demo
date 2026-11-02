@@ -32,4 +32,8 @@ def get_definition(definition_id: str, version: int) -> Definition:
     for definition in (FTV_V1, SYNTHETIC_MEMBER_V1):
         if (definition.id, definition.version) == (definition_id, version):
             return definition
+    from .member_assets import ASSETS
+    assets = ASSETS.get((definition_id, version))
+    if assets is not None:
+        return assets[0]
     raise UnsupportedVersion("unsupported survey definition")

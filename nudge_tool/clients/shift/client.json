@@ -12,6 +12,9 @@
   },
   "_test_contacts_note": "S5 --test mode safety. In --test the tool NEVER tags a real climber. It remaps the computed queue onto plus-addressed dummies derived from base_email (e.g. lvvargo33+shifttest_survey_request@gmail.com), one per distinct tag, capped at max. All mail still delivers to base_email's inbox so Luke sees the tag land. testmode.assert_all_dummy() fail-closes the whole run if any target is not a plus-variant of base_email, so a real address can never slip through. base_email MUST contain a '+' so plus-addressing works; change it to whichever inbox Luke wants the test mail in.",
   "links": {
+    "manager_name": "The Shift Team",
+    "gym_name": "Shift Climbing",
+    "google_review_link": "https://www.google.com/search?q=shift+climbing",
     "survey_link": "https://docs.google.com/forms/d/e/1FAIpQLSeJgRNTSwMaWuwBKUuoaa1ueHGpgciw7tII1i46DrqAstJ3Ag/viewform",
     "membership_lite_link": "https://www.shiftclimbing.com/purchase-a-membership",
     "purchase_pass_link": "https://www.shiftclimbing.com/purchase-a-pass",
@@ -65,6 +68,19 @@
     "go_live": "2026-10-30"
   },
   "_member_check_in_note": "Day-14 new-member check-in (ROADMAP Block 25 Part B, built 2026-10-26; nudge_tool/member_checkin.py). The daily send run tags `tag` in Mailchimp on the first run on or after a new membership episode's start + `day` days (new member or rejoiner after 30+ days with no plan; plan switches, youth plans, staff, frozen, ended, unsubscribed skipped), and Chris's Customer Journey on that tag sends the email. OFF until BOTH enabled:true and go_live (YYYY-MM-DD) are set; until then the send report only previews who would be tagged. Set go_live to the day the journey is published (a journey ignores tags added before it starts; it must also allow re-entry for rejoiners), and tell Isaac that date so he stops his hand emails. Only members whose day 14 is on or after go_live get it (no catch-up). late_days = how many days past day 14 a missed run may still send.",
+  "member_survey": {
+    "enabled": false,
+    "go_live": "",
+    "tag": "send_it_member_survey",
+    "cooldown_days": 90,
+    "min_member_days": 30,
+    "inactive_days": 60,
+    "spread_days": 90,
+    "source": "native",
+    "auto_reply": false,
+    "positive_threshold": 9
+  },
+  "_member_survey_note": "Emailed member survey (A2, built 2026-11-02; nudge_tool/member_survey_native.py; rules = ROADMAP A2 interview 2026-10-23 + the 2026-10-28 sampling ruling). Each day about 1/spread_days of eligible members get one Brevo email from Jadee (Chris's copy, survey_emails/send_it_member_survey.html) linking to Chris's shift_v3 member survey on /member-survey. Eligible = open adult membership episode, min_member_days+ in a row, not frozen / staff / Mailchimp-unsubscribed / sharing an email; never-asked first; once per cooldown_days; members with no check-in for inactive_days+ are included and marked inactive; no reminder. TWO switches: enabled:true + go_live (YYYY-MM-DD) here, AND survey.dispatch.member = \"native\" (missing = hold). Until both, the send report only previews who would be asked.",
   "min_days_between_sends": 2,
   "_min_days_between_sends_note": "S38 spacing guard (2026-07-29). Anyone whose last logged send (any trigger) is fewer than this many days old is skipped this run; they stay eligible and re-check next run. Protects the reminder -> return -> membership-offer chain from stacking emails. The existing flow already has natural 2+ day gaps, so this changes nothing for current triggers. 0 = off.",
   "reporting": {

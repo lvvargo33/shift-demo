@@ -352,6 +352,63 @@ button, input, textarea, select { font-family: inherit; }
 .inbox-hidden-note { font-size: 11.5px; color: var(--fg-subtle); margin-top: 10px; line-height: 1.6; }
 .inbox-hidden-note a { color: var(--primary); cursor: pointer; font-weight: 600; }
 
+/* --- Members section (membership surveys). Reuses the app's tokens; nothing new invented. --- */
+.stats-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 4px 0 10px; }
+@media (max-width: 880px) { .stats-grid-4 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 500px) { .stats-grid-4 { grid-template-columns: 1fr; } }
+.bar-fill.bar-red { background: linear-gradient(90deg, #DC2626 0%, #B91C1C 100%); }
+.sc-good { color: var(--success-fg); }
+.sc-mid  { color: var(--fg); }
+.sc-bad  { color: var(--destructive); }
+.delta-up   { color: var(--success); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.delta-down { color: var(--destructive); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.delta-flat { color: var(--fg-hint); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.mresp-list { display: flex; flex-direction: column; gap: 6px; }
+.mresp-item { text-align: left; width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: border-color var(--t-fast), background var(--t-fast); font: inherit; color: inherit; }
+.mresp-item:hover { border-color: var(--border-strong); background: var(--bg-subtle); }
+.mresp-item.risk { border-left: 3px solid var(--destructive); }
+/* Member Responses tabs (Block 20 decision 1, the 10/5 mockup's look) */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.tab { background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 9px 14px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--fg-subtle); cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.tab:hover { color: var(--fg); }
+.tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab .count { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 8px; background: var(--bg-subtle); border: 1px solid var(--border); color: var(--fg-muted); }
+.tab.active .count { background: var(--primary-soft); border-color: var(--primary-soft-2); color: var(--primary); }
+.mresp-row { display: flex; align-items: center; gap: 10px; }
+.mresp-row > div:first-child { flex: 1; min-width: 0; }
+.mresp-status { font-size: 11.5px; color: var(--fg-hint); white-space: nowrap; }
+.card-foot { border-top: 1px solid var(--border-soft); padding: 8px 16px; }
+.link-btn { background: none; border: none; padding: 0; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--primary); cursor: pointer; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }   /* a switched-off Send must not look clickable (tester 2026-10-08) */
+.mquote { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 13px; margin-bottom: 8px; }
+.mquote-text { font-size: 13px; color: var(--fg); line-height: 1.55; }
+.mquote-meta { margin-top: 6px; font-size: 11.5px; color: var(--fg-subtle); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.bar-btn { display: block; text-align: left; width: 100%; background: none; border: none; padding: 0; cursor: pointer; border-radius: 6px; font: inherit; color: inherit; }
+.bar-btn:hover .bar-label { color: var(--primary); }
+.bar-btn:hover .bar-track { outline: 1px solid var(--border-strong); }
+.fu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+@media (max-width: 600px) { .fu-grid { grid-template-columns: 1fr; } }
+.fu-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-subtle); font-weight: 600; margin-bottom: 3px; }
+.fu-note { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: 7px; padding: 8px 11px; font-size: 12.5px; color: var(--fg-muted); margin-bottom: 6px; line-height: 1.5; }
+.fu-note-at { font-size: 10.5px; color: var(--fg-hint); margin-top: 2px; }
+.tl-list { display: flex; flex-direction: column; }
+.tl-item { border-bottom: 1px solid var(--border-soft); }
+.tl-item:last-child { border-bottom: none; }
+.tl-row { display: flex; gap: 10px; align-items: baseline; width: 100%; text-align: left; background: none; border: none; padding: 9px 2px; font: inherit; font-size: 12.5px; color: var(--fg); cursor: pointer; }
+.tl-row:hover { background: var(--bg-subtle); }
+.tl-here { cursor: default; }
+.tl-here:hover { background: none; }
+.tl-caret { width: 10px; flex: none; color: var(--fg-hint); }
+.tl-date { flex: none; width: 92px; color: var(--fg-subtle); white-space: nowrap; }
+.tl-body { padding: 2px 4px 12px 22px; }
+.tl-label { flex: 1; min-width: 0; }
+@media (max-width: 480px) { .tl-row { gap: 8px; } .tl-date { width: 78px; white-space: normal; } }
+.fu-textarea { width: 100%; min-height: 64px; border: 1px solid var(--border-strong); border-radius: 7px; padding: 8px 11px; font-size: 13px; color: var(--fg); resize: vertical; background: var(--card); font: inherit; }
+.fu-textarea:focus { outline: none; border-color: var(--primary); }
+.mguide { margin: 4px 0 8px 18px; padding: 0; font-size: 12.5px; color: var(--fg-muted); line-height: 1.6; }
+#members-nav { display: none; }
+#members-nav.on { display: contents; }
+
 /* --- Block 20 R2 (2026-10-08): Home, Email activity, the merged survey page and
    the "How this is counted" links. The same block sits in both gyms' templates
    (rule 4); the look is the 10/5 mockup's (Send_It_Preview_*.html). --- */
@@ -459,6 +516,24 @@ details.held[open] > summary { border-bottom: 1px solid var(--border-soft); }
       <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
       Insights
     </button>
+    <div id="members-nav">
+    <div class="nav-section-label">Members</div>
+    <button class="nav-btn" data-view="m-responses" onclick="showView('m-responses')">
+      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Member Responses
+      <span class="nav-badge" id="members-badge" style="display:none;" title="Members who answered and have not heard back">0</span>
+    </button>
+    <button class="nav-btn" data-view="m-insights" onclick="showView('m-insights')">
+      <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+      Insights
+    </button>
+    <button class="nav-btn" data-view="m-recognition" onclick="showView('m-recognition')">
+      <svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2L12 3z"/></svg>
+      Recognition
+    </button>
+    <!-- Survey Settings left the sidebar (Block 20 decision 7b, 2026-10-08).
+         The page itself still renders at #m-settings for troubleshooting. -->
+    </div>
   </div>
 </nav>
 
@@ -469,6 +544,11 @@ details.held[open] > summary { border-bottom: 1px solid var(--border-soft); }
     <div id="view-detail" class="view"></div>
     <div id="view-surveys" class="view"></div>
     <div id="view-insights" class="view"></div>
+    <div id="view-m-responses" class="view"></div>
+    <div id="view-m-respdetail" class="view"></div>
+    <div id="view-m-recognition" class="view"></div>
+    <div id="view-m-insights" class="view"></div>
+    <div id="view-m-settings" class="view"></div>
   </div>
 </main>
 
@@ -1067,7 +1147,7 @@ function renderHome() {
   if (hasMembers) {
     const cfg = MDATA.config || {}, sent = mSent('all'), answered = mAllResponses().length;
     auto += '<div class="auto-row"><span class="auto-dot' + (MDATA.enabled ? '' : ' off') + '"></span><div class="auto-main">' +
-      '<div class="auto-title">' + (MDATA.enabled ? 'Member surveys go out to up to ' + (cfg.daily_cap || 0) + ' members a day' : 'Member surveys are switched off') + '</div>' +
+      '<div class="auto-title">' + (MDATA.enabled ? (cfg.per_day_text ? 'Member surveys go out to ' + cfg.per_day_text : 'Member surveys go out to up to ' + (cfg.daily_cap || 0) + ' members a day') : 'Member surveys are switched off') + '</div>' +
       '<div class="auto-sub">' + sent.toLocaleString() + ' sent so far, ' + answered.toLocaleString() + ' answered. Each member is asked once every ' + (cfg.cooldown_days || 180) + ' days.</div></div></div>';
   }
   auto += '</div>';
@@ -2180,6 +2260,1178 @@ function toast(msg) {
   el.textContent = msg;
   host.appendChild(el);
   setTimeout(() => el.remove(), 2600);
+}
+
+/* Whole-number line chart. Same shape as pctLineChart, minus the % suffix and
+   the decimal, for counts like "how many members do we have". */
+function countLineChart(labels, series, label) {
+  const W = 760, H = 200, P = { l: 42, r: 14, t: 14, b: 26 };
+  const innerW = W - P.l - P.r, innerH = H - P.t - P.b;
+  const yMax = niceMax(Math.max(1, Math.max.apply(null, series)));
+  const n = labels.length;
+  const xStep = innerW / Math.max(1, n - 1);
+  const x = i => P.l + i * xStep;
+  const y = v => P.t + innerH - (v / yMax) * innerH;
+  let svg = '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">';
+  for (let i = 0; i <= 4; i++) {
+    const yPos = P.t + (innerH / 4) * i;
+    svg += '<line class="chart-grid" x1="' + P.l + '" y1="' + yPos + '" x2="' + (W - P.r) + '" y2="' + yPos + '"/>';
+    svg += '<text class="chart-tick" x="' + (P.l - 6) + '" y="' + (yPos + 3) + '" text-anchor="end">' + Math.round(yMax - (yMax / 4) * i) + '</text>';
+  }
+  svg += '<line class="chart-axis" x1="' + P.l + '" y1="' + (H - P.b) + '" x2="' + (W - P.r) + '" y2="' + (H - P.b) + '"/>';
+  const skip = Math.ceil(n / 12);
+  labels.forEach((lab, i) => {
+    if (i % skip === 0 || i === n - 1) svg += '<text class="chart-tick" x="' + x(i) + '" y="' + (H - P.b + 16) + '" text-anchor="middle">' + escapeHtml(lab) + '</text>';
+  });
+  if (n > 1) {
+    const area = series.map((v, i) => (i === 0 ? 'M' : 'L') + x(i) + ',' + y(v)).join(' ') +
+      ' L' + x(n - 1) + ',' + (H - P.b) + ' L' + x(0) + ',' + (H - P.b) + ' Z';
+    svg += '<path class="chart-area-you" d="' + area + '"/>';
+    svg += '<path class="chart-line-you" d="' + series.map((v, i) => (i === 0 ? 'M' : 'L') + x(i) + ',' + y(v)).join(' ') + '"/>';
+  }
+  series.forEach((v, i) => {
+    const tip = labels[i] + ': ' + v.toLocaleString() + ' members';
+    svg += '<circle class="chart-dot-you" cx="' + x(i) + '" cy="' + y(v) + '" r="3.5"><title>' + escapeHtml(tip) + '</title></circle>';
+    svg += '<rect x="' + (x(i) - 16) + '" y="' + P.t + '" width="32" height="' + innerH + '" fill="transparent" pointer-events="all"><title>' + escapeHtml(tip) + '</title></rect>';
+  });
+  svg += '</svg><div class="chart-legend"><span><span class="legend-swatch-line"></span>' + escapeHtml(label) + '</span></div>';
+  return svg;
+}
+
+/* ============================ MEMBERS (membership surveys) ============================
+   Ported from the demo's members_app.js (Membership Surveys SPEC, session
+   2026-08-21 late pm) with the data source swapped to DATA.members, which
+   live_server builds in Python (nudge_tool/member_views.py). Every number here
+   is formatted from that block; nothing is computed from canned text. The
+   section renders only when the block exists (data-presence gate). Follow-up
+   edits POST to /followup and persist in member_followups.csv on Drive. */
+const MDATA = DATA.members || null;
+/* A2 (2026-11-02): SHIFT replies go through Brevo, so its server sends
+   config.reply_send_enabled; ABC has none and keeps DATA.send_enabled. */
+/* A2: SHIFT's native survey asks more than ABC's six questions (section
+   ratings + comments, circuits, sections used) and marks members with no
+   recent check-in. Both live in r.extra; ABC's rows have none. */
+function mInactiveBadge(r) {
+  const c = (r.extra && r.extra.context) || {};
+  if (!c.inactive) return '';
+  const d = c.days_since_checkin;
+  return '<span class="badge badge-warning" title="No check-in for 60+ days when the survey went out">inactive' +
+    (d != null ? ': no check-in in ' + d + ' days' : ': no check-in on file') + '</span>';
+}
+function mExtraCard(r) {
+  const x = r.extra || {};
+  const picks = x.picks || [], scores = x.scores || [], comments = x.comments || [];
+  if (!picks.length && !scores.length && !comments.length) return '';
+  let h = '<div class="card"><div class="card-header"><div class="card-title">' + icon('sparkles') +
+    'More from this member</div><div class="card-description">The rest of their survey. Context for staff, never used to pick the reply.</div></div>' +
+    '<div class="card-content with-top">';
+  if (picks.length || scores.length) {
+    h += '<div class="detail-grid">';
+    picks.forEach(p => { h += field(p[0], p[1]); });
+    scores.forEach(p => { h += mScoreField(p[0], p[1]); });
+    h += '</div>';
+  }
+  comments.forEach(p => { h += inboxQ(p[0], p[1]); });
+  return h + '</div></div>';
+}
+function mSendEnabled() {
+  const c = (MDATA && MDATA.config) || {};
+  return c.reply_send_enabled !== undefined ? !!c.reply_send_enabled : !!DATA.send_enabled;
+}
+function membersOn() { return !!(MDATA && MDATA.dims && MDATA.dims.length); }
+const M_DIMS = membersOn() ? MDATA.dims : [];            // [[key, label], ...] the 5 Q4 dimensions
+const M_DIAG = membersOn() ? (MDATA.diagnostics || []) : [];
+const M_STATUSES = membersOn() ? (MDATA.statuses || []) : [];
+const M_STATUS_LABEL = {}; M_STATUSES.forEach(s => { M_STATUS_LABEL[s[0]] = s[1]; });
+const M_WAVES = membersOn() ? (MDATA.waves || []) : [];
+const M_CUR = M_WAVES.length ? M_WAVES[M_WAVES.length - 1].id : 1;
+const M_PRIOR = M_WAVES.length > 1 ? M_WAVES[M_WAVES.length - 2].id : null;
+let MEMBER_WAVE = 'all';
+let MRESP_TAB = 'needs';     // Member Responses tab: needs | replied | all (Block 20 decision 1)
+let MRECOG_Q = '';
+let MINSIGHTS_SLIDE = 0;
+let MTREND_METRIC = 'nps';
+const M_BY_KEY = 'abcMembersBy';         // remembered "your name" for follow-up notes
+
+function mAllResponses() { return membersOn() ? (MDATA.responses || []) : []; }
+function mResps(waveId) {
+  const rs = mAllResponses();
+  if (!waveId || waveId === 'all') return rs;
+  return rs.filter(r => String(r.wave) === String(waveId));
+}
+function mWaveLabel(id) {
+  if (!id || id === 'all') return M_WAVES.length > 1 ? 'all waves' : 'wave 1';
+  const w = M_WAVES.find(x => String(x.id) === String(id));
+  return w ? w.label.toLowerCase() : 'wave ' + id;
+}
+function mSent(waveId) {
+  if (!waveId || waveId === 'all') return (MDATA.sent && MDATA.sent.total) || 0;
+  const w = M_WAVES.find(x => String(x.id) === String(waveId));
+  return w ? w.sent : 0;
+}
+function mIsRisk(r) { return r.risk === 'high' || r.risk === 'medium'; }
+function mIsPromoter(r) { return !!r.is_promoter; }
+function mNps(list) {
+  const scored = list.filter(r => r.scores.nps != null);
+  const n = scored.length;
+  if (!n) return { score: 0, promoters: 0, detractors: 0, n: 0 };
+  const p = scored.filter(r => r.scores.nps >= 9).length;
+  const d = scored.filter(r => r.scores.nps <= 6).length;
+  return { score: Math.round(100 * (p - d) / n), promoters: p, detractors: d, n: n };
+}
+function mAvg(list, key) {
+  const vals = list.map(r => r.scores[key]).filter(v => v != null);
+  if (!vals.length) return null;
+  return vals.reduce((s, v) => s + v, 0) / vals.length;
+}
+function mDiagAvg(list, key) {
+  const vals = list.map(r => r.diagnostics ? r.diagnostics[key] : null).filter(v => v != null);
+  if (!vals.length) return { avg: null, n: 0 };
+  return { avg: vals.reduce((s, v) => s + v, 0) / vals.length, n: vals.length };
+}
+function mFuOpen(r) { return !!(r.fu && r.fu.status !== 'resolved'); }
+function mFuOverdue(r) { return mFuOpen(r) && !!r.fu.due_date && r.fu.due_date < MDATA.as_of; }
+/* Needs a reply (Block 20 decision 2): a survey that was answered and has had
+   no reply since (no staff reply, no automatic thank-you). One row per survey,
+   so a member who answered two rounds and heard back once still shows once. */
+function mNeedsReply(r) { return !r.replied; }
+function mLowest(r) { return r.lowest_score == null ? 99 : r.lowest_score; }
+function mNeedsList(rs) {
+  return (rs || mAllResponses()).filter(mNeedsReply).sort((a, b) =>
+    (mLowest(a) - mLowest(b)) || String(b.answered_at).localeCompare(String(a.answered_at)));
+}
+function mRepliedList(rs) {
+  return (rs || mAllResponses()).filter(r => r.replied).sort((a, b) =>
+    String(b.reply_date || '').localeCompare(String(a.reply_date || '')) || String(b.answered_at).localeCompare(String(a.answered_at)));
+}
+function mRefreshMembersBadge() {
+  const b = $('members-badge'); if (!b) return;
+  const n = mNeedsList().length;
+  if (n) { b.textContent = n; b.style.display = ''; } else { b.style.display = 'none'; }
+}
+function mRiskWeight(r) { return r.risk === 'high' ? 100 : r.risk === 'medium' ? 50 : 0; }
+function mAttentionScore(r) {
+  return mRiskWeight(r) + (10 - (r.scores.nps == null ? 5 : r.scores.nps)) +
+    (10 - (r.scores.remain == null ? 5 : r.scores.remain)) + (mFuOverdue(r) ? 20 : 0);
+}
+function mPrioRank(r) { return r.risk === 'high' ? 0 : r.risk === 'medium' ? 1 : 2; }
+function mRiskBadge(r) {
+  if (r.risk === 'high') return '<span class="badge badge-destructive">high risk</span>';
+  if (r.risk === 'medium') return '<span class="badge badge-warning">at risk</span>';
+  return '';
+}
+function mRepliedBadge(r) {
+  if (!r.replied) return '';
+  const last = r.replies[r.replies.length - 1] || {};
+  return '<span class="badge badge-success">' + (last.auto ? 'auto thank-you' : 'replied') + ' ' + escapeHtml(last.date || '') + '</span>';
+}
+function mDisclosure() {
+  const a = MDATA.audience;
+  if (!a || !a.disclosure_sentence) {
+    return '<div class="banner banner-safe">' + icon('users') + '<div><strong>Audience file not loaded yet.</strong> ' +
+      'Member counts (and the do-not-mail disclosure) appear once member_status.csv arrives from the data pull.</div></div>';
+  }
+  return '<div class="banner banner-safe">' + icon('users') + '<div><strong>Who this covers.</strong> ' +
+    escapeHtml(a.disclosure_sentence) + '</div></div>';
+}
+function mStatusBanners() {
+  let h = '';
+  if (MDATA.sheet_ok === false) {
+    h += '<div class="banner banner-warn">' + icon('shield') + '<div><strong>Could not read the response sheet.</strong> ' +
+      'Showing no responses rather than stale ones. Detail: ' + escapeHtml(MDATA.sheet_error || 'unknown') + '</div></div>';
+  }
+  if (MDATA.unknown_row_labels && MDATA.unknown_row_labels.length) {
+    h += '<div class="banner banner-warn">' + icon('shield') + '<div><strong>The survey has a row this tool does not know.</strong> ' +
+      escapeHtml(MDATA.unknown_row_labels.join('; ')) + '. Its scores are ignored until the parser learns it.</div></div>';
+  }
+  return h;
+}
+/* Chris 2026-09-02: current member count + a 12-week trend line.
+   The count is today's live number from the audience file. The line is only
+   what has actually been recorded, week by week, because the roster CSV is a
+   snapshot with no history (see nudge_tool/member_counts.py). Until two weeks
+   are on file we say so plainly rather than draw a one-point "trend". */
+function mMemberCountCard() {
+  const mc = MDATA.member_count;
+  if (!mc || mc.current == null) return '';
+  const n = mc.current;
+  let sub = 'Active members right now' + (mc.frozen ? ', plus ' + mc.frozen + ' frozen' : '');
+  let inner = '<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px;">' +
+    '<div style="font-size:34px;font-weight:700;line-height:1;">' + n.toLocaleString() + '</div>' +
+    '<div style="font-size:12.5px;color:var(--fg-subtle);">' + escapeHtml(sub) + '</div>';
+  if (mc.change_since_first != null) {
+    const c = mc.change_since_first;
+    const cls = c > 0 ? 'badge-success' : (c < 0 ? 'badge-warning' : '');
+    inner += '<span class="badge ' + cls + '">' + (c > 0 ? '+' : '') + c.toLocaleString() +
+      ' since ' + escapeHtml(mc.first_week) + '</span>';
+  }
+  inner += '</div>';
+  if (mc.building) {
+    inner += '<div style="font-size:12.5px;color:var(--fg-subtle);line-height:1.5;">' +
+      'The trend line starts filling this week. We record one member count every week from now on. ' +
+      'It cannot be filled in backwards: the member file says who is a member <em>today</em> and keeps no history, ' +
+      'and most active members have no start or end date on record. ' +
+      '<strong>' + mc.weeks_tracked + ' of ' + mc.weeks_target + ' weeks</strong> recorded so far.</div>';
+  } else {
+    inner += countLineChart(mc.labels, mc.values, 'Active members');
+    if (mc.weeks_tracked < mc.weeks_target) {
+      inner += '<div style="font-size:12px;color:var(--fg-subtle);margin-top:6px;">' +
+        'Showing ' + mc.weeks_tracked + ' of ' + mc.weeks_target + ' weeks. ' +
+        'The line grows by one point a week until it reaches ' + mc.weeks_target + '.</div>';
+    }
+  }
+  return inner;   // the Member Insights "Member count" chart body (Block 20 R2)
+}
+function mGateLine() {
+  if (MDATA.enabled) return '';
+  return '<div style="font-size:12px;color:var(--fg-subtle);margin:-2px 0 10px;">Surveys are not sending yet (member_survey.enabled is off). ' +
+    'Anything listed here came from test links or a manual send.</div>';
+}
+function mTestNote() {
+  const u = MDATA.responses_unmatched || 0, b = MDATA.blank_mid || 0;
+  if (!u && !b) return '';
+  const bits = [];
+  if (u) bits.push(u + ' response' + (u === 1 ? '' : 's') + ' with an id that matches no member (test links)');
+  if (b) bits.push(b + ' with no member id at all');
+  return '<div style="font-size:11.5px;color:var(--fg-hint);margin-top:8px;">Not shown: ' + escapeHtml(bits.join(', ')) + '. Counted here so the sheet and this page always add up.</div>';
+}
+
+/* --- plain-language explainer (same pattern as the pilot slides' info modals) --- */
+const M_INFO = {
+  scores: {
+    title: 'What these numbers mean',
+    body:
+      '<h4>Likelihood to Recommend</h4>' +
+      '<p>From “How likely are you to recommend us to a friend?” (0 to 10). 9 or 10 = promoter, 0 to 6 = detractor, 7 and 8 are neutral. ' +
+      'Likelihood to Recommend is scored the way NPS is: the percent of members who answered 9 or 10, minus the percent who answered 0 to 6. It runs from -100 to +100. Below 0 means trouble, 0 to 30 is okay with work to do, 30 to 50 is strong, 50+ is excellent.</p>' +
+      '<h4>Stay-6-months intent</h4>' +
+      '<p>Average answer to “How likely are you to still be a member 6 months from now?” (0 to 10). An early warning: it usually drops before cancellations show in billing.</p>' +
+      '<h4>The 0-10 dimension scores</h4>' +
+      '<p>Each is the average of real member answers for that question. Anything under 7 shows red.</p>' +
+      '<h4>Who gets a follow-up</h4>' +
+      '<p>Any member who does not score EVERY one of the six questions 9 or higher (the rule Chris set). The lowest-scored question picks the suggested reply. ' +
+      'Risk: <strong>high</strong> = stay 4 or below or recommend 3 or below; <strong>at risk</strong> = stay 6 or below or recommend 6 or below.</p>' +
+      '<h4>One honest caveat</h4>' +
+      '<p>These numbers describe the members who answered, not every member. Members who asked not to be mailed are excluded from every number on this page and the count says so.</p>',
+  },
+};
+function mShowInfo(kind) {
+  const info = M_INFO[kind];
+  if (!info) return;
+  $('modal-card').classList.add('modal-wide');
+  openModal('<div class="modal-head">' + icon('sparkles') + escapeHtml(info.title) + '</div>' +
+    '<div class="modal-body">' + info.body + '</div>' +
+    '<div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Got it</button></div>');
+}
+function mInfoBtn(kind) {
+  return '<div class="eng-info-wrap"><button class="eng-info-btn" onclick="mShowInfo(\'' + kind + '\')">' +
+    'What do these numbers mean? Click for a plain-language guide</button></div>';
+}
+
+/* --- shared controls --- */
+function mScoreBadge(v) {
+  if (v == null) return '<span class="badge">n/a</span>';
+  const cls = v >= 9 ? ' badge-success' : v >= 7 ? '' : v >= 5 ? ' badge-warning' : ' badge-destructive';
+  return '<span class="badge' + cls + '">' + v + '</span>';
+}
+function mScoreClass(avg) { return avg >= 8.5 ? 'sc-good' : avg >= 7 ? 'sc-mid' : 'sc-bad'; }
+function mDelta(cur, prior) {
+  if (cur == null || prior == null) return '<span class="delta-flat">–</span>';
+  const d = cur - prior;
+  if (Math.abs(d) < 0.15) return '<span class="delta-flat">·</span>';
+  return d > 0 ? '<span class="delta-up">▲' + d.toFixed(1) + '</span>'
+               : '<span class="delta-down">▼' + Math.abs(d).toFixed(1) + '</span>';
+}
+function mDeltaInt(cur, prior) {
+  if (cur == null || prior == null) return '<span class="delta-flat">–</span>';
+  const d = cur - prior;
+  if (Math.abs(d) < 3) return '<span class="delta-flat">·</span>';
+  return d > 0 ? '<span class="delta-up">▲' + d + '</span>' : '<span class="delta-down">▼' + Math.abs(d) + '</span>';
+}
+function mCountBar(label, n, maxN) {
+  const w = maxN > 0 ? Math.round(100 * n / maxN) : 0;
+  return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
+    '<div class="bar-count">' + n.toLocaleString() + '</div></div>' +
+    '<div class="bar-track">' + fillHtml(n, w) + '</div></div>';
+}
+function mDimBar(label, avg, sub, tone) {
+  const cls = tone === 'green' ? 'bar-green' : tone === 'red' ? 'bar-red' : '';
+  return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
+    '<div class="bar-count">' + (avg == null ? 'n/a' : avg.toFixed(1)) + ' / 10</div></div>' +
+    '<div class="bar-track">' + fillHtml(avg || 0, 10 * (avg || 0), cls) + '</div>' +
+    (sub ? '<div class="bar-sub">' + escapeHtml(sub) + '</div>' : '') + '</div>';
+}
+function mWaveSelectHtml() {
+  if (M_WAVES.length <= 1) return '';
+  let o = '<option value="all"' + (MEMBER_WAVE === 'all' ? ' selected' : '') + '>All waves</option>';
+  o += M_WAVES.slice().reverse().map(w =>
+    '<option value="' + w.id + '"' + (String(MEMBER_WAVE) === String(w.id) ? ' selected' : '') + '>' + escapeHtml(w.label) + '</option>').join('');
+  return '<div class="insights-controls"><div class="period-toggle" style="margin:0;"><span class="period-label">Wave</span>' +
+    '<select class="period-select" onchange="setMemberWave(this.value)">' + o + '</select></div></div>';
+}
+function setMemberWave(v) {
+  MEMBER_WAVE = v;
+  renderHome(); renderMemberResponses(); renderRecognition();   // Home carries the Needs-a-reply count (Block 20 R2)
+}
+function mId(r) { return escapeHtml(r.id).replace(/'/g, "\\'"); }
+
+/* --- Overview --- */
+/* The Members Overview page is gone (Block 20 R2 decision 12, 2026-10-08):
+   Home shows the Needs-a-reply count and the three member numbers; Recent
+   wins and the member count are the last two Member Insights charts. */
+
+/* --- Responses list: three tabs (Block 20 decisions 1, 2, 3; 2026-10-08) ---
+   Needs a reply = a survey answered with no reply sent since (no staff reply,
+   no automatic thank-you), lowest scores first. Replied = newest reply first.
+   All = newest survey first. One row per SURVEY (decision 18): a member who
+   answered two rounds shows twice. Row tags are only the lowest-scored area
+   and high risk (decision 3). The old nine filter chips are gone. */
+function setMemberRespTab(t) { MRESP_TAB = (t === 'replied' || t === 'all') ? t : 'needs'; renderMemberResponses(); }
+function setMemberRespFilter(f) { setMemberRespTab(f === 'open' ? 'needs' : 'all'); }   // older links
+function mTabRows(tab) {
+  const rs = mResps(MEMBER_WAVE);
+  if (tab === 'needs') return mNeedsList(rs);
+  if (tab === 'replied') return mRepliedList(rs);
+  return rs.slice().sort((a, b) => String(b.answered_at).localeCompare(String(a.answered_at)));
+}
+function mRowStatus(r) {
+  if (!r.replied) return 'Needs a reply';
+  return (r.reply_auto ? 'Automatic thank-you ' : 'Replied ') + escapeHtml(r.reply_date || '');
+}
+function mRespRow(r, showStatus) {
+  const rec = r.recommend;
+  return '<button class="mresp-item' + (r.risk === 'high' ? ' risk' : '') + '" onclick="openMemberResp(\'' + mId(r) + '\')"><div class="mresp-row"><div>' +
+    '<div class="inbox-item-name">' + escapeHtml(r.name) + '</div>' +
+    '<div class="inbox-item-meta">' +
+      '<span>Answered ' + escapeHtml(r.answered_at) + '</span>' +
+      (M_WAVES.length > 1 ? '<span>round ' + r.wave + '</span>' : '') +
+      '<span>recommend ' + (r.scores.nps == null ? 'n/a' : r.scores.nps + '/10') + '</span>' +
+      '<span>stay ' + (r.scores.remain == null ? 'n/a' : r.scores.remain + '/10') + '</span>' +
+      (rec && rec.metric_label ? '<span class="badge badge-warning">' + escapeHtml(rec.metric_label) + ' lowest</span>' : '') +
+      (r.risk === 'high' ? '<span class="badge badge-destructive">high risk</span>' : '') +
+    '</div></div>' +
+    (showStatus ? '<span class="mresp-status">' + mRowStatus(r) + '</span>' : '') +
+    '</div></button>';
+}
+function renderMemberResponses() {
+  const needs = mTabRows('needs'), replied = mTabRows('replied'), all = mTabRows('all');
+  const rows = MRESP_TAB === 'needs' ? needs : MRESP_TAB === 'replied' ? replied : all;
+  let h = pageHeader('Member Survey Responses',
+    'Click a member to see their answers and reply. Needs a reply puts the lowest scores on top; Replied is newest reply first; All is newest survey first.');
+  h += mStatusBanners();
+  h += mWaveSelectHtml();
+  h += '<div class="tabs">' +
+    '<button class="tab' + (MRESP_TAB === 'needs' ? ' active' : '') + '" onclick="setMemberRespTab(\'needs\')">Needs a reply <span class="count">' + needs.length + '</span></button>' +
+    '<button class="tab' + (MRESP_TAB === 'replied' ? ' active' : '') + '" onclick="setMemberRespTab(\'replied\')">Replied <span class="count">' + replied.length + '</span></button>' +
+    '<button class="tab' + (MRESP_TAB === 'all' ? ' active' : '') + '" onclick="setMemberRespTab(\'all\')">All <span class="count">' + all.length + '</span></button>' +
+    '</div>';
+  if (!rows.length) {
+    const none = !all.length;
+    h += '<div class="card"><div class="empty-state"><div class="empty-state-icon">' + (MRESP_TAB === 'needs' && !none ? '✓' : '📭') + '</div>' +
+      '<div class="empty-state-title">' + (none ? 'No responses yet' : MRESP_TAB === 'needs' ? 'All caught up' : 'Nothing here yet') + '</div>' +
+      '<div class="empty-state-msg">' + (none ? 'Member responses appear here the moment a member submits page 1 of the survey.'
+        : MRESP_TAB === 'needs' ? 'Every member who answered has heard back.' : 'No reply has gone out yet.') + '</div></div></div>';
+  } else {
+    h += '<div class="mresp-list">';
+    rows.forEach(r => { h += mRespRow(r, MRESP_TAB === 'all'); });
+    h += '</div>';
+  }
+  h += mCommsLogCard();
+  h += mTestNote();
+  $('view-m-responses').innerHTML = h;
+}
+/* Gym-wide member communications log (Block 20 decision 9). Block 24
+   decision 7 (Chris's 10/16 call): the long table left the page; one Download
+   CSV button gives the whole log instead (all time, newest first; Date,
+   Member, What went out, Sent by). Each member's own History card stays on
+   their response page. */
+function mCommsRows() { return ((MDATA.comms_log || {}).rows) || []; }
+function mCommsLogCard() {
+  const n = mCommsRows().length;
+  return '<div class="card" style="margin-top:26px;"><div class="card-header"><div class="card-title">' + icon('mail') + 'Messages sent to members</div>' +
+    '<div class="card-description">Every survey invite, thank-you, reply and (past) front-desk alert, all time, newest first: ' + n.toLocaleString() + plural(n, ' message', ' messages') +
+    '. To see one member\'s messages, open their response and look at History.</div></div>' +
+    '<div class="card-content with-top"><button class="btn btn-outline btn-sm" onclick="mExportCommsLog()"' + (n ? '' : ' disabled') + '>' + icon('download') + ' Download CSV</button></div></div>';
+}
+function mExportCommsLog() {
+  const rows = mCommsRows();
+  if (!rows.length) { toast('Nothing has been sent to members yet.'); return; }
+  const head = ['Date', 'Member', 'What went out', 'Sent by'];
+  const body = rows.map(l => [l.date, l.name, l.label, l.who === 'Staff' ? 'Staff' : 'Automatic']);
+  const csv = [head].concat(body).map(cols => cols.map(csvCell).join(',')).join('\r\n');
+  downloadCsv('member_messages_' + String(MDATA.as_of || DATA.as_of || '').slice(0, 10) + '.csv', csv);
+}
+
+/* --- Response detail + suggested reply + follow-up --- */
+function mFindResp(id) { return mAllResponses().find(r => r.id === id); }
+function openMemberResp(id) { renderMemberRespDetail(id); showView('m-respdetail'); }
+function mTemplateTitle(r) {
+  const rec = r.recommend;
+  if (!rec) return 'No suggestion (no scored answers)';
+  if (!rec.metric) return 'Thank-you (all scores 9 or higher)';
+  return 'Follow-up: ' + rec.metric_label;
+}
+function renderMemberRespDetail(id) {
+  const r = mFindResp(id);
+  if (!r) { $('view-m-respdetail').innerHTML = '<div class="card"><div class="empty-state"><div class="empty-state-title">Not found</div></div></div>'; return; }
+
+  let h = '<button class="btn btn-ghost btn-sm" onclick="showView(\'m-responses\')">‹ Back to responses</button>';
+  h += '<div class="page-header" style="margin-top:10px;margin-bottom:14px;">' +
+    '<div class="page-title">' + escapeHtml(r.name) + '</div>' +
+    '<div class="page-subtitle">' + escapeHtml(r.email) + '</div></div>';
+  h += '<div class="inline-badges" style="margin-bottom:18px;">' +
+    '<span class="badge">' + escapeHtml((r.member_status || 'member').toLowerCase() === 'ok' ? 'active member' : (r.member_status || '').toLowerCase()) + '</span>' +
+    '<span class="badge">wave ' + r.wave + '</span>' +
+    (mIsPromoter(r) ? '<span class="badge badge-success">promoter</span>' : '') +
+    mInactiveBadge(r) +
+    mRiskBadge(r) +
+    (r.replied ? '<span class="badge badge-success">' + mRowStatus(r) + '</span>' : '<span class="badge badge-warning">Needs a reply</span>') +
+    '<button class="link-btn" style="margin-left:6px;" onclick="document.getElementById(\'m-history\').scrollIntoView({behavior:\'smooth\'})">See history (' + (((MDATA.timelines || {})[r.mid] || []).length) + ')</button>' +
+    '</div>';   // "Pages answered" + the "page 1 only" badge removed (Luke 2026-10-08: confusing)
+
+  // member info
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('users') + 'Member info</div></div>' +
+    '<div class="card-content with-top"><div class="detail-grid">' +
+    field('Member since', r.member_since || 'n/a') +
+    field('Status', r.member_status || 'n/a') +
+    field('Survey submitted', r.answered_at) +
+    field('Survey wave', 'Wave ' + r.wave) +
+    field('Member id', r.mid) +
+    '</div></div></div>';
+
+  // scores
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('sparkles') + 'Scores</div>' +
+    '<div class="card-description">0 to 10. Green 9 or higher, grey 7 to 8, yellow 5 to 6, red below 5.</div></div>' +
+    '<div class="card-content with-top"><div class="detail-grid">' +
+    mScoreField('Recommend to a friend', r.scores.nps) +
+    mScoreField('Still a member in 6 months', r.scores.remain);
+  M_DIMS.forEach(d => { h += mScoreField(d[1], r.scores[d[0]]); });
+  h += '</div>';
+  const diagBits = [];
+  M_DIAG.forEach(d => { const v = r.diagnostics ? r.diagnostics[d[0]] : null; if (v != null) diagBits.push(mScoreField(d[1], v)); });
+  if (diagBits.length) {
+    h += '<div class="fu-label" style="margin:14px 0 6px;">Page 2 detail (context for staff, never used to pick the reply)</div>' +
+      '<div class="detail-grid">' + diagBits.join('') + '</div>';
+  }
+  h += '</div></div>';
+
+  // comments
+  const hasComment = r.text.why || r.text.improve || r.text.shout_out;
+  if (hasComment) {
+    h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('mail') + 'In their own words</div></div>' +
+      '<div class="card-content with-top">';
+    if (r.text.why) h += inboxQ('Why they gave that recommend score', r.text.why);
+    if (r.text.improve) h += inboxQ('What we could improve', r.text.improve);
+    if (r.text.shout_out) h += inboxQ('Staff shout-out', r.text.shout_out);
+    h += '</div></div>';
+  }
+  h += mExtraCard(r);
+
+  // suggested reply: Chris's pick + the real rendered template + staff-only guidance
+  h += mReplyCard(r);
+  // (the follow-up panel left with Block 24 decision 8)
+  // Block 20 R1b: everything sent to this member, and every survey they answered
+  h += mHistoryCard(r);
+  $('view-m-respdetail').innerHTML = h;
+}
+/* Member profile History (Block 20 R1b, decisions 15-17). One timeline per
+   member, newest first: survey invites, thank-yous, staff replies, the emails
+   they got as a first-time visitor, and each survey they answered. Each email
+   opens in place to its words; an answered survey opens that survey. A staff
+   reply shows the exact words sent; everything else shows the template's
+   copy and says so (the log records which email went out, not its words). */
+function mNewestFor(mid) { return mAllResponses().find(x => x.mid === mid); }
+function mTlLabel(x) {
+  if (x.kind === 'visitor_email') return triggerLabel(x.trigger) + ' (first-time visitor email)';
+  if (x.kind === 'answered') return x.label;
+  return x.label + (x.who === 'Automatic' && x.kind !== 'auto_reply' ? ' (automatic)' : '');
+}
+function mTlEmail(x, r) {
+  const sentinel = (MDATA.config && MDATA.config.first_name_sentinel) || '%%FIRST_NAME%%';
+  const name = r.first_name || 'there';
+  let subject = '', body = '', note = '';
+  if (x.source === 'sent') {
+    subject = x.subject; body = x.body;
+    note = 'The exact words sent.';
+  } else if (x.source === 'template') {
+    const t = (MDATA.timeline_templates || {})[x.template_key];
+    if (!t) return '<div class="fu-note-at">The words of this email are not on file.</div>';
+    subject = (x.variant === 'B' && t.subject_b) ? t.subject_b : t.subject;
+    body = t.body;
+    subject = subject.split(sentinel).join(name); body = body.split(sentinel).join(name);
+    note = 'As written in the template. The log records which email went out, not its words, so this is the template as it reads today.';
+  } else {
+    return '<div class="fu-note-at">The words of this email are not on file.</div>';
+  }
+  return '<div class="fu-note-at" style="margin-bottom:6px;">' + escapeHtml(note) + (x.title ? ' Template: ' + escapeHtml(x.title) + '.' : '') + '</div>' +
+    '<div class="fu-label">Subject</div><div style="font-size:12.5px;margin-bottom:8px;">' + escapeHtml(subject) + '</div>' +
+    '<div class="fu-label">Email</div><div style="font-size:12.5px;white-space:pre-wrap;line-height:1.5;overflow-wrap:anywhere;">' + mTlBodyHtml(body) + '</div>';
+}
+/* [text](url) the way the email renders it (brevo_client._html_body): a link
+   with nice text. A non-web target (the survey-link stand-in) stays words. */
+function mTlBodyHtml(text) {
+  return escapeHtml(text).replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (m, label, url) {
+    return /^https?:\/\//i.test(url)
+      ? '<a href="' + url + '" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600;">' + label + '</a>'
+      : label + ' (' + url.replace(/^\[|\]$/g, '') + ')';
+  });
+}
+function mTlToggle(btn) {
+  const box = btn.nextElementSibling;
+  const open = box.style.display === 'none';
+  box.style.display = open ? 'block' : 'none';
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.querySelector('.tl-caret').textContent = open ? '▾' : '▸';
+}
+function mHistoryCard(r) {
+  const items = (MDATA.timelines || {})[r.mid] || [];
+  const newest = mNewestFor(r.mid);
+  let h = '<div class="card" id="m-history"><div class="card-header"><div class="card-title">' + icon('mail') + 'History</div>' +
+    '<div class="card-description">Everything sent to ' + escapeHtml(r.first_name || 'this member') + ' and every survey they answered, newest first. Click an email to read it, or a survey to open it.</div></div>' +
+    '<div class="card-content with-top">';
+  if (newest && newest.id !== r.id) {
+    h += '<div class="fu-note" style="margin-bottom:12px;">You are looking at an older survey (round ' + r.wave + '). <button class="link-btn" onclick="openMemberResp(\'' + mId(newest) + '\')">Open the newest survey</button></div>';
+  }
+  if (!items.length) {
+    h += '<div style="color:var(--fg-subtle);font-size:12.5px;">Nothing on record yet.</div>';
+  } else {
+    h += '<div class="tl-list">';
+    items.forEach(x => {
+      const when = '<span class="tl-date">' + escapeHtml(shortDate(x.date)) + '</span>';
+      if (x.kind === 'answered') {
+        const here = x.rid === r.id;
+        h += '<div class="tl-item">' + (here
+          ? '<div class="tl-row tl-here"><span class="tl-caret"></span>' + when + '<span class="tl-label">' + escapeHtml(mTlLabel(x)) + ' <span class="badge">this survey</span></span></div>'
+          : '<button class="tl-row" onclick="openMemberResp(\'' + mId({ id: x.rid }) + '\')"><span class="tl-caret">›</span>' + when + '<span class="tl-label">' + escapeHtml(mTlLabel(x)) + '</span></button>') +
+          '</div>';
+      } else {
+        h += '<div class="tl-item"><button class="tl-row" aria-expanded="false" onclick="mTlToggle(this)"><span class="tl-caret">▸</span>' + when +
+          '<span class="tl-label">' + escapeHtml(mTlLabel(x)) + '</span></button>' +
+          '<div class="tl-body" style="display:none;">' + mTlEmail(x, r) + '</div></div>';
+      }
+    });
+    h += '</div>';
+  }
+  h += '</div></div>';
+  return h;
+}
+function mScoreField(label, v) {
+  return '<div class="field-cell"><div class="field-label">' + escapeHtml(label) + '</div>' +
+    '<div class="field-value">' + mScoreBadge(v) + '</div></div>';
+}
+/* Reply card. The rule's pick is pre-selected; staff may pick another of the
+   seven templates. The copy is sent AS-IS, signed links.manager_name ("The
+   team"): no editing, no per-send signature (Luke 2026-08-21). The draft shown
+   for the rule's pick is the server render for this member (r.draft); any
+   other pick is the server's once-rendered template with the first-name
+   sentinel swapped in, so what the page shows is what POST /reply mails. */
+const M_REPLY_PICK = {};      // response id -> template key chosen in the picker
+const M_REPLY_ARMED = {};     // response id -> true after the first Send click (two-step send)
+const M_REPLY_BUSY = {};      // response id -> true while a send is in flight
+function mReplyTemplates() { return (MDATA.config && MDATA.config.reply_templates) || []; }
+function mReplyPick(r) {
+  const want = M_REPLY_PICK[r.id] || (r.recommend ? r.recommend.template_key : '') || (mReplyTemplates()[0] || {}).key || '';
+  return want;
+}
+function mDraftFor(r, key) {
+  if (r.draft && r.draft.template_key === key) return { template_key: key, subject: r.draft.subject, body: r.draft.body };
+  const t = mReplyTemplates().find(x => x.key === key);
+  if (!t || !t.installed) return null;
+  const sentinel = (MDATA.config && MDATA.config.first_name_sentinel) || '%%FIRST_NAME%%';
+  const name = r.first_name || 'there';
+  return { template_key: key, subject: t.subject.split(sentinel).join(name), body: t.body.split(sentinel).join(name) };
+}
+function mReplyTitle(key) { const t = mReplyTemplates().find(x => x.key === key); return t ? t.title : key; }
+function mSetReplyPick(id, key) { M_REPLY_PICK[id] = key; M_REPLY_ARMED[id] = false; renderMemberRespDetail(id); }
+function mRepliesList(r) {
+  const all = r.replies_all || [];
+  if (!all.length) return '';
+  let h = '<div class="fu-label">Replies sent</div>';
+  all.slice().reverse().forEach(x => {
+    const thisOne = (r.replies || []).some(y => y.date === x.date && y.template_key === x.template_key && y.auto === x.auto);
+    h += '<div class="fu-note">' + escapeHtml(mReplyTitle(x.template_key)) +
+      '<div class="fu-note-at">' + escapeHtml(x.date) + (x.auto ? ' · automatic' : ' · sent from this page') +
+      (thisOne ? '' : ' · for an earlier survey') + '</div></div>';
+  });
+  return h;
+}
+function mReplyCard(r) {
+  const rec = r.recommend;
+  const canSend = mSendEnabled();
+  let h = '<div class="card"><div class="card-header"><div class="card-title">' + icon('mail') + 'Reply</div>' +
+    '<div class="card-description">The suggestion comes from a fixed rule, not guesswork: the thank-you only when every score is ' + (MDATA.config.positive_threshold || 9) + ' or higher, otherwise the lowest-scored question’s template. Pick a different one if you know better. You can change the words before it goes; it is signed “' + escapeHtml(MDATA.config.manager_name || 'The team') + '” and both the template and what you sent are saved for the team.</div></div>' +
+    '<div class="card-content with-top">';
+  if (!rec) {
+    h += '<div style="font-size:12.5px;color:var(--fg-subtle);margin-bottom:10px;">No scored answers on this response, so there is no suggestion. You can still pick a template below.</div>';
+  } else {
+    h += '<div class="inline-badges" style="margin-bottom:10px;"><span class="badge badge-primary">Suggested: ' + escapeHtml(mTemplateTitle(r)) + '</span>' +
+      (r.replied ? '<span class="badge badge-success">replied ' + escapeHtml((r.replies[r.replies.length - 1] || {}).date || '') + '</span>' : '') + '</div>';
+    h += '<div style="font-size:12.5px;color:var(--fg-subtle);margin-bottom:10px;">' + escapeHtml(rec.reason) + '</div>';
+    if (rec.ranked && rec.ranked.length) {
+      h += '<div class="fu-label">Scores, lowest first</div><div class="inline-badges" style="margin-bottom:12px;">' +
+        rec.ranked.map(kv => '<span class="badge' + (kv[1] < (MDATA.config.positive_threshold || 9) ? ' badge-warning' : '') + '">' + escapeHtml(mMetricLabel(kv[0])) + ' ' + kv[1] + '</span>').join('') + '</div>';
+    }
+  }
+  const pick = mReplyPick(r);
+  const tpls = mReplyTemplates();
+  if (tpls.length) {
+    h += '<div class="fu-label">Template</div>' +
+      '<select class="period-select" style="width:100%;max-width:420px;margin-bottom:10px;" onchange="mSetReplyPick(\'' + mId(r) + '\',this.value)">' +
+      tpls.map(t => '<option value="' + escapeHtml(t.key) + '"' + (t.key === pick ? ' selected' : '') + (t.installed ? '' : ' disabled') + '>' +
+        escapeHtml(t.title) + (rec && rec.template_key === t.key ? ' (suggested)' : '') + (t.installed ? '' : ' (not installed)') + '</option>').join('') +
+      '</select>';
+  }
+  const d = mDraftFor(r, pick);
+  if (d) {
+    const armed = !!M_REPLY_ARMED[r.id], busy = !!M_REPLY_BUSY[r.id];
+    const label = busy ? 'Sending…' : armed ? 'Confirm: send to ' + r.email : (r.replied ? 'Send another reply' : 'Send this email');
+    // Editable copy (roadmap block 3, 2026-09-10). The boxes start from the
+    // template rendered for this member; edits live in M_REPLY_EDIT so a
+    // re-render (arm / disarm / pick) never loses typed text.
+    const txt = mReplyText(r, pick);
+    const rid = escapeHtml(r.id), jid = mId(r);
+    h += '<div class="fu-label" style="display:flex;justify-content:space-between;align-items:baseline;"><span>Subject</span>' +
+      '<span id="reply-reset-' + rid + '" style="text-transform:none;letter-spacing:0;font-weight:500;">' + mReplyResetHtml(jid, txt.edited) + '</span></div>' +
+      '<input class="fu-textarea" style="min-height:0;margin-bottom:8px;" id="reply-subject-' + rid + '" value="' + escapeHtml(txt.subject) + '" oninput="mReplyInput(\'' + jid + '\')"' + (busy ? ' disabled' : '') + '>' +
+      '<div class="fu-label" style="display:flex;justify-content:space-between;align-items:baseline;"><span>Email</span><span id="reply-count-' + rid + '" style="text-transform:none;letter-spacing:0;font-weight:500;">' + mReplyCount(txt.body) + '</span></div>' +
+      '<textarea class="fu-textarea" style="min-height:220px;margin-bottom:6px;white-space:pre-wrap;" id="reply-body-' + rid + '" oninput="mReplyInput(\'' + jid + '\')"' + (busy ? ' disabled' : '') + '>' + escapeHtml(txt.body) + '</textarea>' +
+      '<div style="font-size:11px;color:var(--fg-hint);margin-bottom:10px;">' + escapeHtml(r.first_name ? 'The first name (' + r.first_name + ') is already filled in.' : 'No first name on file, so the greeting says “there”.') + ' Links written as [text](https://...) become clickable. What you send here is what the member gets.</div>' +
+      '<div class="queue-actions" style="border-top:none;padding-top:0;margin-bottom:12px;align-items:center;gap:10px;">' +
+      '<button class="btn ' + (armed ? 'btn-destructive' : 'btn-primary') + ' btn-sm" id="reply-send-' + escapeHtml(r.id) + '"' + ((!canSend || busy) ? ' disabled' : '') + ' onclick="mSendReply(\'' + mId(r) + '\')">' + icon('mail') + ' ' + escapeHtml(label) + '</button>' +
+      (armed ? '<button class="btn btn-ghost btn-sm" onclick="mDisarmReply(\'' + mId(r) + '\')">Cancel</button>' : '') +
+      '<button class="btn btn-outline btn-sm" onclick="mCopyDraft(\'' + mId(r) + '\')">' + icon('copy') + ' Copy email</button>' +
+      '<span style="font-size:11px;color:var(--fg-hint);">' +
+      (canSend ? 'Goes from ' + escapeHtml((MDATA.config.from_email || 'the gym address')) + ' right away. Logged for the whole team.'
+               : 'Sending isn’t switched on for this server yet. Copy the email and send it from your own mail app.') +
+      '</span></div>';
+  } else {
+    h += noData('The template for this pick (' + escapeHtml(pick) + ') is not installed on this server.');
+  }
+  h += mRepliesList(r);
+  const guidance = (r.recommend && pick === r.recommend.template_key) ? (r.guidance || []) : [];
+  if (guidance.length) {
+    h += '<div class="fu-label" style="margin-top:10px;">For staff only (never goes to the member)</div><ul class="mguide">' +
+      guidance.map(g => '<li>' + escapeHtml(g) + '</li>').join('') + '</ul>';
+  }
+  h += '</div></div>';
+  return h;
+}
+/* Editable reply copy (roadmap block 3). M_REPLY_EDIT[id] = {template_key,
+   subject, body} once a staffer types; absent = the template as rendered. */
+const M_REPLY_EDIT = {};
+function mReplyText(r, key) {
+  const e = M_REPLY_EDIT[r.id];
+  const d = mDraftFor(r, key) || { subject: '', body: '' };
+  if (e && e.template_key === key) {
+    return { subject: e.subject, body: e.body, edited: (e.subject !== d.subject || e.body !== d.body) };
+  }
+  return { subject: d.subject, body: d.body, edited: false };
+}
+function mReplyCount(s) { const n = (s || '').length; return n + ' character' + (n === 1 ? '' : 's'); }
+function mReplyResetHtml(jid, edited) {
+  return edited ? '<a href="#" onclick="mResetReply(\'' + jid + '\');return false;">Reset to template</a>' : 'template text';
+}
+function mReplyInput(id) {
+  const r = mFindResp(id); if (!r) return;
+  const key = mReplyPick(r);
+  const s = $('reply-subject-' + id), b = $('reply-body-' + id);
+  if (!s || !b) return;
+  M_REPLY_EDIT[id] = { template_key: key, subject: s.value, body: b.value };
+  const c = $('reply-count-' + id); if (c) c.textContent = mReplyCount(b.value);
+  const rs = $('reply-reset-' + id); if (rs) rs.innerHTML = mReplyResetHtml(mId(r), mReplyText(r, key).edited);
+  M_REPLY_ARMED[id] = false;   // a change after arming needs a fresh confirm
+  const btn = $('reply-send-' + id);
+  if (btn && !M_REPLY_BUSY[id]) { btn.className = 'btn btn-primary btn-sm'; btn.innerHTML = icon('mail') + ' ' + escapeHtml(r.replied ? 'Send another reply' : 'Send this email'); }
+}
+function mResetReply(id) { delete M_REPLY_EDIT[id]; M_REPLY_ARMED[id] = false; renderMemberRespDetail(id); }
+function mCopyDraft(id) {
+  const r = mFindResp(id); if (!r) return;
+  const d = mReplyText(r, mReplyPick(r)); if (!d || !d.subject) return;
+  const text = 'To: ' + r.email + '\nSubject: ' + d.subject + '\n\n' + mdToPlain(d.body);
+  try {
+    navigator.clipboard.writeText(text).then(
+      function () { toast('Email copied. Paste it into your mail app.'); },
+      function () { toast('Could not copy automatically. Select the text and copy it.'); });
+  } catch (e) { toast('Could not copy automatically. Select the text and copy it.'); }
+}
+function mDisarmReply(id) { M_REPLY_ARMED[id] = false; renderMemberRespDetail(id); }
+/* two-step send: first click arms ("Confirm: send to x@y"), second click sends.
+   An armed button disarms itself after 8 s so a stray click later can't send. */
+function mSendReply(id, force) {
+  const r = mFindResp(id); if (!r) return;
+  if (!mSendEnabled()) { toast('Sending isn’t switched on for this server yet.'); return; }
+  if (M_REPLY_BUSY[id]) return;
+  if (!M_REPLY_ARMED[id]) {
+    M_REPLY_ARMED[id] = true; renderMemberRespDetail(id);
+    setTimeout(function () { if (M_REPLY_ARMED[id] && !M_REPLY_BUSY[id]) { M_REPLY_ARMED[id] = false; const cur = $('view-m-respdetail'); if (cur && cur.classList.contains('active')) renderMemberRespDetail(id); } }, 8000);
+    return;
+  }
+  const key = mReplyPick(r);
+  const txt = mReplyText(r, key);
+  if (!txt.subject.trim() || !txt.body.trim()) { toast('The subject and the email text cannot be blank.'); return; }
+  M_REPLY_BUSY[id] = true; renderMemberRespDetail(id);
+  // always send the box text: the server saves template-vs-sent as a pair
+  // and marks changed=0 when they match.
+  const body = { mid: r.mid, rid: r.rid || r.id, template_key: key, by: mBy(), subject: txt.subject, body: txt.body };
+  if (force) body.force = true;
+  fetch('/reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(res => res.json())
+    .then(res => {
+      M_REPLY_BUSY[id] = false; M_REPLY_ARMED[id] = false;
+      if (!res || !res.ok) {
+        if (res && res.reason === 'already_replied' && !force) {
+          // the server's double-send guard; the staffer gets one more explicit step
+          M_REPLY_ARMED[id] = 'force';
+          renderMemberRespDetail(id);
+          toast(res.message || 'Already replied. Click again to send another.');
+          const btn = $('reply-send-' + id);
+          if (btn) { btn.onclick = function () { mSendReply(id, true); }; btn.textContent = 'Send another anyway'; }
+          return;
+        }
+        renderMemberRespDetail(id);
+        toast((res && res.message) || 'Not sent. Try again.');
+        return;
+      }
+      r.replies = (r.replies || []).concat([res.reply]);
+      r.replies_all = (r.replies_all || []).concat([res.reply]);
+      r.replied = true;                       // the row moves to the Replied tab (decision 2)
+      r.reply_date = res.reply.date; r.reply_auto = !!res.reply.auto;
+      if (MDATA.comms_log && MDATA.comms_log.rows) {
+        MDATA.comms_log.rows.unshift({ date: res.reply.date, mid: r.mid, email: r.email, name: r.name, kind: 'reply',
+          label: 'Reply from staff: ' + mReplyTitle(res.reply.template_key), who: 'Staff', recent: true });
+      }
+      delete M_REPLY_EDIT[id];
+      if (MDATA.reply_edits && res.edit_saved) { MDATA.reply_edits.rows = (MDATA.reply_edits.rows || 0) + 1; if (res.edit_changed) MDATA.reply_edits.changed = (MDATA.reply_edits.changed || 0) + 1; }
+      if (res.state) mApplyState(r, res.state);
+      mAfterFuChange(id);
+      toast(res.warning ? res.warning : 'Sent to ' + r.email + (res.edit_changed ? ' (your edits were saved)' : ''));
+    })
+    .catch(() => { M_REPLY_BUSY[id] = false; M_REPLY_ARMED[id] = false; renderMemberRespDetail(id); toast('Could not reach the server. Refresh to see whether it went out.'); });
+}
+function mBy() { try { return localStorage.getItem(M_BY_KEY) || ''; } catch (e) { return ''; } }
+function mSetBy(v) { try { localStorage.setItem(M_BY_KEY, (v || '').trim()); } catch (e) {} }
+/* The follow-up panel (status, assignee, due date, front-desk note, notes)
+   left the response page with Block 24 decision 8 (Chris's 10/16 call).
+   member_followups.csv is kept as it is, just not shown. A staff reply
+   still returns the follow-up state, so mApplyState stays. */
+function mAfterFuChange(id) {
+  renderMemberRespDetail(id);
+  renderHome(); renderMemberResponses(); mRefreshMembersBadge();   // Home carries the Needs-a-reply count (Block 20 R2)
+}
+function mApplyState(r, state) {
+  const prev = r.fu || {};
+  r.fu = {
+    status: state.status || prev.status || 'open',
+    assignee: state.assignee || '',
+    notes: state.notes || prev.notes || [],
+    updated_at: state.updated_at || prev.updated_at || '',
+    by: state.by || prev.by || '',
+    due_date: prev.due_date || '',
+    overdue: false,
+  };
+  r.fu.overdue = r.fu.status !== 'resolved' && !!r.fu.due_date && r.fu.due_date < MDATA.as_of;
+}
+
+/* --- Recognition --- */
+function setRecogQ(v) { MRECOG_Q = (v || '').trim().toLowerCase(); renderRecognitionList(); }
+function renderRecognition() {
+  const rs = mResps(MEMBER_WAVE).filter(r => r.text.shout_out);
+  let h = pageHeader('Recognition',
+    'Staff your members called out in the survey. Share these: they are free morale.');
+  h += mWaveSelectHtml();
+  if (!rs.length) {
+    h += '<div class="card"><div class="empty-state"><div class="empty-state-icon">🌟</div>' +
+      '<div class="empty-state-title">No shout-outs yet</div>' +
+      '<div class="empty-state-msg">Shout-outs appear when a member answers “Is there a staff member you would like to recognize?”</div></div></div>';
+    $('view-m-recognition').innerHTML = h; return;
+  }
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('sparkles') + rs.length + ' shout-out' + (rs.length === 1 ? '' : 's') + '</div>' +
+    '<div class="card-description">Members write the name themselves, so search for a name to see everything said about one person.</div></div>' +
+    '<div class="card-content with-top">' +
+    '<input class="period-select" style="width:100%;max-width:360px;" placeholder="Search a name or word" value="' + escapeHtml(MRECOG_Q) + '" oninput="setRecogQ(this.value)">' +
+    '</div></div>';
+  h += '<div id="m-recog-list"></div>';
+  $('view-m-recognition').innerHTML = h;
+  renderRecognitionList();
+}
+function renderRecognitionList() {
+  const host = $('m-recog-list'); if (!host) return;
+  const rs = mResps(MEMBER_WAVE).filter(r => r.text.shout_out &&
+    (!MRECOG_Q || (r.text.shout_out + ' ' + r.name).toLowerCase().includes(MRECOG_Q)));
+  let h = '';
+  if (!rs.length) h = noData('No shout-outs match that search.');
+  rs.forEach(r => {
+    h += '<div class="mquote"><div class="mquote-text">“' + escapeHtml(r.text.shout_out) + '”</div>' +
+      '<div class="mquote-meta"><span>from ' + escapeHtml(r.name) + '</span><span>' + escapeHtml(r.answered_at) + '</span>' + mScoreBadge(r.scores.nps) +
+      '<button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="mCopyShout(\'' + mId(r) + '\')">' + icon('copy') + ' Copy</button>' +
+      '</div></div>';
+  });
+  host.innerHTML = h;
+}
+function mCopyShout(id) {
+  const r = mFindResp(id); if (!r) return;
+  const text = '“' + r.text.shout_out + '” (member survey, ' + r.answered_at + ')';
+  try { navigator.clipboard.writeText(text).then(() => toast('Copied'), () => toast('Could not copy automatically.')); } catch (e) { toast('Could not copy automatically.'); }
+}
+
+/* --- Insights --- */
+function mInsightsGoto(i, count) { if (count > 0) MINSIGHTS_SLIDE = ((i % count) + count) % count; renderMembersInsights(); }
+const M_TREND_OPTS_BASE = [['nps', 'Likelihood to Recommend'], ['remain', 'Stay-6-months intent']];
+function mTrendOpts() { return M_TREND_OPTS_BASE.concat(M_DIMS.map(d => [d[0], d[1]])); }
+function mMetricLabel(key) {
+  if (key === 'nps') return 'Recommend';
+  if (key === 'remain') return 'Likelihood to remain';
+  const hit = M_DIMS.find(o => o[0] === key); return hit ? hit[1] : key;
+}
+function mWaveMetric(waveId, key) {
+  const rs = mResps(waveId);
+  if (!rs.length) return null;
+  return key === 'nps' ? (mNps(rs).n ? mNps(rs).score : null) : mAvg(rs, key);
+}
+function setMTrendMetric(v) { MTREND_METRIC = v; renderMembersInsights(); }
+function mTrendChart(labels, series, isNps) {
+  const W = 760, H = 220, P = { l: 42, r: 14, t: 14, b: 26 };
+  const innerW = W - P.l - P.r, innerH = H - P.t - P.b;
+  const all = [];
+  series.forEach(s => s.vals.forEach(v => { if (v != null) all.push(v); }));
+  if (!all.length) return noData('No survey data to trend yet.');
+  let lo = 0, hi = 10;
+  if (isNps) {
+    hi = Math.max(10, Math.ceil(Math.max.apply(null, all.concat([0])) / 10) * 10);
+    lo = Math.min(0, Math.floor(Math.min.apply(null, all.concat([0])) / 10) * 10);
+  }
+  const n = labels.length;
+  const xStep = n > 1 ? innerW / (n - 1) : 0;
+  const x = i => (n > 1 ? P.l + i * xStep : P.l + innerW / 2);
+  const y = v => P.t + innerH - ((v - lo) / (hi - lo)) * innerH;
+  const fmt = v => isNps ? String(Math.round(v)) : v.toFixed(1);
+  let svg = '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">';
+  for (let i = 0; i <= 4; i++) {
+    const yPos = P.t + (innerH / 4) * i;
+    const tv = hi - ((hi - lo) / 4) * i;
+    svg += '<line class="chart-grid" x1="' + P.l + '" y1="' + yPos + '" x2="' + (W - P.r) + '" y2="' + yPos + '"/>';
+    svg += '<text class="chart-tick" x="' + (P.l - 6) + '" y="' + (yPos + 3) + '" text-anchor="end">' + (isNps ? Math.round(tv) : tv.toFixed(1)) + '</text>';
+  }
+  svg += '<line class="chart-axis" x1="' + P.l + '" y1="' + (H - P.b) + '" x2="' + (W - P.r) + '" y2="' + (H - P.b) + '"/>';
+  labels.forEach((lab, i) => {
+    svg += '<text class="chart-tick" x="' + x(i) + '" y="' + (H - P.b + 16) + '" text-anchor="middle">' + escapeHtml(lab) + '</text>';
+  });
+  series.forEach(s => {
+    const pts = s.vals.map((v, i) => v == null ? null : { i: i, v: v }).filter(Boolean);
+    if (pts.length > 1) {
+      svg += '<path class="chart-line-you" d="' + pts.map((p, k) => (k === 0 ? 'M' : 'L') + x(p.i) + ',' + y(p.v)).join(' ') + '"/>';
+    }
+    pts.forEach(p => {
+      const tip = labels[p.i] + ' · ' + s.name + ': ' + fmt(p.v);
+      svg += '<circle class="chart-dot-you" cx="' + x(p.i) + '" cy="' + y(p.v) + '" r="3.5"><title>' + escapeHtml(tip) + '</title></circle>';
+    });
+  });
+  svg += '</svg>';
+  return svg;
+}
+/* click a metric -> the comments behind it. NPS is a clean match (the "why" box
+   asks about that score). Dimension drill-downs say "rated X low" because the
+   link between a low score and a general comment is inferred, not asked. */
+function mShowMetricComments(key, waveId) {
+  const rs = mResps(waveId);
+  const wlabel = mWaveLabel(waveId);
+  let title, sub, quotes;
+  if (key === 'nps') {
+    title = 'Why members gave their recommend score';
+    quotes = rs.filter(r => r.text.why && r.scores.nps != null)
+      .sort((a, b) => a.scores.nps - b.scores.nps)
+      .map(r => ({ r: r, score: r.scores.nps, text: r.text.why }));
+    sub = quotes.length + ' member' + (quotes.length === 1 ? '' : 's') + ' explained their score (' + wlabel + '), lowest first.';
+  } else {
+    title = 'Comments from members who rated ' + mMetricLabel(key).toLowerCase() + ' low';
+    quotes = rs.filter(r => r.scores[key] != null && r.scores[key] <= 6 && (r.text.improve || r.text.why))
+      .sort((a, b) => a.scores[key] - b.scores[key])
+      .map(r => ({ r: r, score: r.scores[key], text: r.text.improve || r.text.why }));
+    sub = 'Open comments from members who scored ' + mMetricLabel(key).toLowerCase() +
+      ' 6 or below (' + wlabel + '). These are their general comments, matched by the low score, not comments about ' + mMetricLabel(key).toLowerCase() + ' specifically.';
+  }
+  const CAP = 12;
+  let body = '<div style="font-size:12.5px;color:var(--fg-subtle);margin-bottom:10px;">' + escapeHtml(sub) + '</div>';
+  if (!quotes.length) body += '<div style="font-size:12.5px;color:var(--fg-hint);">No comments here. That is usually good news.</div>';
+  quotes.slice(0, CAP).forEach(q => {
+    body += '<div class="mquote"><div class="mquote-text">“' + escapeHtml(q.text) + '”</div>' +
+      '<div class="mquote-meta"><span><a style="color:var(--primary);cursor:pointer;" onclick="closeModal();openMemberResp(\'' + mId(q.r) + '\')">' + escapeHtml(q.r.name) + '</a></span>' +
+      '<span>scored it ' + q.score + '/10</span></div></div>';
+  });
+  if (quotes.length > CAP) body += '<div style="font-size:11.5px;color:var(--fg-hint);margin-top:4px;">Showing ' + CAP + ' of ' + quotes.length + '. The rest are in Member Responses.</div>';
+  $('modal-card').classList.add('modal-wide');
+  openModal('<div class="modal-head">' + icon('mail') + escapeHtml(title) + '</div>' +
+    '<div class="modal-body">' + body + '</div>' +
+    '<div class="modal-foot"><button class="btn btn-primary" onclick="closeModal()">Close</button></div>');
+}
+function mDimBarBtn(d, waveId, tone) {
+  return '<button class="bar-btn" onclick="mShowMetricComments(\'' + d.key + '\',\'' + waveId + '\')" title="Click to read the comments behind this score">' +
+    mDimBar(d.label, d.avg, null, tone) + '</button>';
+}
+function mCommentsHint() { return '<div class="bar-sub" style="margin-top:6px;">Click any score to read the member comments behind it.</div>'; }
+function mNpsCommentsBtn(waveId) {
+  return '<div style="margin:2px 0 8px;"><button class="chip" onclick="mShowMetricComments(\'nps\',\'' + waveId + '\')">Read why members gave their recommend score ›</button></div>';
+}
+function buildMemberSlides() {
+  const slides = [];
+  const cur = mResps(M_CUR);
+  const priorAll = M_PRIOR ? mResps(M_PRIOR) : [];
+  const curWaveLabel = 'Wave ' + M_CUR;
+  let inner;
+
+  // 1. at a glance
+  const nps = mNps(cur);
+  const ret = mAvg(cur, 'remain');
+  const sent = mSent(M_CUR);
+  inner = '<div class="stats-grid-4">' +
+    statTile('Likelihood to Recommend', nps.n ? nps.score : 'n/a', nps.n ? nps.promoters + ' promoters · ' + nps.detractors + ' detractors' : 'No responses yet') +
+    statTile('Stay-6-months intent', ret == null ? 'n/a' : ret.toFixed(1) + ' / 10', 'Average answer') +
+    statTile('Responses', cur.length.toLocaleString(), 'of ' + sent.toLocaleString() + ' surveys sent') +
+    statTile('Response rate', (sent ? Math.round(100 * cur.length / sent) : 0) + '%', curWaveLabel) +
+    '</div>';
+  inner += mNpsCommentsBtn(M_CUR);
+  inner += mInfoBtn('scores');
+  slides.push({ title: curWaveLabel + ' at a glance', desc: 'The headline numbers. All computed from the raw responses; members who asked not to be mailed are excluded from every denominator.', html: inner });
+
+  // 2. scores by dimension
+  const dimAvgs = M_DIMS.map(d => ({ key: d[0], label: d[1], avg: mAvg(cur, d[0]) }))
+    .filter(d => d.avg != null).sort((a, b) => b.avg - a.avg);
+  inner = dimAvgs.length
+    ? dimAvgs.map((d, i) => mDimBarBtn(d, M_CUR, i < 2 ? 'green' : d.avg < 7 ? 'red' : null)).join('') + mCommentsHint()
+    : noData('No scored responses yet.');
+  slides.push({ title: 'Scores by dimension', desc: 'Average member score per survey question, strongest first. Green = top two, red = below 7. Click a score to read its comments.', html: inner });
+
+  // 3. page-2 diagnostics
+  const diag = M_DIAG.map(d => { const a = mDiagAvg(cur, d[0]); return { key: d[0], label: d[1], avg: a.avg, n: a.n }; })
+    .filter(d => d.avg != null).sort((a, b) => a.avg - b.avg);
+  inner = diag.length
+    ? diag.map(d => mDimBar(d.label, d.avg, d.n + ' member' + (d.n === 1 ? '' : 's') + ' scored this', d.avg < 7 ? 'red' : null)).join('')
+    : noData('Nobody has answered page 2 yet.');
+  slides.push({ title: 'Page 2: the detail questions', desc: 'Optional questions about the climbing itself (resets, grade range, crowding, training area, help, information, safety), weakest first. Context for staff; these never pick a reply.', html: inner });
+
+  // 4. change since last wave
+  if (M_PRIOR) {
+    const changes = M_DIMS.map(d => ({ label: d[1], prior: mAvg(priorAll, d[0]), cur: mAvg(cur, d[0]) }))
+      .filter(c => c.prior != null && c.cur != null)
+      .sort((a, b) => (a.cur - a.prior) - (b.cur - b.prior));
+    let t = '<table class="conv-table"><thead><tr><th>Question</th><th class="num">Wave ' + M_PRIOR + '</th><th class="num">' + curWaveLabel + '</th><th class="num">Change</th></tr></thead><tbody>';
+    const npsP = mNps(priorAll), npsC = mNps(cur);
+    t += '<tr><td>Likelihood to Recommend</td><td class="num">' + (npsP.n ? npsP.score : '–') + '</td><td class="num">' + (npsC.n ? npsC.score : '–') + '</td><td class="num">' + mDeltaInt(npsC.n ? npsC.score : null, npsP.n ? npsP.score : null) + '</td></tr>';
+    const rP = mAvg(priorAll, 'remain'), rC = mAvg(cur, 'remain');
+    t += '<tr><td>Stay 6 months</td><td class="num">' + (rP == null ? '–' : rP.toFixed(1)) + '</td><td class="num">' + (rC == null ? '–' : rC.toFixed(1)) + '</td><td class="num">' + mDelta(rC, rP) + '</td></tr>';
+    changes.forEach(c => {
+      t += '<tr><td>' + escapeHtml(c.label) + '</td><td class="num">' + c.prior.toFixed(1) + '</td><td class="num">' + c.cur.toFixed(1) + '</td><td class="num">' + mDelta(c.cur, c.prior) + '</td></tr>';
+    });
+    t += '</tbody></table>';
+    slides.push({ title: 'Change since last wave', desc: 'Biggest drops first. Where the member experience moved between the two most recent waves.', html: t });
+  }
+
+  // 5. trends across waves (SPEC B1; cycle unit, decision 2026-08-21)
+  const waveIds = M_WAVES.map(w => w.id);
+  const wlabels = M_WAVES.map(w => w.label);
+  const series = [{ name: 'All members', vals: waveIds.map(w => mWaveMetric(w, MTREND_METRIC)) }];
+  inner = '<div class="insights-controls" style="margin:0 0 8px;">' +
+    '<div class="period-toggle" style="margin:0;"><span class="period-label">Metric</span>' +
+    '<select class="period-select" onchange="setMTrendMetric(this.value)">' +
+    mTrendOpts().map(o => '<option value="' + o[0] + '"' + (MTREND_METRIC === o[0] ? ' selected' : '') + '>' + escapeHtml(o[1]) + '</option>').join('') +
+    '</select></div></div>';
+  inner += mTrendChart(wlabels, series, MTREND_METRIC === 'nps');
+  if (M_WAVES.length <= 2) {
+    inner += '<div class="bar-sub" style="margin-top:8px;">' + M_WAVES.length + ' wave' + (M_WAVES.length === 1 ? '' : 's') +
+      ' so far. A wave is each member’s Nth survey (members are re-surveyed every ' + (MDATA.config.cooldown_days || 180) + ' days), so the trend line builds with every wave you run.</div>';
+  }
+  slides.push({ title: 'Trends across waves', desc: 'Pick any survey metric and follow it across every wave you have run.', html: inner });
+
+  // 6. what members say about the weak spots
+  const weak = M_DIMS.map(d => ({ key: d[0], label: d[1], avg: mAvg(cur, d[0]) }))
+    .filter(d => d.avg != null).sort((a, b) => a.avg - b.avg).slice(0, 2);
+  inner = '';
+  if (!weak.length) inner = noData('No scored responses yet.');
+  weak.forEach(w => {
+    inner += '<div class="fu-label" style="margin:2px 0 8px;">' + escapeHtml(w.label) + ' · ' + w.avg.toFixed(1) + ' / 10</div>';
+    const quotes = cur.filter(r => r.scores[w.key] != null && r.scores[w.key] <= 6 && (r.text.improve || r.text.why))
+      .sort((a, b) => a.scores[w.key] - b.scores[w.key]).slice(0, 3);
+    if (!quotes.length) inner += '<div style="font-size:12px;color:var(--fg-hint);margin-bottom:10px;">No comments from low scorers here.</div>';
+    quotes.forEach(r => {
+      inner += '<div class="mquote"><div class="mquote-text">“' + escapeHtml(r.text.improve || r.text.why) + '”</div>' +
+        '<div class="mquote-meta"><span>' + escapeHtml(r.name) + '</span><span>scored it ' + r.scores[w.key] + '/10</span></div></div>';
+    });
+  });
+  slides.push({ title: 'What members say about the weak spots', desc: 'Open comments from members who scored the two weakest dimensions 6 or below. Real responses, grouped under the low averages they explain (matched by score, not by topic).', html: inner });
+
+  // 7. recent wins (from the old Overview page; Block 20 R2 decision 14)
+  const wins = cur.filter(r => r.scores.nps != null && r.scores.nps >= 8 && (r.text.why || r.text.shout_out)).slice(0, 4);
+  inner = wins.length
+    ? wins.map(r => '<div class="mquote"><div class="mquote-text">“' + escapeHtml(r.text.why || r.text.shout_out) + '”</div>' +
+        '<div class="mquote-meta"><span>' + escapeHtml(r.name) + '</span><span>' + escapeHtml(r.answered_at) + '</span>' + mScoreBadge(r.scores.nps) + '</div></div>').join('')
+    : noData('No comments yet from members who scored recommend 8 or more.');
+  slides.push({ title: 'Recent wins', desc: 'What members who scored recommend 8 or more are saying, newest first.', html: inner });
+
+  // 8. member count (Chris 2026-09-02): the old Overview card, kept as the
+  // last chart so the weekly trend line is not lost (Home shows the number)
+  const mcc = mMemberCountCard();
+  if (mcc) slides.push({ title: 'Member count', desc: 'How many members you have, and which way it is moving. One point is recorded each week.', html: mcc });
+
+  return slides;
+}
+function renderMembersInsights() {
+  let h = pageHeader('Member Insights', 'The whole picture from the membership survey. Wave ' + M_CUR + ' is the current one.');
+  h += mStatusBanners();
+  h += mDisclosure();
+  const slides = buildMemberSlides();
+  if (MINSIGHTS_SLIDE >= slides.length) MINSIGHTS_SLIDE = 0;
+  const cur = slides[MINSIGHTS_SLIDE] || { title: '', desc: '', html: '' };
+  h += '<div class="carousel">' +
+    '<div class="carousel-head"><div class="card-title">' + icon('sparkles') + escapeHtml(cur.title) + '</div>' +
+      '<div class="card-description">' + escapeHtml(cur.desc) + '</div></div>' +
+    '<div class="carousel-body">' + cur.html + '</div>' +
+    '<div class="carousel-nav">' +
+      '<button class="carousel-arrow" onclick="mInsightsGoto(' + (MINSIGHTS_SLIDE - 1) + ',' + slides.length + ')" aria-label="Previous chart">‹</button>' +
+      '<div class="carousel-dots">' +
+        slides.map((s, i) => '<span class="cdot' + (i === MINSIGHTS_SLIDE ? ' active' : '') + '" title="' + escapeHtml(s.title) + '" onclick="mInsightsGoto(' + i + ',' + slides.length + ')"></span>').join('') +
+      '</div>' +
+      '<button class="carousel-arrow" onclick="mInsightsGoto(' + (MINSIGHTS_SLIDE + 1) + ',' + slides.length + ')" aria-label="Next chart">›</button>' +
+    '</div>' +
+    '<div class="carousel-counter">' + (MINSIGHTS_SLIDE + 1) + ' of ' + slides.length + '</div>' +
+  '</div>';
+  $('view-m-insights').innerHTML = h;
+}
+
+/* --- Survey Settings (READ-ONLY in v1, decision 2026-08-21) --- */
+function mCfgNote(txt) { return '<div style="font-size:11px;color:var(--fg-hint);margin:6px 0 2px;">' + escapeHtml(txt) + '</div>'; }
+function renderMemberSettings() {
+  const c = MDATA.config || {}, a = MDATA.audience, s = MDATA.sent || {};
+  let h = pageHeader('Member Survey Settings',
+    'How the membership survey runs. Read-only here: every value below comes from the live configuration, and changes go through your Send It contact (client.json).');
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('shield') + 'Status</div></div>' +
+    '<div class="card-content with-top">' +
+    cfgRow('Sending', c.enabled ? 'ON. Up to ' + c.daily_cap + ' members get the survey each morning.' : 'OFF (member_survey.enabled is false). Nothing goes to members until it is switched on.') +
+    cfgRow('Sent so far', (s.total || 0) + ' survey' + (s.total === 1 ? '' : 's') + (s.last_send_date ? ', last on ' + s.last_send_date : '') + (s.today ? ', ' + s.today + ' today' : '')) +
+    cfgRow('Responses in the sheet', (MDATA.responses_total_rows || 0) + ' rows, ' + mAllResponses().length + ' matched to members' +
+      (MDATA.responses_unmatched ? ', ' + MDATA.responses_unmatched + ' test/unmatched' : '') + (MDATA.duplicates_dropped ? ', ' + MDATA.duplicates_dropped + ' duplicate' + (MDATA.duplicates_dropped === 1 ? '' : 's') + ' (latest per member kept)' : '')) +
+    mCfgNote('Change in client.json: member_survey.enabled') +
+    '</div></div>';
+
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('settings') + 'Cadence & delivery</div></div>' +
+    '<div class="card-content with-top">' +
+    cfgRow('Who gets it', 'Active members (status OK) with a usable email. Members flagged do-not-mail are never sent to and are excluded from every number in this section.') +
+    cfgRow('How many per day', c.daily_cap + ' (so a first wave of ' + (a ? a.sendable : '?') + ' takes about ' + (a && c.daily_cap ? Math.ceil(a.sendable / c.daily_cap) : '?') + ' days)') +
+    cfgRow('How often', 'Every ' + c.cooldown_days + ' days per member. One send per wave, no reminders.') +
+    cfgRow('Shared inboxes', 'One survey per email address (families share), answered by whoever opens it.') +
+    cfgRow('The survey', c.survey_url ? 'SurveyMonkey, 8 questions, about 3 minutes. ' + c.survey_url : 'not configured') +
+    mCfgNote('Change in client.json: member_survey.daily_cap, cooldown_days, survey_url') +
+    '</div></div>';
+
+  if (a) {
+    h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('users') + 'Audience</div>' +
+      '<div class="card-description">' + escapeHtml(a.disclosure_sentence) + '</div></div>' +
+      '<div class="card-content with-top">' +
+      cfgRow('Member records', a.member_rows + ' (' + Object.entries(a.inactive_by_status || {}).map(kv => kv[1] + ' ' + kv[0].toLowerCase()).join(', ') + ')') +
+      cfgRow('Active members', String(a.active)) +
+      cfgRow('Minus no usable email', '-' + a.no_email) +
+      cfgRow('Minus do not mail', '-' + a.do_not_mail_step + ' (' + a.excluded_do_not_mail + ' flagged in total, counting those with no email)') +
+      cfgRow('Minus shared addresses', '-' + a.shared_dropped) +
+      cfgRow('Sendable', String(a.sendable)) +
+      '</div></div>';
+  }
+
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('mail') + 'Sender identity</div></div>' +
+    '<div class="card-content with-top">' +
+    cfgRow('From', c.from_email ? (c.from_name ? c.from_name + ' <' + c.from_email + '>' : c.from_email) : 'not set on this server (the send service has its own setting)') +
+    cfgRow('Reply-To', c.reply_to || (c.from_email ? 'same as From' : 'not set on this server')) +
+    cfgRow('Signed', '“' + (c.manager_name || 'The team') + '” on every reply template' + (c.gym_name ? ', gym name “' + c.gym_name + '”' : '')) +
+    mCfgNote('Change on the server: BREVO_SEND_FROM / BREVO_REPLY_TO; in client.json: links.manager_name, links.gym_name') +
+    '</div></div>';
+
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('sparkles') + 'How a reply gets picked</div>' +
+    '<div class="card-description">A fixed rule. Nothing here is guessed.</div></div>' +
+    '<div class="card-content with-top">' +
+    cfgRow('Thank-you', 'Only when EVERY one of the six scored questions (likelihood to remain, staff, community, route setting, cleanliness, value) is ' + c.positive_threshold + ' or higher. It asks for a Google review.') +
+    cfgRow('Otherwise', 'The lowest-scored question picks its follow-up template. Ties go to likelihood-to-remain first, then staff, community, route setting, cleanliness, value.') +
+    cfgRow('Recommend score', 'Shown as urgency (Likelihood to Recommend) but never picks the template.') +
+    cfgRow('Automatic thank-you', c.auto_reply
+      ? 'ON. The thank-you goes out by itself the next morning after an all-' + c.positive_threshold + '+ response (once per response, only within ' + (c.auto_reply_max_age_days || 14) + ' days of the answer' + (c.enabled ? '' : ', and only once surveys are switched on') + '). Every other reply is sent by a person from the response page.'
+      : 'OFF. Every reply, including the thank-you, is sent by a person from the response page.') +
+    cfgRow('Replies from this page', (mSendEnabled() ? 'ON. ' : 'Not yet on this server (needs the live flag + Brevo key on the web service). ') + 'Pick a template on the response page, change the words if you like, and Send; it goes out signed “' + (c.manager_name || 'The team') + '” and is logged for the whole team.') +
+    cfgRow('Reply edits saved', (function () {
+      const re = MDATA.reply_edits || {};
+      const n = re.rows || 0, ch = re.changed || 0;
+      if (MDATA.reply_edits_csv_ok === false) return 'The edit record could not be read on this server.';
+      return n + ' repl' + (n === 1 ? 'y' : 'ies') + ' sent from this page, ' + ch + ' with changed wording. Each one keeps the template text next to what was actually sent (member_reply_edits.csv in the gym’s private Drive folder).';
+    })()) +
+    mCfgNote('Change in client.json: member_survey.positive_threshold, member_survey.auto_reply') +
+    '</div></div>';
+
+  // The "Follow-up rules" card left with the follow-up panel (Block 24 decision 8).
+
+  // Live front-desk check-in alert (2026-08-21). Config from c.checkin_alert,
+  // runtime status from MDATA.checkin_alert (live_server; absent on a static build).
+  const ca = MDATA.checkin_alert || {};
+  const cac = c.checkin_alert || {};
+  const caInbox = ca.inbox || cac.inbox || 'not configured';
+  const caReasons = ca.reasons || (cac.enabled ? ['status not available on this build'] : ['member_survey.checkin_alert.enabled is false']);
+  const caOn = ca.running === true || (ca.running === undefined && cac.enabled && !caReasons.length);
+  let caState;
+  if (caOn) {
+    caState = 'ON. When a member with an open follow-up checks in, an email goes to ' + caInbox + ' (at most once per member per day).';
+  } else {
+    caState = 'OFF: ' + caReasons.join('; ') + '. Nothing is emailed until that is fixed.';
+  }
+  let caLast;
+  if (ca.last_poll_at) {
+    caLast = 'Last checked ' + ca.last_poll_at.replace('T', ' ').slice(0, 16) +
+      (ca.feed_lag_minutes === null || ca.feed_lag_minutes === undefined ? ' (no check-ins in the last ' + (ca.max_age_minutes || cac.max_age_minutes || 90) + ' minutes)' : ', check-in feed about ' + ca.feed_lag_minutes + ' min behind') +
+      (ca.feed_stale ? '. The feed is behind, so alerts may be late or missed.' : '') +
+      (ca.last_error ? ' Last error: ' + ca.last_error : '');
+  } else {
+    caLast = ca.last_error ? 'Not checked yet. Last error: ' + ca.last_error : 'Not checked yet on this server.';
+  }
+  // Switched off on purpose (Block 24 decision 8, Chris's 10/16 call): say so
+  // plainly instead of listing config reasons and a workflow that left the page.
+  if (!cac.enabled) {
+    h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('shield') + 'Front-desk alert</div></div>' +
+      '<div class="card-content with-top">' +
+      cfgRow('Check-in alert', 'OFF. Switched off on purpose in October 2026, together with the follow-up panel. No check-in emails go to the front desk.') +
+      mCfgNote('Change in client.json: member_survey.checkin_alert.enabled') +
+      '</div></div>';
+    $('view-m-settings').innerHTML = h;
+    return;
+  }
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('shield') + 'Front-desk alert</div>' +
+    '<div class="card-description">A live heads-up while the member is in the building.</div></div>' +
+    '<div class="card-content with-top">' +
+    cfgRow('Check-in alert', caState) +
+    cfgRow('Who triggers it', 'Only members whose follow-up is still open (not resolved). Promoters never do. Once the desk marks the follow-up resolved, the alerts stop.') +
+    cfgRow('How it works', 'The dashboard checks the gym’s check-in feed every ' + (ca.poll_minutes || cac.poll_minutes || 10) + ' minutes and only looks at check-ins from the last ' + (ca.max_age_minutes || cac.max_age_minutes || 90) + ' minutes, so a delayed feed never sends a pile of stale alerts.') +
+    cfgRow('Status', caLast + (ca.alerted_today ? ' ' + ca.alerted_today + ' alert' + (ca.alerted_today === 1 ? '' : 's') + ' sent today.' : '')) +
+    cfgRow('Morning digest', 'Not used. The follow-up list on this page replaces it (decided 2026-08-21).') +
+    mCfgNote('Change in client.json: member_survey.checkin_alert (enabled, inbox, poll_minutes, max_age_minutes); on the web server: RGP_API_KEY, NUDGE_LIVE_ENABLED, BREVO_API_KEY') +
+    '</div></div>';
+  $('view-m-settings').innerHTML = h;
+}
+
+/* --- wire-up --- */
+function setupMembersNav() {
+  const wrap = $('members-nav');
+  if (!wrap) return;
+  if (!membersOn()) { wrap.classList.remove('on'); return; }
+  wrap.classList.add('on');
+  renderMemberResponses();
+  renderRecognition();
+  renderMembersInsights();
+  renderMemberSettings();
+  mRefreshMembersBadge();
+}
+if (membersOn()) {
+  const _mBaseShowView = showView;
+  showView = function (viewId) {
+    _mBaseShowView(viewId);
+    if (viewId === 'm-respdetail') {
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      const btn = document.querySelector('.nav-btn[data-view="m-responses"]');
+      if (btn) btn.classList.add('active');
+    }
+  };
 }
 
 // init

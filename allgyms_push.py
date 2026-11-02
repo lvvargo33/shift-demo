@@ -179,6 +179,15 @@ FUNNEL_LABELS = {
     # SHIFT day-14 new-member check-in (member_checkin.TRIGGER_NAME), 2026-10-26
     "member_check_in": "Member check-in (day 14)",
 }
+# A2 (2026-11-02): a row name that differs by gym. SHIFT's emailed member
+# survey repeats every 90 days, ABC's every 180, and both use the trigger
+# name member_survey, so the shared FUNNEL_LABELS entry (ABC's row, its
+# history) stays and SHIFT's row gets its own name. KEEP IDENTICAL IN BOTH REPOS.
+GYM_FUNNEL_LABELS = {("SHIFT", "member_survey"): "Member survey (every 90 days)"}
+
+
+def _label(trigger_name: str) -> str:
+    return GYM_FUNNEL_LABELS.get((GYM, trigger_name)) or FUNNEL_LABELS.get(trigger_name, trigger_name)
 # Order here is the order the Dashboard renders sections in. KEEP THIS LIST
 # IDENTICAL IN BOTH REPOS. Each gym's cron rebuilds the whole Dashboard from
 # its OWN copy, and ABC's cron runs at 11:00 while SHIFT's runs at 11:03, so a
@@ -549,9 +558,10 @@ FOOTNOTES = [
     "delivery info for those emails, and that row's Open % is out of sends. "
     "Brevo keeps 90 days of receipts, so an ABC send with no receipt inside "
     "that window stays uncounted.",
-    "Member survey (ABC): the only row on this sheet that goes to current "
-    "members, not first-timers. Returned, converted, redeemed and purchases "
-    "are blank there because they describe first-timers.",
+    "Member rows (both gyms' member surveys and SHIFT's day-14 check-in) go "
+    "to current members, not first-timers. On the member survey rows, "
+    "returned, converted, redeemed and purchases are blank because they "
+    "describe first-timers.",
     "'Before the test started' rows on Variants: SHIFT's survey and offer "
     "emails went live before their subject tests did, so their earliest sends "
     "have no A or B version. Those sends sit in their own row so each test "
@@ -636,6 +646,10 @@ DESCRIPTIONS = {
         "ABC's short satisfaction survey for CURRENT members, 10 a day, each "
         "member at most once every 180 days. Not part of the first-timer "
         "funnel.",
+    "Member survey (every 90 days)":
+        "Shift's short satisfaction survey for CURRENT members, about 1 in 90 "
+        "of them a day, each member at most once every 90 days. Not part of "
+        "the first-timer funnel.",
     "Blocker: pricing":
         "Offer email tailored to survey responders whose main issue was price.",
     "Blocker: crowding":
@@ -988,6 +1002,10 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         sent = (r.get("sent_date") or "").strip()[:10]
         trig = (r.get("trigger_name") or r.get("trigger") or "").strip()
         tag = (r.get("tag") or "").strip()
+        # A2 step 4 (fresh-eyes 11/02): staff replies to member survey answers
+        # are logged for dedupe but are not outreach; skipped as ABC's copy does
+        if trig in engine.INTERNAL_TRIGGERS:
+            continue
         if email and sent and tag:
             sends.append({"email": email, "sent": sent, "trig": trig, "tag": tag,
                           # only _drop_group_sends reads it (Block 16), as ABC's
@@ -1196,8 +1214,13 @@ def collect(client) -> tuple[list[dict], list[dict]]:
     # window; and whether that email had been opened first. Before this every
     # send took credit for anything later (3 emails + 1 join = 3 credits).
     # Survey responses credit survey emails only. Same rule in the ABC copy.
+    # A2 (fresh-eyes 11/02): the member survey (every 90 days) is not
+    # first-timer outreach, so it takes no first-timer outcome credit (ABC's
+    # member survey is left out the same way). The day-14 check-in is kept
+    # as it was.
+    ftv_sends = [s for s in sends if s["trig"] != "member_survey"]
     events: dict[str, dict] = {}
-    for s in sends:
+    for s in ftv_sends:
         email = s["email"]
         if email in events:
             continue
@@ -1218,17 +1241,18 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         _d, o, _c, oa, _u, _r = measured[(s["email"], s["sent"], s["tag"])]
         return attribution.Send(email=s["email"], sent=s["sent"], tag=s["tag"],
                                 trig=s["trig"], opened=o, opened_at=oa)
-    credits = attribution.credit([_send_obj(s) for s in sends], events)
+    credits = attribution.credit([_send_obj(s) for s in ftv_sends], events)
     # "Joined within 90 days" (Block 15): the same last-touch credit with the
     # join window stretched to 90 days
     credits90 = attribution.credit(
-        [_send_obj(s) for s in sends], events,
+        [_send_obj(s) for s in ftv_sends], events,
         windows={"converted": definitions.JOIN_DAYS_LONG})
     credits30 = attribution.credit(
-        [_send_obj(s) for s in sends], events,
+        [_send_obj(s) for s in ftv_sends], events,
         windows={"converted": definitions.JOIN_DAYS_SHORT})
+    _NO_CREDIT = attribution.empty_credit()
     resp_credits = attribution.credit(
-        [_send_obj(s) for s in sends if "survey" in s["tag"]], events)
+        [_send_obj(s) for s in ftv_sends if "survey" in s["tag"]], events)
     stage("outcomes credited (one per person, last touch, windowed)")
 
     for s in sends:
@@ -1238,7 +1262,8 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         # None (not measured yet) counts as 0; a Shift survey opt-out on our
         # own page counts on the last Brevo survey email before it
         unsubscribed = bool(_unsub) or key in optout_keys
-        cr = credits[key]
+        # a member survey send (not in ftv_sends) carries no first-timer credit
+        cr = credits.get(key) or _NO_CREDIT
         responded = (resp_credits.get(key) or {}).get("responded", False)
         # the record's credits carry the SURVEY-ONLY response credit (an
         # answer is credited to the last SURVEY email before it, never to the
@@ -1247,9 +1272,9 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         cr = dict(cr)
         cr["responded"] = bool(responded)
         cr["responded_opened"] = bool((resp_credits.get(key) or {}).get("responded_opened"))
-        cr["converted90"] = bool(credits90[key]["converted"])
-        cr["converted90_opened"] = bool(credits90[key]["converted_opened"])
-        cr["converted30"] = bool(credits30[key]["converted"])
+        cr["converted90"] = bool((credits90.get(key) or _NO_CREDIT)["converted"])
+        cr["converted90_opened"] = bool((credits90.get(key) or _NO_CREDIT)["converted_opened"])
+        cr["converted30"] = bool((credits30.get(key) or _NO_CREDIT)["converted"])
         tapped = s["tag"] in EMBED_TAGS and email in taps_valid
         # the join date rides along so a yardstick tighter than the 60-day
         # credit window (E-005 at 30 days, step 1.2, 2026-09-18) can check it
@@ -1267,7 +1292,9 @@ def collect(client) -> tuple[list[dict], list[dict]]:
                # History recount (2026-09-18): every SHIFT send is
                # first-timer outreach except the day-14 member check-in
                # (2026-10-26), whose outcome credits are not summed
-               "tapped": tapped, "ftv": s["trig"] != "member_check_in"}
+               "tapped": tapped,
+               # + the member survey (A2, 2026-11-02): neither is a first-timer email
+               "ftv": s["trig"] not in engine.MEMBER_PROGRAM_TRIGGERS}
         records.append(rec)
         for bucket, key in ((by_trig, s["trig"] or s["tag"]), (by_tag, s["tag"])):
             _bucket_add(bucket[key], rec, mature_asof)
@@ -1303,7 +1330,7 @@ def collect(client) -> tuple[list[dict], list[dict]]:
         return m
 
     auto_rows = [{
-        "gym": GYM, "name": FUNNEL_LABELS.get(k, k), "section": _section_of(k),
+        "gym": GYM, "name": _label(k), "section": _section_of(k),
         "tag": "", "level": "automation", "m": metrics(by_trig[k]),
     } for k in by_trig]
     var_rows = [{

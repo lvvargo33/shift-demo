@@ -42,18 +42,26 @@ def emails_dir(client) -> Path:
 
 
 def load_versions(client) -> dict:
-    """tag -> {"html", "embed", "subject", "preview", ...} from manifest.json."""
+    """tag -> {"html", "embed", "subject", "preview", ...} from manifest.json,
+    plus the hand-written manifest_member.json (A2 member survey email, which
+    import_survey_emails.py does not write and so cannot overwrite)."""
     p = emails_dir(client) / "manifest.json"
     if not p.exists():
         raise SurveyMailError(f"no survey email manifest at {p} "
                               "(run import_survey_emails.py)")
-    return dict(json.loads(p.read_text(encoding="utf-8")).get("versions") or {})
+    out = dict(json.loads(p.read_text(encoding="utf-8")).get("versions") or {})
+    pm = emails_dir(client) / "manifest_member.json"
+    if pm.exists():
+        out.update(json.loads(pm.read_text(encoding="utf-8")).get("versions") or {})
+    return out
 
 
 def render(client, tag: str, *, first_name: str, email: str,
-           tap_urls: dict | None, optout_url: str) -> tuple[str, str]:
+           tap_urls: dict | None, optout_url: str,
+           survey_url: str | None = None) -> tuple[str, str]:
     """(subject, html) for one recipient. Raises when the tag has no version,
-    an embed version lacks its five URLs, or any placeholder is left over."""
+    an embed version lacks its five URLs, a member version lacks its page URL,
+    or any placeholder is left over."""
     versions = load_versions(client)
     v = versions.get(tag)
     if not v:
@@ -77,7 +85,11 @@ def render(client, tag: str, *, first_name: str, email: str,
             raise SurveyMailError(f"{tag}: needs five rating-button URLs")
         for n in range(1, 6):
             fills[f"__Q1_URL_{n}__"] = esc(tap_urls[n])
-    left = sorted(set(_PLACEHOLDER.findall(text)) - set(fills))
+    if v.get("member"):
+        if not survey_url:
+            raise SurveyMailError(f"{tag}: needs the member survey page URL")
+        fills["__SURVEY_URL__"] = esc(survey_url)
+    left =sorted(set(_PLACEHOLDER.findall(text)) - set(fills))
     if left:
         raise SurveyMailError(f"{tag}: unfilled placeholder(s) {', '.join(left)}")
     # one pass over the TEMPLATE's placeholders only, so a value that happens
@@ -110,7 +122,19 @@ def build(client, target, *, db=None, now=None, base_url: str | None = None):
     if not v:
         raise SurveyMailError(f"no Brevo survey email for tag {target.tag!r}")
     tap_urls = None
-    if v.get("embed"):
+    survey_url = None
+    if v.get("member"):
+        # A2: one 30-day token on this member's session for this cycle; the
+        # member context (inactive flag etc.) rides on the message for the
+        # reply screen.
+        cycle = str(getattr(target, "cycle_id", "") or "")
+        if not cycle:
+            raise SurveyMailError("member survey target has no cycle_id")
+        token = native_survey.issue_member_token(
+            client, email, target.climber_id, cycle, tag=target.tag, db=db, now=now,
+            context=getattr(target, "member_context", None))
+        survey_url = base + native_survey.MEMBER_PAGE_PATH + "?" + urlencode({"token": token})
+    elif v.get("embed"):
         tokens = native_survey.issue_send_tokens(
             client, email, target.climber_id, [1, 2, 3, 4, 5], tag=target.tag,
             db=db, now=now)
@@ -119,7 +143,8 @@ def build(client, target, *, db=None, now=None, base_url: str | None = None):
     page_url, one_click_url = survey_optout.issue_links(
         client, email, db=db, now=now, base_url=base)
     subject, html = render(client, target.tag, first_name=target.first_name,
-                           email=email, tap_urls=tap_urls, optout_url=page_url)
+                           email=email, tap_urls=tap_urls, optout_url=page_url,
+                           survey_url=survey_url)
     # NOT verified that Brevo keeps these: a Brevo staff answer (community
     # forum) says it adds its own List-Unsubscribe to every transactional
     # email. If it wins, a click lands on Brevo's block list with Shift's
@@ -128,7 +153,10 @@ def build(client, target, *, db=None, now=None, base_url: str | None = None):
                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
     # gym_<slug>: the shared Brevo account's readers drop another gym's events
     # (brevo_client.member_activity), so ABC never counts a Shift survey
-    return subject, html, [target.tag, "send_it_survey", gym_tag(client)], headers
+    # member emails carry their own tag only (not "send_it_survey"), so the
+    # stats push never counts a member survey as a first-timer survey
+    kinds = [target.tag] if v.get("member") else [target.tag, "send_it_survey"]
+    return subject, html, kinds + [gym_tag(client)], headers
 
 
 def gym_tag(client) -> str:

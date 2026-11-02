@@ -62,8 +62,11 @@ MEMBERSHIP_LABELS = frozenset({
     "2-week trial offer, test arm B",
 })
 CHECKIN_LABEL = "Member check-in (day 14)"   # allgyms_push.FUNNEL_LABELS["member_check_in"]
+# SHIFT's emailed member survey (A2, 2026-11-02) has its own row name, every
+# 90 days (allgyms_push.GYM_FUNNEL_LABELS); ABC's stays "every 180 days".
+SHIFT_MEMBER_SURVEY_LABEL = "Member survey (every 90 days)"
 MEMBER_PROGRAM_LABELS = frozenset({"Member survey (every 180 days)",
-                                   CHECKIN_LABEL})
+                                   SHIFT_MEMBER_SURVEY_LABEL, CHECKIN_LABEL})
 
 GROUPS = [
     ("surveys", "Survey emails"),

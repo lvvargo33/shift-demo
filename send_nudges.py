@@ -162,6 +162,54 @@ def _send_member_checkins(client, mc, cfg: dict, due: list, asof) -> None:
         stage("member check-in FAILED")
 
 
+def _send_member_surveys(client, mc, cands: list, quota: int, asof) -> None:
+    """A2: send up to `quota` member surveys, walking `cands` (every member
+    due, in order). A member the dispatch refuses (opted out, unsubscribed,
+    Brevo block) is skipped and the next one tried; a "held" (warm-up cap,
+    route not native) ends the step. Its own Dispatcher, prepared AFTER the
+    first-timer rows are logged, so the cap counts them; any prepare failure
+    prints FAILED and skips members only (rule 5). Logs what it sends."""
+    if not cands or quota <= 0:
+        return
+    print(f"\n  LIVE: member survey, {quota} to send today ({len(cands)} due) ...")
+    try:
+        disp = survey_dispatch.Dispatcher(client, mc, entrypoint="scheduler", asof=asof)
+        for line in disp.prepare(cands):
+            print(line)
+    except Exception as e:  # noqa: BLE001
+        _print_send_failure(cands[0].tag, "(member survey step)",
+                            f"member surveys NOT sent today; first-timer sends unaffected "
+                            f"({type(e).__name__}: {e})")
+        return
+    sent: list = []
+    tries = 0
+    for t in cands:
+        if len(sent) >= quota or tries >= quota + 25:
+            break
+        tries += 1
+        try:
+            o = disp.send(t)
+        except Exception as e:  # noqa: BLE001
+            _print_send_failure(t.tag, t.email, f"({type(e).__name__}: {e})")
+            continue
+        if o.sent:
+            sent.append(t)
+            print(f"    ok    {t.tag:<16} {t.email}  (Brevo)"
+                  + (f"  {o.detail}" if o.detail else ""))
+        elif o.state == "failed":
+            _print_send_failure(t.tag, t.email, f"member survey NOT sent ({o.detail})")
+        elif o.state == "held":
+            print(f"    hold  {t.tag:<16} ({o.detail or 'held'}); the rest wait for the next run")
+            break
+        else:
+            print(f"    skip  {t.tag:<16} {t.email}  ({o.state}"
+                  + (f": {o.detail}" if o.detail else "") + "); next member tried")
+    _SEND_TALLY["tried"] += tries
+    written = outreach.append(client, livesend.log_rows(sent, asof))
+    print(f"  member survey: sent {len(sent)} of {quota}, logged {written} row(s).")
+    stage(f"member survey done ({len(sent)} sent)")
+
+
 def run_send(a) -> None:
     """The actual work. Prints a human report; raises on any failure."""
     slug = a.client or os.getenv("NUDGE_CLIENT", "shift")
@@ -262,6 +310,44 @@ def run_send(a) -> None:
     if not ci_live:
         ci_due = []
 
+    # Emailed member survey (A2, 2026-11-02): its own picker off the plan
+    # rows, sent through the survey dispatch (program "member", Brevo) in its
+    # OWN step after the first-timer emails are sent and logged, so
+    # first-timers get the warm-up cap first and a member-side failure (a
+    # list read, Firestore) can never stop them (fresh-eyes 11/02). Two
+    # switches: client.json member_survey (enabled + go_live) AND
+    # survey.dispatch.member = "native" (anything else holds). The send step
+    # walks every member due, in order, until `quota` emails really go out,
+    # so a bounced or opted-out member never blocks the day (fresh-eyes 11/02).
+    from nudge_tool import member_survey_native
+    ms_targets: list = []
+    ms_quota = 0
+    try:
+        ms_cfg = member_survey_native.load_cfg(client)
+        ms_live = member_survey_native.is_live(ms_cfg)
+        ms = member_survey_native.find(
+            client.memberships_csv, client.sessions_csv, asof, ms_cfg, log=log,
+            unsubscribed=unsubscribed,
+            staff_emails=member_checkin.staff_emails_of(client, ds),
+            skip_emails={t.email for t in targets
+                         if survey_dispatch.route_for(client, t) != "hold"}
+            | {c.email for c in ci_due})
+        print()
+        for line in member_survey_native.report_lines(ms, ms_cfg, ms_live, asof):
+            print(line)
+        gl = member_checkin.go_live_date(ms_cfg)
+        if ms_live and gl is not None and asof >= gl:
+            ms_targets = member_survey_native.targets(ms, ms_cfg, asof, every_due=True)
+            ms_quota = ms.quota
+            if survey_dispatch.routing(client, "member") != "native":
+                print("    (survey.dispatch.member is not \"native\": these are HELD, nobody emailed)")
+        stage(f"member survey: {len(ms.picked)} picked (live={ms_live})")
+    except Exception:  # noqa: BLE001
+        print("\n  member survey FAILED (first-timer sends unaffected):\n"
+              + traceback.format_exc())
+        stage("member survey FAILED")
+        ms_targets = []
+
     # --- decide: send, or one of the safe no-op / preview paths ---
     if not a.i_have_shift_signoff:
         print("\n  NO-OP: --i-have-shift-signoff not passed. Tagged nobody.")
@@ -279,7 +365,7 @@ def run_send(a) -> None:
               "Tagged nobody.")
         stage("preview only (no --yes); tagged nobody")
         return
-    if not targets and not ci_due:
+    if not targets and not ci_due and not ms_targets:
         print("\n  LIVE: nothing to tag this run.")
         stage("live: nothing to tag this run")
         return
@@ -288,6 +374,7 @@ def run_send(a) -> None:
     _send_member_checkins(client, mc, ci_cfg, ci_due, asof)
     if not targets:
         print("\n  LIVE: no first-timer emails this run.")
+        _send_member_surveys(client, mc, ms_targets, ms_quota, asof)
         if a.drive:
             print("\n=== DRIVE PUSH (outreach log) ===")
             _push_outreach_log(client)
@@ -326,6 +413,7 @@ def run_send(a) -> None:
     written = outreach.append(client, livesend.log_rows(tagged, asof))
     print(f"\n  tagged {len(tagged)} climber(s), logged {written} row(s).")
     stage(f"tagging done ({len(tagged)} tagged, {written} row(s) logged)")
+    _send_member_surveys(client, mc, ms_targets, ms_quota, asof)
 
     if a.drive:
         print("\n=== DRIVE PUSH (outreach log) ===")

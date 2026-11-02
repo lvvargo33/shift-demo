@@ -70,7 +70,7 @@ def occurrence_id(ctx: GymContext, source: str, customer_id: str,
 @dataclass(frozen=True)
 class Condition:
     question: str
-    operator: str                 # eq, contains, lte
+    operator: str                 # eq, contains, not_contains (nonempty selection), lte
     value: str | int
 
 
@@ -112,14 +112,14 @@ class Definition:
             c = q.visible_if
             if c:
                 parent = seen.get(c.question)
-                if parent is None or c.operator not in {"eq", "contains", "lte"}:
+                if parent is None or c.operator not in {"eq", "contains", "not_contains", "lte"}:
                     raise SurveyError("conditions must reference an earlier question")
-                if (c.operator == "contains" and parent.kind != "multi"
+                if (c.operator in {"contains", "not_contains"} and parent.kind != "multi"
                         or c.operator == "lte" and parent.kind != "rating"):
                     raise SurveyError("invalid condition type")
                 if c.operator == "lte" and type(c.value) is not int:
                     raise SurveyError("invalid condition value")
-                if c.operator == "contains" and c.value not in {o[0] for o in parent.options}:
+                if c.operator in {"contains", "not_contains"} and c.value not in {o[0] for o in parent.options}:
                     raise SurveyError("invalid condition option")
             seen[q.id] = q
 
@@ -140,6 +140,7 @@ def applicability(definition: Definition, answers: dict) -> dict[str, bool]:
                 value = parent["value"]
                 applies = ((value == c.value) if c.operator == "eq" else
                            (c.value in value) if c.operator == "contains" else
+                           (bool(value) and c.value not in value) if c.operator == "not_contains" else
                            (value <= c.value))
         visible[q.id] = bool(applies)
     return visible
@@ -164,7 +165,9 @@ def validate_answer(q: Question, entry: dict) -> dict:
         valid = isinstance(value, str) and value in opts
     elif q.kind == "multi":
         valid = (isinstance(value, list) and all(isinstance(v, str) and v in opts for v in value)
-                 and len(value) == len(set(value)) and (not q.required or bool(value)))
+                 and len(value) <= getattr(q, "max_selections", len(q.options))
+                 and len(value) == len(set(value)) and (not q.required or bool(value))
+                 and not (set(value) & set(getattr(q, "exclusive_options", ())) and len(value) > 1))
     elif q.kind == "text":
         valid = isinstance(value, str) and len(value) <= q.max_length and (not q.required or bool(value.strip()))
     if not valid:
