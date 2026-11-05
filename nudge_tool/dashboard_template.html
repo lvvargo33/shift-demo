@@ -569,10 +569,15 @@ function formatEmailBody(s) {
     (m, label, url) => '<a href="' + url + '" target="_blank" rel="noopener">' + label + ' →</a>');
   h = h.replace(/(^|[\s])(https?:\/\/[^\s<]+)/g,
     (m, pre, url) => pre + '<a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>');
-  return h;
+  // **bold** / *italic* exactly as brevo_client._md_format sends them
+  // (2026-11-05: previews showed raw **), on text only, never inside a tag
+  return h.split(/(<[^>]+>)/).map(part => part.startsWith('<') ? part : part
+    .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '<strong>$1</strong>')
+    .replace(/(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])/g, '<em>$1</em>')).join('');
 }
 /* Plain-text version (for clipboard): drop markdown link syntax to "label: url". */
-function mdToPlain(s) { return String(s == null ? '' : s).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1: $2'); }
+function mdToPlain(s) { return String(s == null ? '' : s).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1: $2')
+  .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '$1').replace(/(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])/g, '$1'); }
 function anchorLabel(a) { return ({ first_visit: 'the first visit', second_visit: 'the second visit', trial_purchase: 'the trial purchase', survey_sent: 'the survey send', last_visit: 'the last visit', last_daypass: 'the last day pass' })[a] || a; }
 // Plain names for every email the tool sends (Block 20 R2: Email activity
 // shows these, never a raw trigger name). Both gyms' lists are here so the

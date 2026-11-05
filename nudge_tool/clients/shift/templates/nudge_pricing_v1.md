@@ -10,11 +10,11 @@ If you're interested in climbing more consistently without committing to a full 
 
 2-Week Trial: just reply to this email or reach us at {contact_email} and we'll get you set up.
 
-Membership Lite: [see the membership options]({membership_lite_link})
+Membership Lite: [see our membership options]({membership_lite_link})
 
 Both are great ways to keep climbing and see if Shift becomes part of your routine.
 
-And to get you back on the wall right away, here's 50% off your next visit: just use code {daypass_code} at the front desk.
+And to get you back on the wall right away, here's 50% off your next visit: just use code {daypass_code} when [purchasing a pass online]({purchase_pass_link}) or at the front desk.
 
 If you have any questions at all, just reply to this email. We'd be happy to help.
 
