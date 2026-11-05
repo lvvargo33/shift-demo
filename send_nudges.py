@@ -162,13 +162,17 @@ def _send_member_checkins(client, mc, cfg: dict, due: list, asof) -> None:
         stage("member check-in FAILED")
 
 
-def _send_member_surveys(client, mc, cands: list, quota: int, asof) -> None:
+def _send_member_surveys(client, mc, cands: list, quota: int, asof, share: int | None = None) -> None:
     """A2: send up to `quota` member surveys, walking `cands` (every member
     due, in order). A member the dispatch refuses (opted out, unsubscribed,
     Brevo block) is skipped and the next one tried; a "held" (warm-up cap,
     route not native) ends the step. Its own Dispatcher, prepared AFTER the
     first-timer rows are logged, so the cap counts them; any prepare failure
-    prints FAILED and skips members only (rule 5). Logs what it sends."""
+    prints FAILED and skips members only (rule 5). Logs what it sends.
+    First wave (2026-11-05): with `share` given, the slots above the plain
+    1/90 share go to first-wave targets only (`t.first_wave`); anyone else
+    is sent only while fewer than `share` went out, so a wave member we
+    cannot email never speeds up everyone else (fresh-eyes 11/05)."""
     if not cands or quota <= 0:
         return
     print(f"\n  LIVE: member survey, {quota} to send today ({len(cands)} due) ...")
@@ -186,6 +190,8 @@ def _send_member_surveys(client, mc, cands: list, quota: int, asof) -> None:
     for t in cands:
         if len(sent) >= quota or tries >= quota + 25:
             break
+        if share is not None and not getattr(t, "first_wave", False) and len(sent) >= share:
+            continue      # first-wave slot: not for this member (the order puts the wave first)
         tries += 1
         try:
             o = disp.send(t)
@@ -322,6 +328,7 @@ def run_send(a) -> None:
     from nudge_tool import member_survey_native
     ms_targets: list = []
     ms_quota = 0
+    ms_share = None
     try:
         ms_cfg = member_survey_native.load_cfg(client)
         ms_live = member_survey_native.is_live(ms_cfg)
@@ -339,6 +346,7 @@ def run_send(a) -> None:
         if ms_live and gl is not None and asof >= gl:
             ms_targets = member_survey_native.targets(ms, ms_cfg, asof, every_due=True)
             ms_quota = ms.quota
+            ms_share = ms.share
             if survey_dispatch.routing(client, "member") != "native":
                 print("    (survey.dispatch.member is not \"native\": these are HELD, nobody emailed)")
         stage(f"member survey: {len(ms.picked)} picked (live={ms_live})")
@@ -374,7 +382,7 @@ def run_send(a) -> None:
     _send_member_checkins(client, mc, ci_cfg, ci_due, asof)
     if not targets:
         print("\n  LIVE: no first-timer emails this run.")
-        _send_member_surveys(client, mc, ms_targets, ms_quota, asof)
+        _send_member_surveys(client, mc, ms_targets, ms_quota, asof, ms_share)
         if a.drive:
             print("\n=== DRIVE PUSH (outreach log) ===")
             _push_outreach_log(client)
@@ -413,7 +421,7 @@ def run_send(a) -> None:
     written = outreach.append(client, livesend.log_rows(tagged, asof))
     print(f"\n  tagged {len(tagged)} climber(s), logged {written} row(s).")
     stage(f"tagging done ({len(tagged)} tagged, {written} row(s) logged)")
-    _send_member_surveys(client, mc, ms_targets, ms_quota, asof)
+    _send_member_surveys(client, mc, ms_targets, ms_quota, asof, ms_share)
 
     if a.drive:
         print("\n=== DRIVE PUSH (outreach log) ===")

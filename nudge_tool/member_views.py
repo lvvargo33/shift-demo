@@ -388,13 +388,18 @@ def _per_day_text(ms: dict) -> str:
     """The Members page line for the native survey's pace (A2). With a first
     wave on (member_survey_native, 2026-11-05) it names both paces."""
     share = f"about 1 in {int(ms.get('spread_days') or 90)} members a day"
+    fw = ms.get("first_wave_per_day")
+    # same rule as member_survey_native.load_cfg (whole number 1-50; anything
+    # else = no wave, and the sender leaves the survey OFF): fresh-eyes 11/05
+    if type(fw) is not int or not 1 <= fw <= 50:
+        return share
+    gl = str(ms.get("go_live") or "")
     try:
-        fw = int(ms.get("first_wave_per_day") or 0)
-    except (TypeError, ValueError):
-        fw = 0
-    if fw > 0:
-        return f"{fw} members a day until everyone has been asked once, then {share}"
-    return share
+        d = date.fromisoformat(gl)
+        when = f" (members as of {d.strftime('%b')} {d.day})"
+    except ValueError:
+        when = ""
+    return f"{fw} members a day for the first round{when}, then {share}"
 
 
 def build(client: ClientConfig, asof: date, *, read_result, members: dict,

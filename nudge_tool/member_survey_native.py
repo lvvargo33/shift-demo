@@ -35,6 +35,10 @@ go_live day (30+ days a member by then) and have never been asked. While any
 of them is due, the day's quota is at least min(first_wave_per_day, how many
 of them are left). It ends by itself when that group is done: anyone who
 joins later was not eligible on go_live, so they follow the 1/90 share.
+The send walk (send_nudges._send_member_surveys) only gives the slots above
+the share to first-wave targets: a wave member we cannot email (opt-out,
+Brevo block, ledger) stays "not yet asked" here, but can never push the day
+above the share for anyone else (fresh-eyes 11/05).
 
 Switched OFF until `member_survey.enabled` is the JSON value true AND
 `go_live` is a YYYY-MM-DD date (same switch shape as the day-14 check-in);
@@ -281,12 +285,16 @@ class MemberTarget(SendTarget):
     ledger_key: str = ""
     ledger_window_days: int = 0      # >0: a ledger entry older than this is spent
     member_context: dict | None = None
+    first_wave: bool = False         # may use the first-wave slots above the share
 
 
 def targets(res: Result, cfg: dict, asof: date, *, every_due: bool = False) -> list[MemberTarget]:
     from .native_survey import member_cycle_id
     cyc = member_cycle_id(asof)
     tag = str(cfg.get("tag") or DEFAULTS["tag"])
+    gl = member_checkin.go_live_date(cfg)
+    fw_on = int(cfg.get("first_wave_per_day") or 0) > 0 and gl is not None
+    min_days = int(cfg.get("min_member_days") or DEFAULTS["min_member_days"])
     return [MemberTarget(m.climber_id, m.name, m.first_name, m.email, tag, tag, TRIGGER_NAME,
                          anchor_date=m.since.isoformat(), cycle_id=cyc,
                          # ONE ledger entry per member, good for cooldown_days: a
@@ -294,7 +302,8 @@ def targets(res: Result, cfg: dict, asof: date, *, every_due: bool = False) -> l
                          # never re-sent the next day (fresh-eyes 11/02)
                          ledger_key=TRIGGER_NAME,
                          ledger_window_days=int(cfg.get("cooldown_days") or DEFAULTS["cooldown_days"]),
-                         member_context=m.context)
+                         member_context=m.context,
+                         first_wave=fw_on and is_first_wave(m, gl, min_days))
             for m in (res.due if every_due else res.picked)]
 
 
@@ -311,7 +320,7 @@ def report_lines(res: Result, cfg: dict, live: bool, asof: date | None = None) -
         lines.append(f"    CONFIG PROBLEM: {cfg['_problem']}")
     inactive = sum(1 for m in res.eligible if m.inactive)
     if int(cfg.get("first_wave_per_day") or 0) > 0:
-        how = (f"first wave {cfg['first_wave_per_day']} a day, {res.first_wave_left} left"
+        how = (f"first wave {cfg['first_wave_per_day']} a day, {res.first_wave_left} not yet asked"
                if res.first_wave_left else f"first wave done, 1/{cfg['spread_days']} share")
     else:
         how = f"1/{cfg['spread_days']} share"
