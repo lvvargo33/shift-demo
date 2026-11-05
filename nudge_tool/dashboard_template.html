@@ -2318,9 +2318,12 @@ const MDATA = DATA.members || null;
    recent check-in. Both live in r.extra; ABC's rows have none. */
 function mInactiveBadge(r) {
   const c = (r.extra && r.extra.context) || {};
-  if (!c.inactive) return '';
+  /* QR sign (2026-11-05): the member answered at the gym, not from an email */
+  const qr = (r.extra && r.extra.channel === 'qr')
+    ? '<span class="badge" title="Answered from the QR sign at the gym">QR sign</span>' : '';
+  if (!c.inactive) return qr;
   const d = c.days_since_checkin;
-  return '<span class="badge badge-warning" title="No check-in for 60+ days when the survey went out">inactive' +
+  return qr + '<span class="badge badge-warning" title="No check-in for 60+ days when the survey went out">inactive' +
     (d != null ? ': no check-in in ' + d + ' days' : ': no check-in on file') + '</span>';
 }
 function mExtraCard(r) {

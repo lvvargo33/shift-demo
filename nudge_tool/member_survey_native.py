@@ -145,6 +145,7 @@ class Result:
     waiting: int = 0                               # eligible, not due or not picked
     cooling: int = 0                               # surveyed inside cooldown_days
     too_new: int = 0                               # member < min_member_days
+    young: list = field(default_factory=list)      # those members (the QR sign says "not due yet")
     held: list = field(default_factory=list)       # Member with .skip
     quota: int = 0
     share: int = 0                                 # the plain 1/spread_days quota
@@ -183,9 +184,12 @@ def is_first_wave(m: Member, go_live: date, min_member_days: int) -> bool:
 
 
 def find(memberships, sessions, asof: date, cfg: dict, *, log=None, unsubscribed=(),
-         staff_emails=(), skip_emails=()) -> Result:
+         staff_emails=(), skip_emails=(), qr_dates=None) -> Result:
     """Who gets the member survey on the run dated asof. `skip_emails` =
-    inboxes getting another email from today's run (they wait a day)."""
+    inboxes getting another email from today's run (they wait a day).
+    `qr_dates` = {climber_id: "YYYY-MM-DD"} of member surveys answered on the
+    QR sign (member_qr.answer_dates): they count as a survey for the 90-day
+    cooldown, the same as an emailed one (shared cadence, 2026-10-29)."""
     rows = [r for r in gym_metrics._rows(memberships) if not member_checkin._is_youth(r)]
     by_cid: dict[str, list] = {}
     for r in rows:
@@ -248,13 +252,17 @@ def find(memberships, sessions, asof: date, cfg: dict, *, log=None, unsubscribed
             continue
         if (asof - m.since).days < min_days:
             res.too_new += 1
+            res.young.append(m)
             continue
         res.eligible.append(m)
 
     cooldown = timedelta(days=int(cfg["cooldown_days"]))
+    qr = qr_dates or {}
     due: list[Member] = []
     for m in res.eligible:
-        dates = sorted(log.sent_dates(m.email, TRIGGER_NAME)) if log is not None else []
+        dates = sorted(d[:10] for d in log.sent_dates(m.email, TRIGGER_NAME)) if log is not None else []
+        if qr.get(m.climber_id):
+            dates = sorted(dates + [str(qr[m.climber_id])[:10]])
         m.last_survey = dates[-1][:10] if dates else ""
         if m.last_survey and asof - date.fromisoformat(m.last_survey) < cooldown:
             res.cooling += 1

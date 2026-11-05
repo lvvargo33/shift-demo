@@ -956,6 +956,9 @@ class Handler(survey_page.handler_base()):
         if survey_page.is_page_path(parsed.path):  # Block 18: Chris's survey page, unauthenticated like /s
             self.page_get()
             return
+        if parsed.path == "/member-qr":  # QR sign (2026-11-05), unauthenticated
+            self._member_qr_get()
+            return
 
         if not self._authed():
             self.send_response(401)
@@ -992,6 +995,9 @@ class Handler(survey_page.handler_base()):
             return
         if parsed.path in ("/survey-preference/opt-out", "/survey-preference/one-click"):
             self._optout_post(parsed)  # Block 25 A1: unauthenticated, the token is the key
+            return
+        if parsed.path == "/member-qr":  # QR sign (2026-11-05), unauthenticated
+            self._member_qr_post(parsed)
             return
         if not self._authed():
             self.send_response(401)
@@ -1105,6 +1111,101 @@ class Handler(survey_page.handler_base()):
             self._send(400, "application/json", b'{"error":"bad_request"}')
         else:
             self._send(403, "application/json", b'{"error":"invalid"}')
+
+    # --- QR sign member survey (2026-11-05; nudge_tool/member_qr.py) -------
+    # GET  /member-qr   the email form (or "not open" when member_qr is off)
+    # POST /member-qr   email (+ pick when an inbox has several members) ->
+    #                   303 to /member-survey?token=, or a message page.
+    # Unauthenticated (members have no dashboard login). The log line carries
+    # the path only; the email never reaches the log, the token only in the
+    # Location header.
+    def _qr_html(self, body: bytes, code: int = 200) -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        # same-origin, NOT no-referrer: under no-referrer Chrome/Edge post the
+        # form with "Origin: null" and the Origin check below refused every
+        # member (fresh-eyes 11/05). No token is ever on these pages.
+        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("X-Frame-Options", "DENY")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _member_qr_get(self) -> None:
+        from nudge_tool import member_qr
+        try:
+            on = member_qr.is_on(member_qr.load_cfg(load_client(self.server.default_client)))
+        except Exception as exc:  # noqa: BLE001
+            print(f"  /member-qr: config FAILED ({type(exc).__name__})")
+            on = False
+        self._qr_html(member_qr.page_form() if on else member_qr.page_message("off"))
+
+    def _client_ip(self) -> str:
+        """The LAST X-Forwarded-For hop (the one Render's proxy adds; earlier
+        hops are whatever the sender typed), else the socket peer. Not proof
+        of anything: the gym-wide miss cap is the real enumeration guard."""
+        hops = [h.strip() for h in (self.headers.get("X-Forwarded-For") or "").split(",") if h.strip()]
+        return hops[-1] if hops else (self.client_address[0] if self.client_address else "")
+
+    def _member_qr_post(self, parsed) -> None:
+        from nudge_tool import member_qr
+        origin = self.headers.get("Origin")
+        if origin is not None and urlparse(origin).netloc != (self.headers.get("Host") or ""):
+            self._qr_html(member_qr.page_message("error"), 403)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            length = -1
+        if parsed.query or not 0 < length <= 2048:
+            self._qr_html(member_qr.page_message("error"), 400)
+            return
+        form = parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
+        email = (form.get("email", [""])[0] or "").strip().lower()[:254]
+        pick = (form.get("pick", [""])[0] or "").strip()[:32]
+        if not member_qr.LIMITER.allow(self._client_ip(), email):
+            print("  /member-qr: rate limit")
+            self._qr_html(member_qr.page_message("busy"), 429)
+            return
+        try:
+            client = load_client(self.server.default_client)
+            if not member_qr.is_on(member_qr.load_cfg(client)):
+                self._qr_html(member_qr.page_message("off"))
+                return
+            if not email:
+                self._qr_html(member_qr.page_form("Type the email on your membership."))
+                return
+            try:
+                _ensure_beta_data(client)
+            except Exception as exc:  # noqa: BLE001 (local files still answer)
+                print(f"  /member-qr: data refresh failed ({type(exc).__name__}); using local files")
+            if not client.outreach_log.exists():
+                raise RuntimeError("outreach log missing (cannot check the 90 days)")
+            out = member_qr.decide(client, email, pick, log=outreach.load(client))
+        except Exception as exc:  # noqa: BLE001
+            print(f"  /member-qr: FAILED ({type(exc).__name__}: {exc})")
+            self._qr_html(member_qr.page_message("error"), 503)
+            return
+        if out.kind == "not_member" or out.note == "bad pick":
+            # a miss: counts toward the IP + gym-wide caps; members never do
+            if member_qr.LIMITER.gym_full():
+                print("  /member-qr: gym-wide miss cap")
+                self._qr_html(member_qr.page_message("busy"), 429)
+                return
+            member_qr.LIMITER.miss(self._client_ip())
+        print(f"  /member-qr: {out.kind}" + (f" ({out.note})" if out.note else ""))
+        if out.kind == "survey":
+            self.send_response(303)
+            self.send_header("Location", "/member-survey?" + urlencode({"token": out.token}))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        elif out.kind == "pick":
+            self._qr_html(member_qr.page_pick(email, out.choices))
+        else:
+            self._qr_html(member_qr.page_message(out.kind))
 
     def _send(self, code: int, ctype: str, body: bytes):
         self.send_response(code)

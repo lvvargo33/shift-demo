@@ -119,6 +119,12 @@ def _labels(session: dict, wording=None) -> tuple[dict, dict]:
     return words, opts
 
 
+def _is_qr(session: dict) -> bool:
+    """A QR-sign member survey (SHIFT member_qr.CYCLE_PREFIX; emailed ones are
+    "m"+date). Inlined so this shared module needs no SHIFT-only import."""
+    return str(session.get("cycle_id") or "").startswith("q")
+
+
 def _response(session: dict, message: dict, tz: str, wording=None):
     answers = ((session.get("completion") or {}).get("answers")
                if session.get("state") == "completed" else None) or session.get("answers") or {}
@@ -161,7 +167,9 @@ def _response(session: dict, message: dict, tz: str, wording=None):
     unknown = {qid for qid in vals if qid not in words and qid not in used}
     r.extra = {"context": dict(message.get("member_context") or {}),
                "picks": picks, "scores": scores, "comments": comments,
-               "state": session.get("state") or ""}
+               "state": session.get("state") or "",
+               # SHIFT QR sign (member_qr, 2026-11-05): its sessions' cycle id is "q"+date
+               "channel": "qr" if _is_qr(session) else "email"}
     return r, unknown
 
 
@@ -206,8 +214,17 @@ def read(client, outreach_rows=None, *, db=None, fresh: bool = False) -> mr.Read
         if not r.mid:
             res.blank_mid += 1
             continue
-        r.round_no = mr.round_of(sends.get(r.mid) or [], r.answered_at)
         parsed.append(r)
+    # Rounds: each emailed send AND each QR answer is one survey occasion, so
+    # a QR answer and a later emailed one are rounds 1 and 2, never one
+    # "duplicate" (QR sign, 2026-11-05; the 90-day rule keeps them apart).
+    occasions: dict = {}
+    for r in parsed:
+        if (r.extra or {}).get("channel") == "qr" and r.answered_at:
+            occasions.setdefault(r.mid, []).append(r.answered_at[:10])
+    for r in parsed:
+        r.round_no = mr.round_of(sorted((sends.get(r.mid) or []) + occasions.get(r.mid, [])),
+                                 r.answered_at)
     parsed.sort(key=lambda x: (x.ended_at or x.started_at or "", x.respondent_id))
     latest: dict = {}
     for r in parsed:

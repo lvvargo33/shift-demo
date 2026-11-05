@@ -83,6 +83,11 @@
     "positive_threshold": 9
   },
   "_member_survey_note": "Emailed member survey (A2, built 2026-11-02; nudge_tool/member_survey_native.py; rules = ROADMAP A2 interview 2026-10-23 + the 2026-10-28 sampling ruling). Each day about 1/spread_days of eligible members get one Brevo email from Jadee (Chris's copy, survey_emails/send_it_member_survey.html) linking to Chris's shift_v3 member survey on /member-survey. Eligible = open adult membership episode, min_member_days+ in a row, not frozen / staff / Mailchimp-unsubscribed / sharing an email; never-asked first; once per cooldown_days; members with no check-in for inactive_days+ are included and marked inactive; no reminder. TWO switches: enabled:true + go_live (YYYY-MM-DD) here, AND survey.dispatch.member = \"native\" (missing = hold). Until both, the send report only previews who would be asked.",
+  "member_qr": {
+    "enabled": false,
+    "tag": "send_it_member_qr"
+  },
+  "_member_qr_note": "QR sign member survey (nudge_tool/member_qr.py, built 2026-11-05; Luke's 2026-10-29 ruling): scan -> /member-qr on shift-live-dash -> type the membership email -> the member survey. No emailed code; members only; a shared inbox picks a name; one survey per member per 90 days shared with the emailed survey. enabled = JSON true turns the page on (needs a deploy); false = the page says the survey is not open. tag = the template id on QR survey records.",
   "min_days_between_sends": 2,
   "_min_days_between_sends_note": "S38 spacing guard (2026-07-29). Anyone whose last logged send (any trigger) is fewer than this many days old is skipped this run; they stay eligible and re-check next run. Protects the reminder -> return -> membership-offer chain from stacking emails. The existing flow already has natural 2+ day gaps, so this changes nothing for current triggers. 0 = off.",
   "reporting": {

@@ -332,13 +332,24 @@ def run_send(a) -> None:
     try:
         ms_cfg = member_survey_native.load_cfg(client)
         ms_live = member_survey_native.is_live(ms_cfg)
+        # QR sign answers count for the 90 days too (member_qr, 2026-11-05).
+        # Read only when we would send; a failed read holds today's member
+        # surveys (the except below prints FAILED), never guesses.
+        qr_dates: dict = {}
+        qr_pending: set = set()
+        if ms_live and a.i_have_shift_signoff and live_ok and a.yes:
+            from nudge_tool import member_qr
+            qr_dates, qr_pending = member_qr.qr_state(client)
+            print(f"  member QR sign: {len(qr_dates)} member(s) answered on the sign (count for the 90 days),"
+                  f" {len(qr_pending)} mid-survey on the sign (wait a day)")
         ms = member_survey_native.find(
             client.memberships_csv, client.sessions_csv, asof, ms_cfg, log=log,
             unsubscribed=unsubscribed,
             staff_emails=member_checkin.staff_emails_of(client, ds),
             skip_emails={t.email for t in targets
                          if survey_dispatch.route_for(client, t) != "hold"}
-            | {c.email for c in ci_due})
+            | {c.email for c in ci_due} | qr_pending,
+            qr_dates=qr_dates)
         print()
         for line in member_survey_native.report_lines(ms, ms_cfg, ms_live, asof):
             print(line)
