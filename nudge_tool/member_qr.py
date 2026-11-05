@@ -445,8 +445,7 @@ def page_form(error: str = "") -> bytes:
     err = f"<p role=\"alert\">{escape(error)}</p>" if error else ""
     return _page(f"{GYM} member survey", (
         f"<h1>Your experience matters.</h1>"
-        f"<p>{GYM} members: share your feedback and help us make the gym better. "
-        f"It takes about 5 minutes.</p>{err}"
+        f"<p>{GYM} members: share your feedback and help us make the gym better.</p>{err}"
         f"<form method=\"post\" action=\"{PATH}\">"
         "<label for=\"email\">The email on your membership</label>"
         "<input id=\"email\" name=\"email\" type=\"email\" required autocomplete=\"email\" "
