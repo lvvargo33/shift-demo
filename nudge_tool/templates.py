@@ -28,6 +28,7 @@ class Template:
     subject: str
     body: str
     subject_b: str = ""  # optional A/B alternate subject (empty = no test)
+    preview: str = ""    # optional inbox preview line (Brevo preheader), 2026-11-05
 
 
 def parse_template(text: str, template_id: str) -> Template:
@@ -35,13 +36,16 @@ def parse_template(text: str, template_id: str) -> Template:
 
     First `Subject:` line is the primary (A) subject. An optional `Subject B:`
     line (any order) is the A/B alternate; when present the Brevo send path
-    randomly picks A or B per recipient. Both `Subject`/`Subject B` lines are
-    stripped from the body; everything after the last header line + blank line
-    is the body.
+    randomly picks A or B per recipient. An optional `Preview:` line (2026-11-05,
+    Chris's copy) is the inbox preview text: the Brevo send puts it in a hidden
+    preheader, the Mailchimp path ignores it. All header lines are stripped
+    from the body; everything after the last header line + blank line is the
+    body.
     """
     lines = text.splitlines()
     subject = ""
     subject_b = ""
+    preview = ""
     body_start = 0
     for i, ln in enumerate(lines):
         low = ln.lower()
@@ -53,11 +57,14 @@ def parse_template(text: str, template_id: str) -> Template:
         elif low.startswith("subject:"):
             subject = ln.split(":", 1)[1].strip()
             body_start = max(body_start, i + 1)
+        elif low.startswith("preview:") and (subject or subject_b):
+            preview = ln.split(":", 1)[1].strip()
+            body_start = max(body_start, i + 1)
     while body_start < len(lines) and not lines[body_start].strip():
         body_start += 1
     body = "\n".join(lines[body_start:]).strip()
     return Template(template_id=template_id, subject=subject,
-                    body=body, subject_b=subject_b)
+                    body=body, subject_b=subject_b, preview=preview)
 
 
 def load_templates(templates_dir: Path) -> dict[str, Template]:
@@ -96,3 +103,16 @@ def render(templates: dict[str, Template], template_id: str,
 
     subject = t.subject_b if (variant == "B" and t.subject_b) else t.subject
     return (apply(subject), apply(t.body))
+
+
+def render_preview(templates: dict[str, Template], template_id: str,
+                   first_name: str, links: dict | None = None) -> str:
+    """The template's `Preview:` line with the same substitutions as render()
+    ("" when the template has none)."""
+    t = templates[template_id]
+    text = t.preview or ""
+    subs = {"first_name": first_name or "there"}
+    subs.update(links or {})
+    for key, val in subs.items():
+        text = text.replace("{" + key + "}", str(val))
+    return text

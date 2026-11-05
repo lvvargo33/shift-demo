@@ -44,6 +44,7 @@ import requests
 
 from .config import ESPError, Settings
 from .templates import render as render_template
+from .templates import render_preview
 
 BASE = "https://api.brevo.com/v3"
 DEFAULT_TIMEOUT = 30
@@ -91,7 +92,7 @@ _SHELL = '''<!DOCTYPE html>
 </head>
 <body style="margin:0; padding:0; background-color:#0b0b0b;">
   <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#0b0b0b; opacity:0;">
-    A quick note from Appalachian Bouldering Center &mdash; see you on the wall.
+    __PREHEADER__
     &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
   </div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0b0b0b;">
@@ -490,7 +491,39 @@ class BrevoClient:
             return p.read_text(encoding="utf-8")
         return _SHELL
 
-    def _html_body(self, subject: str, body: str) -> str:
+    _BOLD_RE = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*")
+    _ITALIC_RE = re.compile(r"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])")
+    _BODY_TAG_RE = re.compile(r"<body\b[^>]*>", re.IGNORECASE)
+    # the inbox preview line ABC's _SHELL always carried (its __PREHEADER__
+    # default when a template has no Preview: line, so old emails are unchanged)
+    _DEFAULT_PREHEADER = "A quick note from Appalachian Bouldering Center &mdash; see you on the wall."
+
+    @staticmethod
+    def _preheader(preview: str) -> str:
+        """Hidden inbox preview line (the gray text after the subject), plus
+        filler so the inbox does not pull body text in after it. Never shown
+        in the email itself."""
+        if not (preview or "").strip():
+            return ""
+        return ('<div style="display:none; max-height:0; overflow:hidden; mso-hide:all; '
+                'font-size:1px; line-height:1px; opacity:0;">'
+                + _html.escape(preview.strip()) + "&nbsp;&zwnj;" * 60 + "</div>")
+
+    def _md_format(self, esc: str) -> str:
+        """**bold** / *italic* on escaped text, never inside a markdown link's
+        URL (the URLs are set aside first, fresh-eyes 11/05)."""
+        urls: list[str] = []
+
+        def stash(m):
+            urls.append(m.group(2))
+            return f"[{m.group(1)}](\x00{len(urls) - 1}\x00)"
+
+        esc = self._LINK_RE.sub(stash, esc)
+        esc = self._BOLD_RE.sub(r"<strong>\1</strong>", esc)
+        esc = self._ITALIC_RE.sub(r"<em>\1</em>", esc)
+        return re.sub("\x00(\\d+)\x00", lambda m: urls[int(m.group(1))], esc)
+
+    def _html_body(self, subject: str, body: str, preview: str = "", md: bool = False) -> str:
         """Wrap the rendered template copy in the branded `_SHELL`. The subject
         becomes the headline. Markdown links render as inline bold-orange
         anchors (nice link text, never a raw URL). The offer ask is bolded +
@@ -507,6 +540,12 @@ class BrevoClient:
             if not block:
                 continue
             esc = _html.escape(block).replace("\n", "<br>")
+            # Chris's copy (2026-11-05): **bold** and *italic* (the fine print),
+            # TEMPLATE sends only (md=True from send_email): staff-typed or
+            # member-quoted text (send_custom, send_internal) stays as typed,
+            # e.g. "s**t" (fresh-eyes 11/05). html.escape leaves '*' alone.
+            if md:
+                esc = self._md_format(esc)
             # markdown links -> inline bold-orange anchors (escape-first keeps
             # text/url safe; an `&` in a query string is now `&amp;`).
             esc = self._LINK_RE.sub(
@@ -526,11 +565,23 @@ class BrevoClient:
         body_html = "\n              ".join(paras)
 
         contact = self.client.links.get("contact_email", "") or self._account_email
-        return (self._shell()
-                .replace("__HEADLINE__", _html.escape(subject))
-                .replace("__BODY__", body_html)
-                .replace("__CONTACT__", _html.escape(contact))
-                .replace("__UNSUB__", "{{ unsubscribe }}"))
+        out = (self._shell()
+               .replace("__HEADLINE__", _html.escape(subject))
+               .replace("__BODY__", body_html)
+               .replace("__CONTACT__", _html.escape(contact))
+               .replace("__UNSUB__", "{{ unsubscribe }}"))
+        if "__PREHEADER__" in out:
+            # ABC's shell has its own hidden preview block: fill it
+            out = out.replace("__PREHEADER__", _html.escape(preview.strip()) if (preview or "").strip()
+                              else self._DEFAULT_PREHEADER)
+        else:
+            # a gym shell without one (SHIFT's brevo_shell.html): add one only
+            # when the template has a Preview: line
+            pre = self._preheader(preview)
+            if pre:
+                m = self._BODY_TAG_RE.search(out)
+                out = (out[:m.end()] + pre + out[m.end():]) if m else pre + out
+        return out
 
     def upsert_member(self, email: str, first_name: str = "") -> dict:
         """Create or update a contact (POST /contacts with updateEnabled)."""
@@ -593,11 +644,14 @@ class BrevoClient:
         tags = [template_id]
         if has_ab:
             tags.append(f"{template_id}_{variant}")
+        preview = render_preview(self.client.templates, template_id, first_name, links)
+        if "{" in preview and "}" in preview:
+            raise BrevoError(0, f"unrendered token(s) in {template_id}'s Preview: line")
         payload = {
             "sender": self._sender(),
             "to": [{"email": email, "name": first_name or email}],
             "subject": subject,
-            "htmlContent": self._html_body(subject, body),
+            "htmlContent": self._html_body(subject, body, preview, md=True),
             "tags": tags,
         }
         reply_to = self._reply_to()

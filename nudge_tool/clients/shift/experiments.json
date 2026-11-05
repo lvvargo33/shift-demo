@@ -54,7 +54,8 @@
       "baseline": 0.32,
       "mwe": 0.05,
       "started": "2026-07-03",
-      "active": true
+      "active": false,
+      "_ended": "2026-11-06"
     },
     {
       "exp_id": "shift_membership_vs_trial_01",
@@ -176,7 +177,7 @@
           "FTV_reengage_subject_b",
           "send_it_reengage_friend"
         ],
-        "since": ""
+        "since": "2026-11-06"
       },
       "arms": {
         "A": [
@@ -202,8 +203,8 @@
         "sheet_id": "P-009"
       },
       "_pooled_note": "Pooled with the other gym's friend test (same pooled id = one row P-009, Gym 'Both'). Nothing is written while this entry is inactive.",
-      "started": "",
-      "active": false
+      "started": "2026-11-06",
+      "active": true
     }
   ]
 }

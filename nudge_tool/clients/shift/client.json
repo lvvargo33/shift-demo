@@ -420,18 +420,15 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": false,
+      "active": true,
       "group": "second_visit",
       "_active_note": "GATED OFF until the start morning (Luke 2026-11-02: build now, start when Chris's friend copy is in). swap_friend.py --date YYYY-MM-DD switches this trigger, its partner and the registry entry on together, and refuses while the 2026-11-02 placeholder copy (the plain email + one friend line, NOT Chris's) is still in the template.",
-      "_tag_note": "Placeholder Mailchimp tag (2026-11-02). SHIFT's offer emails go out through Mailchimp journeys, so arm B needs a journey on this tag that Chris builds (or SHIFT's offers move to Brevo, a separate build). Asked in the 11/02 reply to Chris. swap_friend.py also asks you to confirm the journeys exist."
+      "_tag_note": "Placeholder Mailchimp tag (2026-11-02). SHIFT's offer emails go out through Mailchimp journeys, so arm B needs a journey on this tag that Chris builds (or SHIFT's offers move to Brevo, a separate build). Asked in the 11/02 reply to Chris. swap_friend.py also asks you to confirm the journeys exist.",
+      "_swap_note": "Switched ON 2026-11-06 by swap_friend.py (friend-offer test E-010)."
     },
     {
       "name": "first_visit_reengage",
-      "tag": "first_visit_reengage",
-      "ab_tags": {
-        "A": "FTV_reengage_subject_a",
-        "B": "FTV_reengage_subject_b"
-      },
+      "tag": "FTV_reengage_subject_a",
       "_ab_tags_note": "Subject-line A/B test (2026-07-06). Triggers the 'FTV Reengage (subject a/b ...)' journeys; verified live same day after Luke removed the entry filters. The engine buckets each recipient deterministically (sha256 of email+trigger name) and applies the variant tag; the base tag above no longer triggers any journey and is kept for reference.",
       "template_id": "reengage_offer_v1",
       "description": "EMAIL 2, GENERIC (two-email follow-up, client plan 2026-06-17): the 'come back, here's 50% off' offer for one-visit, no-return climbers who did NOT complete the survey. ALL pass types (day pass / 2-wk trial / guest). Survey responders instead get a matching-feedback nudge (nudge_* / nudge_round_two) that carries the SAME code; not_surveyed here keeps the two mutually exclusive, and group 'second_visit' caps it at exactly one offer email per person even for late survey responders.",
@@ -448,7 +445,8 @@
       "_reengage_fix_note": "Was paused the morning of 2026-07-06: neither reengage journey fired on any tag because both had 'filter who can enter' send conditions (the S20 trap again). Luke removed the filters same morning; fresh-contact test then proved BOTH journeys send within a minute of tagging (FTV_reengage_subject_a and _b), so this trigger went back to active.",
       "group": "second_visit",
       "_active_note": "active:true = VISIBLE in the dashboard/queue for preview. SENDING is still fully OFF: the cloud copy forces live_enabled:false and the shift-nudge-send cron has NUDGE_LIVE_ENABLED=false, so the daily cron computes this queue and tags NOBODY. The 'active' flag never controlled sending (live_enabled does). To GO LIVE later: set first_visit_on_or_after (here AND on every other sending trigger) to the go-live date, build the Mailchimp Journey on each tag, then flip NUDGE_LIVE_ENABLED=true.",
-      "_provisional_note": "TWO-EMAIL FLOW locked per Luke 2026-06-17 (email thread w/ Isaac/SHIFT). EMAIL 1 = survey_request (day 1-2, all first-timers, even returners). EMAIL 2 (this 'second_visit' group, ~day 5-7) = ONE offer email carrying {daypass_code} (SECONDVISIT): survey responders get the matching-feedback variant (nudge_round_two for high intent, nudge_<blocker> for a named blocker), everyone else gets THIS generic one. ALL PASS TYPES incl. guests; the own_email_guard in engine.build_queue withholds any inbox shared by 2+ climbers (a guest under the host's email, a shared family inbox), so we never message the wrong person until SHIFT captures each guest's own email at check-in. FORWARD-ONLY at go-live: set first_visit_on_or_after to the go-live date on this + survey_request + the nudge_* triggers (empty now so the preview shows realistic volume). STILL OPEN before flip: Mailchimp opt-in/consent, Journeys per tag, final copy."
+      "_provisional_note": "TWO-EMAIL FLOW locked per Luke 2026-06-17 (email thread w/ Isaac/SHIFT). EMAIL 1 = survey_request (day 1-2, all first-timers, even returners). EMAIL 2 (this 'second_visit' group, ~day 5-7) = ONE offer email carrying {daypass_code} (SECONDVISIT): survey responders get the matching-feedback variant (nudge_round_two for high intent, nudge_<blocker> for a named blocker), everyone else gets THIS generic one. ALL PASS TYPES incl. guests; the own_email_guard in engine.build_queue withholds any inbox shared by 2+ climbers (a guest under the host's email, a shared family inbox), so we never message the wrong person until SHIFT captures each guest's own email at check-in. FORWARD-ONLY at go-live: set first_visit_on_or_after to the go-live date on this + survey_request + the nudge_* triggers (empty now so the preview shows realistic volume). STILL OPEN before flip: Mailchimp opt-in/consent, Journeys per tag, final copy.",
+      "_subject_end_note": "Subject test E-002 ENDED 2026-11-06 (swap_friend.py): ab_tags removed, every plain offer goes to the subject A journey (FTV_reengage_subject_a)."
     },
     {
       "name": "survey_request",
@@ -617,10 +615,11 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": false,
+      "active": true,
       "group": "offer_reminder",
       "_active_note": "GATED OFF until the start morning (Luke 2026-11-02: build now, start when Chris's friend copy is in). swap_friend.py --date YYYY-MM-DD switches this trigger, its partner and the registry entry on together, and refuses while the 2026-11-02 placeholder copy (the plain email + one friend line, NOT Chris's) is still in the template.",
-      "_tag_note": "Placeholder Mailchimp tag (2026-11-02). SHIFT's offer emails go out through Mailchimp journeys, so arm B needs a journey on this tag that Chris builds (or SHIFT's offers move to Brevo, a separate build). Asked in the 11/02 reply to Chris. swap_friend.py also asks you to confirm the journeys exist."
+      "_tag_note": "Placeholder Mailchimp tag (2026-11-02). SHIFT's offer emails go out through Mailchimp journeys, so arm B needs a journey on this tag that Chris builds (or SHIFT's offers move to Brevo, a separate build). Asked in the 11/02 reply to Chris. swap_friend.py also asks you to confirm the journeys exist.",
+      "_swap_note": "Switched ON 2026-11-06 by swap_friend.py (friend-offer test E-010)."
     },
     {
       "name": "ftv_reminder",
@@ -637,7 +636,9 @@
       },
       "once_only": true,
       "active": true,
-      "_group_note": "Deliberately NOT in group 'second_visit': it is the one-time follow-up TO that group, and group membership would suppress it for exactly the people it targets (prior_group_send requires they already got a group send)."
+      "_group_note": "Deliberately NOT in group 'second_visit': it is the one-time follow-up TO that group, and group membership would suppress it for exactly the people it targets (prior_group_send requires they already got a group send).",
+      "group": "offer_reminder",
+      "_friend_group_note": "Group 'offer_reminder' since 2026-11-06 (swap_friend.py): shared with ftv_reminder_friend, so a person gets one offer reminder, never both."
     },
     {
       "name": "trial_offer",
