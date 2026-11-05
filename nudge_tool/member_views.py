@@ -384,6 +384,19 @@ def render_draft(client: ClientConfig, template_key: str, first_name: str):
 # the block
 # --------------------------------------------------------------------------
 
+def _per_day_text(ms: dict) -> str:
+    """The Members page line for the native survey's pace (A2). With a first
+    wave on (member_survey_native, 2026-11-05) it names both paces."""
+    share = f"about 1 in {int(ms.get('spread_days') or 90)} members a day"
+    try:
+        fw = int(ms.get("first_wave_per_day") or 0)
+    except (TypeError, ValueError):
+        fw = 0
+    if fw > 0:
+        return f"{fw} members a day until everyone has been asked once, then {share}"
+    return share
+
+
 def build(client: ClientConfig, asof: date, *, read_result, members: dict,
           counts, outreach_rows, followup_rows, sheet_ok: bool = True,
           sheet_error: str = "", followups_ok: bool = True,
@@ -564,8 +577,7 @@ def build(client: ClientConfig, asof: date, *, read_result, members: dict,
         # /member-survey on Firestore, else ABC's SurveyMonkey sheet) and,
         # for native, the daily share instead of a daily cap
         "source": str(ms.get("source", "") or "surveymonkey"),
-        "per_day_text": (f"about 1 in {int(ms.get('spread_days') or 90)} members a day"
-                         if str(ms.get("source", "") or "") == "native" else None),
+        "per_day_text": (_per_day_text(ms) if str(ms.get("source", "") or "") == "native" else None),
     }
 
     aud = None

@@ -76,6 +76,8 @@
     "min_member_days": 30,
     "inactive_days": 60,
     "spread_days": 90,
+    "first_wave_per_day": 5,
+    "_first_wave_note": "Chris 2026-11-03, Luke OK 2026-11-05: members already eligible on go_live (11/03) who were never asked go out 5 a day (or the 1/90 share if bigger) until they are all asked; then it stops by itself and everyone is on the 1/90 share. 0 = off. Max 50.",
     "source": "native",
     "auto_reply": false,
     "positive_threshold": 9

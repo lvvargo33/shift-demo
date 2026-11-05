@@ -29,6 +29,13 @@ cooldown_days (90) waits (decision 1; keyed on the permanent trigger name
 `member_survey`, so renaming it resets everyone's clock). No reminder
 (decision 5).
 
+First wave (Chris 2026-11-03, Luke OK 2026-11-05): `first_wave_per_day`
+(0 = off). The first-wave group = members who were already eligible on
+go_live day (30+ days a member by then) and have never been asked. While any
+of them is due, the day's quota is at least min(first_wave_per_day, how many
+of them are left). It ends by itself when that group is done: anyone who
+joins later was not eligible on go_live, so they follow the 1/90 share.
+
 Switched OFF until `member_survey.enabled` is the JSON value true AND
 `go_live` is a YYYY-MM-DD date (same switch shape as the day-14 check-in);
 off = the report previews who WOULD be asked, nobody is.
@@ -53,8 +60,9 @@ TRIGGER_NAME = "member_survey"
 CONFIG_KEY = "member_survey"
 DEFAULTS = {"enabled": False, "go_live": "", "tag": "send_it_member_survey",
             "cooldown_days": 90, "min_member_days": 30, "inactive_days": 60,
-            "spread_days": 90}
+            "spread_days": 90, "first_wave_per_day": 0}
 _INTS = ("cooldown_days", "min_member_days", "inactive_days", "spread_days")
+FIRST_WAVE_MAX = 50     # a typo like 500 cannot email the whole gym in a day
 
 
 def load_cfg(client) -> dict:
@@ -83,6 +91,11 @@ def load_cfg(client) -> dict:
         if type(v) is not int or not 1 <= v <= 3650:
             cfg[k] = DEFAULTS[k]
             off(f"`{k}` = {blk.get(k)!r} must be a whole number of days")
+    fw = cfg.get("first_wave_per_day")
+    if type(fw) is not int or not 0 <= fw <= FIRST_WAVE_MAX:
+        cfg["first_wave_per_day"] = DEFAULTS["first_wave_per_day"]
+        off(f"`first_wave_per_day` = {blk.get('first_wave_per_day')!r} must be a whole number"
+            f" from 0 to {FIRST_WAVE_MAX}")
     if cfg.get("enabled") not in (True, False):
         off(f"`enabled` = {blk.get('enabled')!r} must be true or false (no quotes)")
     if str(cfg.get("go_live") or "").strip() and member_checkin.go_live_date(cfg) is None:
@@ -130,6 +143,8 @@ class Result:
     too_new: int = 0                               # member < min_member_days
     held: list = field(default_factory=list)       # Member with .skip
     quota: int = 0
+    share: int = 0                                 # the plain 1/spread_days quota
+    first_wave_left: int = 0                       # due first-wave members (see module doc)
 
 
 def last_checkins(sessions) -> dict[str, date]:
@@ -156,6 +171,11 @@ def quota_for(n: int, asof: date, anchor: date | None, spread: int) -> int:
         return 0
     d = max(0, (asof - anchor).days) if anchor is not None else 0
     return (n * (d + 1)) // spread - (n * d) // spread
+
+
+def is_first_wave(m: Member, go_live: date, min_member_days: int) -> bool:
+    """Never asked, and already min_member_days a member on go_live day."""
+    return not m.last_survey and (go_live - m.since).days >= min_member_days
 
 
 def find(memberships, sessions, asof: date, cfg: dict, *, log=None, unsubscribed=(),
@@ -240,7 +260,12 @@ def find(memberships, sessions, asof: date, cfg: dict, *, log=None, unsubscribed
         due.append(m)
     due.sort(key=lambda m: (m.last_survey != "", m.last_survey, m.since, m.climber_id))
     anchor = member_checkin.go_live_date(cfg)
-    res.quota = quota_for(len(res.eligible), asof, anchor, int(cfg["spread_days"]))
+    res.share = quota_for(len(res.eligible), asof, anchor, int(cfg["spread_days"]))
+    res.quota = res.share
+    fw = int(cfg.get("first_wave_per_day") or 0)
+    if fw > 0 and anchor is not None:
+        res.first_wave_left = sum(1 for m in due if is_first_wave(m, anchor, min_days))
+        res.quota = max(res.share, min(fw, res.first_wave_left))
     res.due = due
     res.picked = due[:res.quota]
     res.waiting = len(res.eligible) - len(res.picked)
@@ -285,8 +310,13 @@ def report_lines(res: Result, cfg: dict, live: bool, asof: date | None = None) -
     if cfg.get("_problem"):
         lines.append(f"    CONFIG PROBLEM: {cfg['_problem']}")
     inactive = sum(1 for m in res.eligible if m.inactive)
+    if int(cfg.get("first_wave_per_day") or 0) > 0:
+        how = (f"first wave {cfg['first_wave_per_day']} a day, {res.first_wave_left} left"
+               if res.first_wave_left else f"first wave done, 1/{cfg['spread_days']} share")
+    else:
+        how = f"1/{cfg['spread_days']} share"
     lines.append(f"    eligible {len(res.eligible)} (inactive {inactive}), asked today {len(res.picked)}"
-                 f" (1/{cfg['spread_days']} share), surveyed in the last {cfg['cooldown_days']} days"
+                 f" ({how}), surveyed in the last {cfg['cooldown_days']} days"
                  f" {res.cooling}, under {cfg['min_member_days']} days a member {res.too_new},"
                  f" held back {len(res.held)}")
     for m in res.picked:
