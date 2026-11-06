@@ -859,6 +859,60 @@ def _log_send_tap(slug: str, token: str) -> None:
         print(f"  /survey-tap: tap log FAILED ({type(exc).__name__})")
 
 
+# --- member survey tap buttons (2026-11-06, ROADMAP "Tap buttons in every ------
+# survey email" piece 1; Luke picked "save on page load") -----------------------
+# /member-tap?token=&n=   one of the eleven 0-10 buttons in the member survey
+#                         email (survey_mail.MEMBER_TAP_PATH). Serves the tiny
+#                         page below; its script reads the member page's own
+#                         /member-survey/state, saves n as core_nps through the
+#                         member page's own save route (same token, same Origin
+#                         + revision checks as Chris's page), then replaces
+#                         itself with /member-survey?token=, where the number
+#                         shows as picked. The GET itself writes NOTHING, so a
+#                         link checker that only fetches the URL saves no score.
+#                         A finished survey is never changed; a different
+#                         number tapped later replaces an unfinished one. Any
+#                         failure still opens the survey (just without the
+#                         number). The access log redacts token= as everywhere.
+_MEMBER_TAP_QUESTION = "core_nps"
+_MEMBER_TAP_SCORES = frozenset(str(n) for n in range(11))
+_MEMBER_TAP_HTML = (
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    '<meta name="referrer" content="no-referrer">'
+    '<meta name="robots" content="noindex">'
+    '<title>Opening your survey</title></head>'
+    '<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;'
+    'max-width:32rem;margin:15vh auto;padding:0 1rem;text-align:center;color:#222">'
+    '<p>Opening your survey&hellip;</p>'
+    '<noscript><p><a href="/member-survey?token=__TOKEN__">Open the survey</a></p></noscript>'
+    '<script src="/member-tap.js"></script></body></html>')
+_MEMBER_TAP_JS = ("""'use strict';
+(async()=>{
+const u=new URL(location.href),token=u.searchParams.get('token')||'',n=Number(u.searchParams.get('n'));
+const QID='""" + _MEMBER_TAP_QUESTION + """';
+const go=()=>location.replace('/member-survey?token='+encodeURIComponent(token));
+const opt=()=>({cache:'no-store',...(AbortSignal.timeout?{signal:AbortSignal.timeout(8000)}:{})});
+function rid(){if(crypto.randomUUID)return crypto.randomUUID();const b=new Uint8Array(16);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
+try{
+const r=await fetch('/member-survey/state?token='+encodeURIComponent(token),opt());
+if(!r.ok)return go();
+const s=await r.json(),q=(s.questions||[]).find(x=>x.id===QID),cur=(s.answers||{})[QID];
+if(s.state==='completed'||s.read_only||!q||q.kind!=='rating'||!(s.applicability||{})[QID]
+||!Number.isInteger(n)||n<q.minimum||n>q.maximum||(cur&&cur.status==='answered'&&cur.value===n))return go();
+await fetch('/member-survey/answer',{...opt(),method:'POST',
+headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+body:JSON.stringify({request_id:rid(),command:{kind:'answer',expected_revision:s.revision,
+answers:{[QID]:{status:'answered',value:n}}}})});
+}catch(e){}
+go();
+})();
+""").encode("utf-8")
+_MEMBER_TAP_CSP = ("default-src 'none'; script-src 'self'; connect-src 'self'; "
+                   "style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; "
+                   "frame-ancestors 'none'")
+
+
 class Handler(survey_page.handler_base()):
     timeout = 30  # seconds a client may stall a connection (fresh-eyes 10/2: slowloris on the page POST)
 
@@ -942,6 +996,10 @@ class Handler(survey_page.handler_base()):
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Content-Length", "0")
             self.end_headers()
+            return
+
+        if parsed.path in ("/member-tap", "/member-tap.js"):  # member email 0-10 button, unauthenticated
+            self._member_tap(parsed.path, params)
             return
 
         if parsed.path in ("/survey-preference", "/survey-preference/one-click"):
@@ -1042,6 +1100,52 @@ class Handler(survey_page.handler_base()):
                                  "Check the report email."}
         body = json.dumps(result, ensure_ascii=False).encode("utf-8")
         self._send(200, "application/json; charset=utf-8", body)
+
+    def _member_tap(self, path: str, params: dict) -> None:
+        """GET /member-tap (the page) or /member-tap.js (its script). See the
+        _MEMBER_TAP_* block above. A bad token = 404; a bad n = straight to
+        the survey (no number). Writes nothing itself."""
+        if path == "/member-tap.js":
+            body, ctype = _MEMBER_TAP_JS, "text/javascript; charset=utf-8"
+            code = 200
+        else:
+            raw_token = params.get("token", [""])[0] or ""
+            raw_n = params.get("n", [""])[0] or ""
+            token, n = raw_token.strip(), raw_n.strip()
+            if not _SURVEY_TOKEN_OK.fullmatch(token):
+                self._send(404, "text/plain; charset=utf-8", b"unknown survey")
+                return
+            if (token, n) != (raw_token, raw_n) and n in _MEMBER_TAP_SCORES:
+                # a mangled link (stray space): the page script reads the RAW
+                # address, so bounce to the clean one first (fresh-eyes 11/06)
+                self.send_response(302)
+                self.send_header("Location", "/member-tap?" + urlencode({"token": token, "n": n}))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if n not in _MEMBER_TAP_SCORES:
+                self.send_response(302)
+                self.send_header("Location", "/member-survey?" + urlencode({"token": token}))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            print(f"  /member-tap: n={n}")  # proof of a real tap in the Render log (no token)
+            # token passed the shape check (hex . urlsafe), so it is safe in HTML as is
+            body, ctype = _MEMBER_TAP_HTML.replace("__TOKEN__", token).encode("utf-8"), "text/html; charset=utf-8"
+            code = 200
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Robots-Tag", "noindex")
+        self.send_header("Content-Security-Policy", _MEMBER_TAP_CSP)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _optout_page(self, token: str) -> None:
         """GET /survey-preference: Chris's page with the state for this link.

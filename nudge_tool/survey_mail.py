@@ -12,6 +12,8 @@ Per send:
   embed versions: five 30-day page tokens (native_survey.issue_send_tokens),
                   each button -> /survey-tap?token=... (logs the tap, then the
                   page). Plain versions keep their Google Form link, as live.
+  member version: one page token; a tap template's eleven 0-10 buttons ->
+                  /member-tap?token=...&n=N (saves N as core_nps, then the page).
   every version:  one opt-out link (survey_optout.issue_links) in the body and
                   footer, plus List-Unsubscribe / List-Unsubscribe-Post headers
                   pointing at the same page, so Gmail's own Unsubscribe button
@@ -30,6 +32,13 @@ from urllib.parse import urlencode
 from . import native_survey, survey_optout
 
 TAP_PATH = "/survey-tap"
+# Member taps (2026-11-06, ROADMAP "Tap buttons in every survey email" piece 1):
+# each 0-10 button -> /member-tap?token=<the member's ONE page token>&n=<N>.
+# live_server serves a tiny page there that saves N as the first answer
+# (core_nps) through the member page's own save route, then opens the page.
+# A member template uses them only if it has the __NPS_URL_0..10__ slots.
+MEMBER_TAP_PATH = "/member-tap"
+MEMBER_TAP_SCORES = tuple(range(11))
 _PLACEHOLDER = re.compile(r"__[A-Z0-9_]+__")
 
 
@@ -58,10 +67,12 @@ def load_versions(client) -> dict:
 
 def render(client, tag: str, *, first_name: str, email: str,
            tap_urls: dict | None, optout_url: str,
-           survey_url: str | None = None) -> tuple[str, str]:
+           survey_url: str | None = None,
+           member_tap_urls: dict | None = None) -> tuple[str, str]:
     """(subject, html) for one recipient. Raises when the tag has no version,
     an embed version lacks its five URLs, a member version lacks its page URL,
-    or any placeholder is left over."""
+    member tap URLs are given but not exactly 0..10, or any placeholder is
+    left over (so a tap template sent without its eleven URLs raises)."""
     versions = load_versions(client)
     v = versions.get(tag)
     if not v:
@@ -89,6 +100,11 @@ def render(client, tag: str, *, first_name: str, email: str,
         if not survey_url:
             raise SurveyMailError(f"{tag}: needs the member survey page URL")
         fills["__SURVEY_URL__"] = esc(survey_url)
+        if member_tap_urls is not None:
+            if set(member_tap_urls) != set(MEMBER_TAP_SCORES):
+                raise SurveyMailError(f"{tag}: needs eleven 0-10 tap URLs")
+            for n in MEMBER_TAP_SCORES:
+                fills[f"__NPS_URL_{n}__"] = esc(member_tap_urls[n])
     left =sorted(set(_PLACEHOLDER.findall(text)) - set(fills))
     if left:
         raise SurveyMailError(f"{tag}: unfilled placeholder(s) {', '.join(left)}")
@@ -123,6 +139,7 @@ def build(client, target, *, db=None, now=None, base_url: str | None = None):
         raise SurveyMailError(f"no Brevo survey email for tag {target.tag!r}")
     tap_urls = None
     survey_url = None
+    member_tap_urls = None
     if v.get("member"):
         # A2: one 30-day token on this member's session for this cycle; the
         # member context (inactive flag etc.) rides on the message for the
@@ -134,6 +151,10 @@ def build(client, target, *, db=None, now=None, base_url: str | None = None):
             client, email, target.climber_id, cycle, tag=target.tag, db=db, now=now,
             context=getattr(target, "member_context", None))
         survey_url = base + native_survey.MEMBER_PAGE_PATH + "?" + urlencode({"token": token})
+        # the same one token behind all eleven buttons: the token is the key
+        # to this member's survey either way, n only says which number
+        member_tap_urls = {n: base + MEMBER_TAP_PATH + "?" + urlencode({"token": token, "n": n})
+                           for n in MEMBER_TAP_SCORES}
     elif v.get("embed"):
         tokens = native_survey.issue_send_tokens(
             client, email, target.climber_id, [1, 2, 3, 4, 5], tag=target.tag,
@@ -144,7 +165,7 @@ def build(client, target, *, db=None, now=None, base_url: str | None = None):
         client, email, db=db, now=now, base_url=base)
     subject, html = render(client, target.tag, first_name=target.first_name,
                            email=email, tap_urls=tap_urls, optout_url=page_url,
-                           survey_url=survey_url)
+                           survey_url=survey_url, member_tap_urls=member_tap_urls)
     # NOT verified that Brevo keeps these: a Brevo staff answer (community
     # forum) says it adds its own List-Unsubscribe to every transactional
     # email. If it wins, a click lands on Brevo's block list with Shift's
