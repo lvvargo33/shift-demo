@@ -2,7 +2,7 @@
   "_note": "Hand-written (A2, 2026-11-02), NOT by import_survey_emails.py (that script rewrites manifest.json only; survey_mail.load_versions merges this file in). Copy = Chris's 'Shift - Email Copy w/ Tone & Voice' doc, tab 'Member Survey (member_survey)', 2026-10-26, signed '- The Shift Team' (Luke 2026-10-27; his doc says 'The ABC Team', a copy-paste slip). Layout = the live FTV_survey_subject_a email's (same header, footer, opt-out links).",
   "versions": {
     "send_it_member_survey": {
-      "html": "send_it_member_survey.html",
+      "html": "send_it_member_survey_taps.html",
       "embed": false,
       "member": true,
       "subject": "Help us make Shift better",
