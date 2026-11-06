@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import html as _html
+import http.client
 import re
 import time
 from dataclasses import dataclass
@@ -56,6 +57,25 @@ EVENT_WINDOW_DAYS = 90
 # 429), so a long Retry-After means "not this run": the caller keeps what it
 # fetched and asks for the rest tomorrow. Never applied to sends.
 RATE_LIMIT_MAX_WAIT = 60.0
+# READS (GET) retry a Brevo server error or a dropped / timed-out connection.
+# 2026-11-06: one "Brevo API 500" on GET /contacts (the opt-out list) killed
+# ABC's whole 10 AM send run, and the same wobble timed out SHIFT's stats push.
+# One attempt was the only attempt (project rule 1, Brevo edition). Writes
+# (POST /smtp/email sends, POST /contacts, DELETE) are NEVER retried: a send
+# that timed out may already be in the person's inbox, and a retry would email
+# them twice. 429 is not retried here either (member_activity handles it).
+GET_RETRY_STATUSES = frozenset({500, 502, 503, 504})
+GET_RETRY_WAITS = (2.0, 6.0)  # seconds before attempt 2 and attempt 3
+# requests wraps socket / SSL / read-timeout trouble in these; OSError and
+# http.client.HTTPException cover anything raw that slips past the wrapping.
+_GET_TRANSPORT_ERRORS = (
+    requests.exceptions.ConnectionError,   # includes requests' SSLError, ProxyError
+    requests.exceptions.Timeout,           # ReadTimeout + ConnectTimeout
+    requests.exceptions.ChunkedEncodingError,
+    http.client.HTTPException,
+    OSError,
+)
+_sleep = time.sleep  # tests swap this out so they do not wait
 
 # Branded HTML shell (Appalachian "dark-bold" template). Each email's rendered
 # copy drops into __BODY__, its subject becomes the __HEADLINE__, the primary
@@ -251,9 +271,31 @@ class BrevoClient:
 
     # ---- low-level ------------------------------------------------------
     def _request(self, method: str, path: str, **kwargs) -> dict:
-        resp = self._session.request(
-            method, f"{BASE}{path}", timeout=self.timeout, **kwargs
-        )
+        """One Brevo call. A GET is tried up to 1 + len(GET_RETRY_WAITS) times
+        on a 5xx in GET_RETRY_STATUSES or a transport error; the last failure
+        is raised exactly as before (BrevoError / the requests exception), so
+        every caller's handling is unchanged. Anything else: one attempt."""
+        retryable = method.upper() == "GET"
+        waits = GET_RETRY_WAITS if retryable else ()
+        for attempt in range(len(waits) + 1):
+            last = attempt == len(waits)
+            try:
+                resp = self._session.request(
+                    method, f"{BASE}{path}", timeout=self.timeout, **kwargs
+                )
+            except _GET_TRANSPORT_ERRORS as e:
+                if not retryable or last:
+                    raise
+                print(f"  brevo: GET {path} {type(e).__name__}, retry "
+                      f"{attempt + 1} of {len(waits)} in {waits[attempt]:g}s")
+                _sleep(waits[attempt])
+                continue
+            if retryable and not last and resp.status_code in GET_RETRY_STATUSES:
+                print(f"  brevo: GET {path} {resp.status_code}, retry "
+                      f"{attempt + 1} of {len(waits)} in {waits[attempt]:g}s")
+                _sleep(waits[attempt])
+                continue
+            break
         if resp.status_code >= 400:
             detail = resp.text
             try:
