@@ -565,6 +565,10 @@ function escapeHtml(s) { if (s == null) return ''; return String(s).replace(/[&<
    into clickable anchors and linkify any bare http(s) URL left over. */
 function formatEmailBody(s) {
   let h = escapeHtml(s);
+  // tap buttons (2026-11-06): [1]({q1_url_1}) is filled per person at send;
+  // the preview shows the number as a small box
+  h = h.replace(/\[([^\]\s]{1,3})\]\(\{q1_url_\d+\}\)/g,
+    '<span style="display:inline-block;min-width:1.8em;padding:2px 6px;margin:0 2px;text-align:center;border-radius:4px;background:var(--primary);color:#fff;font-weight:600;">$1</span>');
   h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
     (m, label, url) => '<a href="' + url + '" target="_blank" rel="noopener">' + label + ' →</a>');
   h = h.replace(/(^|[\s])(https?:\/\/[^\s<]+)/g,
@@ -576,7 +580,7 @@ function formatEmailBody(s) {
     .replace(/(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])/g, '<em>$1</em>')).join('');
 }
 /* Plain-text version (for clipboard): drop markdown link syntax to "label: url". */
-function mdToPlain(s) { return String(s == null ? '' : s).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1: $2')
+function mdToPlain(s) { return String(s == null ? '' : s).replace(/\[([^\]\s]{1,3})\]\(\{q1_url_\d+\}\)/g, '$1').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1: $2')
   .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '$1').replace(/(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])/g, '$1'); }
 function anchorLabel(a) { return ({ first_visit: 'the first visit', second_visit: 'the second visit', trial_purchase: 'the trial purchase', survey_sent: 'the survey send', last_visit: 'the last visit', last_daypass: 'the last day pass' })[a] || a; }
 // Plain names for every email the tool sends (Block 20 R2: Email activity

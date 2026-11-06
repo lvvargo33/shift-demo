@@ -551,6 +551,47 @@ class BrevoClient:
                 'font-size:1px; line-height:1px; opacity:0;">'
                 + _html.escape(preview.strip()) + "&nbsp;&zwnj;" * 60 + "</div>")
 
+    # Tap buttons (2026-11-06, ABC first-timer survey): a paragraph made ONLY of
+    # 2-11 links whose labels are 1-3 characters (`[1](url) [2](url) ...`)
+    # renders as a row of buttons instead of inline links. A normal paragraph
+    # never matches (one link, long labels, or any other words), so every
+    # email that existed before this is unchanged.
+    _BUTTON_ROW_RE = re.compile(r"^(?:\[[^\]\s]{1,3}\]\([^)\s]+\)[ \t]*){2,11}$")
+    _BUTTON_RE = re.compile(r"\[([^\]\s]{1,3})\]\(([^)\s]+)\)")
+
+    @classmethod
+    def _button_row(cls, block: str) -> str:
+        """The button-row HTML for a links-only block, or "" when the block is
+        not one. Cells share the width so the row fits a 320 px phone."""
+        if not cls._BUTTON_ROW_RE.match(block):
+            return ""
+        btns = cls._BUTTON_RE.findall(block)
+        pct = 100 // len(btns)
+        cells = "".join(
+            f'<td width="{pct}%" align="center" style="width:{pct}%; padding:0 3px;">'
+            f'<a href="{_html.escape(url, quote=True)}" style="display:block; '
+            'background-color:#e2552b; color:#ffffff; font-family:Arial,Helvetica,sans-serif; '
+            'font-size:18px; font-weight:bold; line-height:44px; text-align:center; '
+            f'text-decoration:none; border-radius:4px;">{_html.escape(label)}</a></td>'
+            for label, url in btns)
+        return ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+                f'style="width:100%; max-width:{len(btns) * 62}px; margin:0 0 12px 0;">'
+                f'<tr>{cells}</tr></table>')
+
+    def q1_tap_links(self, email: str, tag: str = "") -> dict:
+        """Per-recipient {q1_url_1}..{q1_url_5} for a survey template with tap
+        buttons (2026-11-06): each opens /s on this gym's live dashboard, which
+        logs the tap and opens the Google Form with Q1 + email filled in.
+        {} when the client has no survey.q1_tap.base_url (then a template that
+        uses the tokens is refused by send_email's leftover check)."""
+        tap = (getattr(self.client, "survey", None) or {}).get("q1_tap") or {}
+        base = (tap.get("base_url") or "").strip().rstrip("/")
+        if not base or not (email or "").strip():
+            return {}
+        e = quote(email.strip(), safe="")
+        t = quote(tag or "", safe="")
+        return {f"q1_url_{n}": f"{base}/s?q={n}&e={e}&t={t}" for n in range(1, 6)}
+
     def _md_format(self, esc: str) -> str:
         """**bold** / *italic* on escaped text, never inside a markdown link's
         URL (the URLs are set aside first, fresh-eyes 11/05)."""
@@ -580,6 +621,10 @@ class BrevoClient:
         for block in body.split("\n\n"):
             block = block.strip()
             if not block:
+                continue
+            row = self._button_row(block) if md else ""
+            if row:
+                paras.append(row)
                 continue
             esc = _html.escape(block).replace("\n", "<br>")
             # Chris's copy (2026-11-05): **bold** and *italic* (the fine print),
@@ -650,7 +695,7 @@ class BrevoClient:
         return "A" if int(h, 16) % 2 == 0 else "B"
 
     def send_email(self, email: str, first_name: str, template_id: str,
-                   extra_links: dict | None = None) -> dict:
+                   extra_links: dict | None = None, send_tag: str = "") -> dict:
         """Render the tool's template for `template_id` and send it via the
         transactional API. When the template carries a `Subject B:` alternate,
         the recipient is bucketed A/B (deterministic, see `_ab_variant`) and the
@@ -668,6 +713,10 @@ class BrevoClient:
         # a response with the wrong id (or none) is unmatchable in the sheet.
         # Deliberately merged OVER client.links so a per-send value always wins.
         links = dict(self.client.links)
+        # tap buttons (2026-11-06): only a template that uses {q1_url_N} gets
+        # them; `send_tag` (the trigger tag) rides on each link as t=
+        if "{q1_url_" in self.client.templates[template_id].body:
+            links.update(self.q1_tap_links(email, send_tag or template_id))
         if extra_links:
             links.update(extra_links)
         subject, body = render_template(
@@ -791,7 +840,7 @@ class BrevoClient:
         if not template_id:
             raise BrevoError(0, f"no trigger maps tag '{tag}' to a template")
         self.upsert_member(email, first_name)
-        return self.send_email(email, first_name, template_id)
+        return self.send_email(email, first_name, template_id, send_tag=tag)
 
     def remove_tag(self, email: str, tag: str) -> dict:
         """No-op: Brevo has no tags. Present so cli.py cleanup (which untags then
