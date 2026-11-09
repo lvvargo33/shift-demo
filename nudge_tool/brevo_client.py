@@ -43,6 +43,7 @@ from urllib.parse import quote
 
 import requests
 
+from . import email_fix
 from .config import ESPError, Settings
 from .templates import render as render_template
 from .templates import render_preview
@@ -204,6 +205,27 @@ class BrevoError(ESPError):
         return f"Brevo API {self.status}: {self.detail}"
 
 
+@dataclass
+class BrevoBadAddress(BrevoError):
+    """An address we will not email (2026-11-09): broken and not a known typo
+    (email_fix), a corrected address that is opted out or blocked, or one
+    Brevo itself refused as "not valid" (status 400). Nothing went out.
+    Callers print a SKIP line, not FAILED: the same address would fail the
+    same way every day, so it is not a send failure to chase."""
+
+    def __str__(self) -> str:  # pragma: no cover - cosmetic
+        return f"bad address, not sent: {self.detail}"
+
+
+def _is_bad_address(status: int, detail) -> bool:
+    """Brevo's 400 for a RECIPIENT it will not take ("email is not valid in
+    to", 11/08-11/09 for perrymb@gmail.c). Only the "to" field: a bad sender
+    or reply-to is our config error and must stay a loud FAILED, never turn
+    every send into a quiet skip (fresh-eyes 11/09)."""
+    d = str(detail or "").lower()
+    return status == 400 and "not valid in to" in d
+
+
 # A send that carries "gym_<client slug>" among its Brevo tags belongs to that
 # gym. SHIFT's survey sends carry "gym_shift"; ABC's sends carry none (yet).
 # member_activity drops events tagged for a different gym (shared account).
@@ -268,6 +290,13 @@ class BrevoClient:
         # carries the tag (same as Mailchimp); here it selects which copy to send.
         self._tag_to_template = {t.tag: t.template_id for t in client.triggers}
         self._account_email: str | None = None  # lazily resolved send-from fallback
+        # email_fix (2026-11-09): a corrected address is checked against this
+        # set (lowercase) before it is emailed. The send run sets it to the
+        # list it already read (ABC: suppressed_emails(); SHIFT survey
+        # dispatch: its own opt-out + Mailchimp + Brevo block sets); None =
+        # read suppressed_emails() once, the first time a correction happens.
+        self.fix_blocklist: set | None = None
+        self._fix_printed: set = set()
 
     # ---- low-level ------------------------------------------------------
     def _request(self, method: str, path: str, **kwargs) -> dict:
@@ -307,6 +336,9 @@ class BrevoClient:
             if resp.status_code == 429:
                 retry, limits = _rate_limit_info(resp.headers)
                 raise BrevoRateLimited(429, detail, retry_after=retry, limits=limits)
+            if (method.upper() == "POST" and path == "/smtp/email"
+                    and _is_bad_address(resp.status_code, detail)):
+                raise BrevoBadAddress(resp.status_code, f"Brevo refused it ({detail})")
             raise BrevoError(resp.status_code, detail)
         if resp.status_code == 204 or not resp.content:
             return {}
@@ -380,8 +412,11 @@ class BrevoClient:
         BrevoRateLimited propagates so the caller can stop the loop, keep
         what it has, and log the limit headers (2026-09-11: the stats push
         hit a 429 at feed 300 of 317 and threw away all 300 answers)."""
-        params = {"email": email, "limit": 100, "days": EVENT_WINDOW_DAYS,
-                  "sort": "desc"}
+        # a typo'd address was emailed at its corrected address (email_fix,
+        # 2026-11-09): its events live there. Callers keep keying by the
+        # original, so the outreach log and the stats still line up.
+        params = {"email": email_fix.send_address(email), "limit": 100,
+                  "days": EVENT_WINDOW_DAYS, "sort": "desc"}
         body: dict = {}
         for attempt in (1, 2):
             try:
@@ -670,8 +705,34 @@ class BrevoClient:
                 out = (out[:m.end()] + pre + out[m.end():]) if m else pre + out
         return out
 
+    def _recipient(self, email: str) -> str:
+        """Where a member-facing email to `email` goes (email_fix, 2026-11-09).
+        Unchanged for a normal address. A typo domain on the list -> the
+        corrected address, after checking it is not opted out / blocked, and
+        one report line per address. A broken address -> BrevoBadAddress
+        before any network call. Staff mail (send_internal) never comes here."""
+        f = email_fix.fix(email)
+        if f.status == "ok":
+            return email
+        if f.status == "invalid":
+            raise BrevoBadAddress(0, f"{f.reason} ({(email or '').strip()})")
+        blocked = self.fix_blocklist
+        if blocked is None:
+            blocked = self.fix_blocklist = {e.strip().lower() for e in self.suppressed_emails()}
+        if f.address.lower() in blocked:
+            raise BrevoBadAddress(0, f"corrected address {f.address} is opted out or blocked")
+        if f.original not in self._fix_printed:
+            self._fix_printed.add(f.original)
+            print(f"    corrected address: {f.original.strip()} -> {f.address} "
+                  "(this email only; the gym's record is unchanged)")
+        return f.address
+
     def upsert_member(self, email: str, first_name: str = "") -> dict:
-        """Create or update a contact (POST /contacts with updateEnabled)."""
+        """Create or update a contact (POST /contacts with updateEnabled), at
+        the address the email really goes to: corrected for a typo domain, a
+        broken one refused before any network call (email_fix 2026-11-09;
+        member_send + member_reply call this before their send)."""
+        email = self._recipient(email)
         attrs = {}
         if first_name:
             attrs["FNAME"] = first_name
@@ -705,6 +766,10 @@ class BrevoClient:
         rather than mail a half-rendered email)."""
         if template_id not in self.client.templates:
             raise BrevoError(0, f"no template '{template_id}' for this client")
+        # the "to" only: A/B bucket and tap links keep the original address,
+        # so a corrected person stays in the same test arm and the Form /
+        # Taps tab still match the gym's record (email_fix, 2026-11-09)
+        to = self._recipient(email)
         has_ab = bool(self.client.templates[template_id].subject_b)
         variant = self._ab_variant(email, template_id) if has_ab else "A"
         # `extra_links` carries PER-RECIPIENT tokens, which client.links cannot
@@ -740,7 +805,7 @@ class BrevoClient:
             raise BrevoError(0, f"unrendered token(s) in {template_id}'s Preview: line")
         payload = {
             "sender": self._sender(),
-            "to": [{"email": email, "name": first_name or email}],
+            "to": [{"email": to, "name": first_name or to}],
             "subject": subject,
             "htmlContent": self._html_body(subject, body, preview, md=True),
             "tags": tags,
@@ -764,9 +829,10 @@ class BrevoClient:
             raise BrevoError(0, "send_custom: no subject")
         if not (body or "").strip():
             raise BrevoError(0, "send_custom: no body")
+        to = self._recipient(email)
         payload = {
             "sender": self._sender(),
-            "to": [{"email": email, "name": first_name or email}],
+            "to": [{"email": to, "name": first_name or to}],
             "subject": subject.strip(),
             "htmlContent": self._html_body(subject.strip(), body),
             "tags": [template_id, "edited"] if template_id else ["edited"],
@@ -818,6 +884,7 @@ class BrevoClient:
             raise BrevoError(0, "send_html: no subject")
         if not (html or "").strip():
             raise BrevoError(0, "send_html: no body")
+        email = self._recipient(email)
         payload = {
             "sender": self._sender(),
             "to": [{"email": email, "name": first_name or email}],
@@ -839,6 +906,8 @@ class BrevoClient:
         template_id = self._tag_to_template.get(tag)
         if not template_id:
             raise BrevoError(0, f"no trigger maps tag '{tag}' to a template")
+        # the Brevo contact is made at the address the email really goes to
+        # (upsert_member applies email_fix; a broken address stops there)
         self.upsert_member(email, first_name)
         return self.send_email(email, first_name, template_id, send_tag=tag)
 

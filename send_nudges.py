@@ -65,6 +65,7 @@ BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env", override=False)
 
 from nudge_tool import engine, ingest, livesend, member_checkin, outreach, survey, survey_dispatch  # noqa: E402
+from nudge_tool import email_fix  # noqa: E402
 from nudge_tool.config import load_client, load_settings  # noqa: E402
 from nudge_tool.mailchimp_client import MailchimpClient, MailchimpError  # noqa: E402
 from nudge_tool.stage import stage, versions  # noqa: E402
@@ -143,6 +144,13 @@ def _send_member_checkins(client, mc, cfg: dict, due: list, asof) -> None:
         _SEND_TALLY["tried"] += len(due)
         sent: list = []
         for c in due:
+            # a typo'd or broken address gets no Mailchimp email (email_fix,
+            # Luke 11/09): correcting it would add a contact to Shift's list
+            fx = email_fix.fix(c.email)
+            if fx.status != "ok":
+                print(f"    skip  {tag:<16} {c.email}  (bad_address: {fx.reason}; "
+                      "Mailchimp email skipped, gym record unchanged)")
+                continue
             try:
                 how = member_checkin.send(mc, c, tag)
             except Exception as e:  # noqa: BLE001

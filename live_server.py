@@ -554,6 +554,9 @@ def reply_now(client_slug: str, req: dict) -> dict:
         if email in unsub:
             return {"ok": False, "reason": "suppressed",
                     "message": "This member has unsubscribed or their address bounced, so the email service won\u2019t deliver to them."}
+        # a typo'd address is emailed at its corrected address (email_fix,
+        # 2026-11-09): check THAT against Shift's own lists, not Brevo's alone
+        esp_client.fix_blocklist = {e.strip().lower() for e in unsub}
 
         prior = member_reply.replied_since(
             member_reply.replies_by_mid(outreach.load_rows(client)).get(mid, []),

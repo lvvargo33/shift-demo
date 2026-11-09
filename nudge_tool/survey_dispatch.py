@@ -66,6 +66,8 @@ from datetime import date, timedelta
 
 from dotenv import load_dotenv
 
+from . import email_fix
+
 OPERATIONS = {
     "survey_request": ("ftv", "invitation"),
     "survey_reminder": ("ftv", "reminder"),
@@ -225,6 +227,9 @@ class Dispatcher:
         own = (getattr(getattr(self.brevo, "s", None), "sender_email", "") or "").strip().lower()
         self.blocked = {r["email"] for r in rows if _blocks_shift(r, own)}
         ignored = sum(1 for r in rows if not _blocks_shift(r, own))
+        # a corrected (typo'd) address is checked against Shift's OWN lists
+        # inside BrevoClient too, not the account-wide one (email_fix 11/09)
+        self.brevo.fix_blocklist = set(self.optouts) | self.mc_suppressed | self.blocked
         lines.append(f"  survey dispatch: {n} survey email(s) route to Brevo; "
                      f"{len(self.optouts)} on the Shift survey opt-out list, "
                      f"{len(self.mc_suppressed)} Mailchimp unsubscribed/cleaned, "
@@ -278,6 +283,14 @@ class Dispatcher:
         email = (t.email or "").strip().lower()
         if route is not None and route != "hold" and self.prepared and email in self.optouts:
             return Outcome("none", "opted_out")
+        # email_fix (Luke, 11/09): a typo'd or broken address never gets a
+        # Mailchimp email (correcting it would add a contact to Shift's list);
+        # a Brevo email goes to the corrected address (BrevoClient), a broken
+        # one to nobody. Both print a skip line, not FAILED.
+        fx = email_fix.fix(t.email)
+        if fx.status != "ok" and route in (None, "legacy"):
+            return Outcome("none", "bad_address",
+                           f"{fx.reason}; Mailchimp email skipped, gym record unchanged")
         if route is None or route == "legacy":
             self.mc.tag_member(t.email, t.first_name, t.tag)
             return Outcome("mailchimp", "submitted")
@@ -285,9 +298,14 @@ class Dispatcher:
             return Outcome("none", "held", "survey.dispatch says hold")
         if not self.prepared:
             raise DispatchError("prepare() must run before a native send")
-        if email in self.mc_suppressed:
+        if fx.status == "invalid":
+            return Outcome("none", "bad_address", f"{fx.reason}; not sent")
+        fixed = fx.address.strip().lower() if fx.status == "corrected" else ""
+        if fixed and fixed in self.optouts:
+            return Outcome("none", "opted_out", f"corrected address {fx.address}")
+        if email in self.mc_suppressed or (fixed and fixed in self.mc_suppressed):
             return Outcome("none", "unsubscribed", "Mailchimp unsubscribed/cleaned")
-        if email in self.blocked:
+        if email in self.blocked or (fixed and fixed in self.blocked):
             return Outcome("none", "blocked", "Brevo block")
         if self.cap is not None and self.brevo_today >= self.cap:
             return Outcome("none", "held", f"Brevo warm-up cap of {self.cap}/day reached; "
@@ -359,6 +377,12 @@ class Dispatcher:
             self.brevo.send_html(t.email, t.first_name, subject, html, tags=tags,
                                  headers=headers)
         except Exception as exc:  # noqa: BLE001
+            if type(exc).__name__ == "BrevoBadAddress":
+                # nothing went out and the same address would fail the same
+                # way tomorrow: a skip, not a FAILED (email_fix, 2026-11-09)
+                _safe(lambda: ref.set({"state": "failed", "failed_at": _now_iso(self.now)},
+                                      merge=True))
+                return Outcome("none", "bad_address", str(exc))
             if isinstance(getattr(exc, "status", None), int):
                 # a BrevoError: Brevo answered with an error status (or the
                 # client refused before sending): nothing went out, retry is safe

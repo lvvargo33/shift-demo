@@ -316,12 +316,21 @@ def _dedup_by_email(items: list[QueueItem],
     surface) and blank emails (nothing to collapse on)."""
     seen: dict[str, QueueItem] = {}
     kept: list[QueueItem] = []
+    # email_fix (2026-11-09): a typo'd address is emailed at its corrected
+    # address, so "x@gmai.com" and "x@gmail.com" are one inbox. The correctly
+    # spelled record always wins (at SHIFT a typo'd one would only be skipped
+    # on the Mailchimp route), so drop a typo'd item whose corrected address
+    # is also queued as typed; two typo'd spellings of one inbox keep the first.
+    from . import email_fix
+    ok_keys = {(it.email or "").strip().lower() for it in items
+               if it.trigger_name != "MANUAL" and email_fix.fix(it.email).status == "ok"}
     for it in items:
         email = (it.email or "").strip().lower()
         if it.trigger_name == "MANUAL" or not email:
             kept.append(it)
             continue
-        if email in seen:
+        key = email_fix.send_address(it.email).strip().lower() or email
+        if (key != email and key in ok_keys) or email in seen or key in seen:
             if suppressed_out is not None:
                 c_like = SimpleNamespace(climber_id=it.climber_id,
                                          name=it.name, email=it.email)
@@ -329,6 +338,7 @@ def _dedup_by_email(items: list[QueueItem],
                 suppressed_out.append((c_like, t_like, "shared_inbox"))
             continue
         seen[email] = it
+        seen[key] = it
         kept.append(it)
     return kept
 
