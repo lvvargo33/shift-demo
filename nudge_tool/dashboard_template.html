@@ -464,6 +464,9 @@ details.held[open] > summary { border-bottom: 1px solid var(--border-soft); }
 .home-period { margin: 0 0 12px; }
 .mini.has-trend .mini-value { display: inline-block; }
 .mini .trend { margin-left: 6px; font-size: 13px; vertical-align: 3px; cursor: help; }
+.mini .trend .trend-chg { margin-left: 3px; font-size: 12px; }
+.home-period .period-select.home-change { min-width: 110px; }
+.home-period .home-pick { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .home-period .period-select { flex-shrink: 0; min-width: 160px; }
 .home-dates { font-size: 12.5px; color: var(--fg-subtle); }
 @media (max-width: 600px) { .mini.has-trend .mini-value { font-size: 18px; } .mini .trend { margin-left: 3px; } }
@@ -893,8 +896,9 @@ function heldCount() { return (DATA.suppression || {}).total || 0; }
    under "How it is going" follows one switch: "This month so far" (the
    default; compared with the same days last month, capped at that month's
    last day) or "Last 30 days" (compared with the 30 days before). Each
-   number gets a green (better) or red (worse) arrow; hovering it shows the
-   change. Counts show the % change; survey scores show the change in
+   number gets a green (better) or red (worse) arrow with the change next to it; hovering it
+   shows what it is compared with. Counts show the raw change or the % change
+   (the "Change in" switch, numbers by default); survey scores show the change in
    points, because a % of a score misleads (a Recommend score can be 0 or
    below). No arrow when either side has no number. The Gym card's windows
    come from gym_metrics.periods (same rule, worked out on the server). */
@@ -902,6 +906,15 @@ function heldCount() { return (DATA.suppression || {}).total || 0; }
 let HOME_PERIOD = 'month';   // 'month' | 'r30'
 function setHomePeriod(v) {
   HOME_PERIOD = v === 'r30' ? 'r30' : 'month';
+  renderHome();
+}
+// How the change next to each arrow reads (Chris 2026-11-09, Luke 2026-11-10):
+// 'num' = the raw change (-1, +$1,240), 'pct' = the % change. Always opens on
+// numbers; like the period, the pick is not remembered. Survey scores show
+// points either way.
+let HOME_CHANGE = 'num';   // 'num' | 'pct'
+function setHomeChange(v) {
+  HOME_CHANGE = v === 'pct' ? 'pct' : 'num';
   renderHome();
 }
 // One end date for every card under "How it is going" (Luke 2026-10-19: the
@@ -920,8 +933,12 @@ function homeSwitchHtml() {
   const o = [['month', 'This month so far'], ['r30', 'Last 30 days']].map(([v, l]) =>
     '<option value="' + v + '"' + (HOME_PERIOD === v ? ' selected' : '') + '>' + l + '</option>').join('');
   const w = homeWindow(homeRef());
+  const co = [['num', 'Numbers'], ['pct', 'Percent']].map(([v, l]) =>
+    '<option value="' + v + '"' + (HOME_CHANGE === v ? ' selected' : '') + '>' + l + '</option>').join('');
   return '<div class="period-toggle home-period"><span class="period-label">Showing</span>' +
     '<select class="period-select" onchange="setHomePeriod(this.value)">' + o + '</select>' +
+    '<span class="home-pick"><span class="period-label">Change in</span>' +
+    '<select class="period-select home-change" aria-label="Show the change in numbers or percent" onchange="setHomeChange(this.value)">' + co + '</select></span>' +
     (w ? '<span class="home-dates">' + homeRange(w.start, w.end) + ', compared with ' +
       homeRange(w.prev_start, w.prev_end).replace(/, \d{4}$/, '') + '</span>' : '') + '</div>';
 }
@@ -956,14 +973,16 @@ function trendHtml(cur, prev, vs, opts) {
   const eps = opts.dp != null ? Math.pow(10, -opts.dp) / 2 : 0.5;
   if (Math.abs(diff) < eps) return '<span class="trend delta-flat" title="No change ' + escapeHtml(vs) + '">&#9644;</span>';
   const sign = diff > 0 ? '+' : '-';
-  let what;
-  if (opts.dp != null) { const pts = Math.abs(diff).toFixed(opts.dp); what = sign + pts + (pts === '1' ? ' point' : ' points'); }
-  else if (prev) what = sign + (100 * Math.abs(diff) / Math.abs(prev)).toFixed(1) + '%';
-  else what = 'Up from 0';
+  // chg = the short text next to the arrow; what = the same change in the hover line
+  let what, chg;
+  if (opts.dp != null) { const pts = Math.abs(diff).toFixed(opts.dp); chg = sign + pts; what = chg + (pts === '1' ? ' point' : ' points'); }
+  else if (HOME_CHANGE !== 'pct') chg = what = sign + (opts.money ? '$' : '') + Math.abs(diff).toLocaleString();
+  else if (prev) chg = what = sign + (100 * Math.abs(diff) / Math.abs(prev)).toFixed(1) + '%';
+  else chg = what = (diff > 0 ? 'Up' : 'Down') + ' from 0';
   const good = opts.down ? diff < 0 : diff > 0;
   const t = what + ' ' + vs;
   return '<span class="trend ' + (good ? 'delta-up' : 'delta-down') + '" title="' + escapeHtml(t) + '" aria-label="' + escapeHtml(t) + '">' +
-    (diff > 0 ? '&#9650;' : '&#9660;') + '</span>';
+    (diff > 0 ? '&#9650;' : '&#9660;') + '<span class="trend-chg">' + escapeHtml(chg) + '</span></span>';
 }
 // one Home number: label, value, arrow, small line under it
 function homeTile(label, value, trend, sub) {
@@ -1019,7 +1038,7 @@ function gymCard() {
       (life.checkins ? 'RGP shows who paid, not who was covered, so a gap in a member\'s own purchases does not restart the clock when their check-ins show they kept climbing through it (2 or more visit days a month on average, no break longer than 2 months, and under a quarter of those visits paid as day passes). ' : '') : '') +
     (life.data_since ? (rgp ? 'RGP purchases' : 'Beta plans') + ' in the data go back to ' + shortDate(life.data_since) + ', so anyone who joined before that counts from then. ' : '') +
     (lifeOk ? 'Exactly: ' + Number(life.avg_months).toFixed(1) + ' months. ' : '') + 'It has no arrow and does not follow the period switch.';
-  const howAll = how + lifeHow + '\nPeriod: it ends on the last day with sales in the data (the data is pulled each morning, so today is not in yet). Arrows: green is better, red is worse; hover one to see the change. This month so far is compared with the same days last month, Last 30 days with the 30 days before. A number with no arrow has no count for the earlier date or period yet.';
+  const howAll = how + lifeHow + '\nPeriod: it ends on the last day with sales in the data (the data is pulled each morning, so today is not in yet). Arrows: green is better, red is worse. The number next to an arrow is the change; pick Numbers or Percent next to Showing, and hover an arrow to see what it is compared with. This month so far is compared with the same days last month, Last 30 days with the 30 days before. A number with no arrow has no count for the earlier date or period yet.';
   h += '<div class="card-content"><div class="mini-grid ' + (life ? 'five' : 'four') + '">' +
     homeTile('Member count', homeNum(mem.active), mp ? trendHtml(mem.active, mp.active, memVs) : '',
       mem.frozen ? '+ ' + mem.frozen.toLocaleString() + ' frozen' : 'None frozen') +
@@ -1030,7 +1049,7 @@ function gymCard() {
     homeTile('New members', homeNum(p.new_members), vs ? trendHtml(p.new_members, p.prev_new_members, vs) : '', '') +
     homeTile('Cancellations', homeNum(c.n), vs ? trendHtml(c.n, pc.n, vs, { down: true }) : '', '') +
     homeTile('Net sales', s.amount == null ? 'n/a' : '$' + Math.round(s.amount).toLocaleString(),
-      vs && ps.amount != null && s.amount != null ? trendHtml(Math.round(s.amount), Math.round(ps.amount), vs) : '',
+      vs && ps.amount != null && s.amount != null ? trendHtml(Math.round(s.amount), Math.round(ps.amount), vs, { money: true }) : '',
       s.through ? 'Sales through ' + shortDate(s.through) : '') +
     '</div>' + howLink('how-gym', howAll) + '</div></div>';
   return h;
