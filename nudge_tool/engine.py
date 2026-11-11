@@ -1446,6 +1446,24 @@ def build_engagement(ds: Dataset, sent_rows: list | None,
     }
 
 
+def _insights_block(ds: Dataset, client: ClientConfig, asof: date,
+                    sent_rows: list | None) -> dict:
+    """Block 28: the Insights builder's per-person rows (insights_rows.py).
+    Guarded so a surprise here never takes the page down; the failure line is
+    loud on purpose (project rule 5) and the page keeps the old charts."""
+    from . import gym_metrics, insights_rows, insights_series
+    try:
+        block = insights_rows.build(ds, client, asof, sent_rows=sent_rows)
+        if block.get("enabled"):
+            # the month-by-month member and sales numbers (step 3); guarded
+            # inside build(), which prints its own FAILED line
+            block["monthly"] = insights_series.build(client, gym_metrics.eastern_today())
+        return block
+    except Exception as exc:  # noqa: BLE001
+        print(f"  insights builder rows FAILED: {type(exc).__name__}: {exc}")
+        return {"enabled": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
                   asof: date, mode: str, generated_at: str,
                   survey_result=None, suppressed_out: list | None = None,
@@ -1479,6 +1497,7 @@ def build_payload(ds: Dataset, queue: list[QueueItem], client: ClientConfig,
         "metrics": build_metrics(ds, queue, client, asof),
         "funnel": build_funnel(ds),
         "reporting": build_reporting(ds, client, asof),
+        "insights": _insights_block(ds, client, asof, sent_rows),
         "scorecard": build_scorecard(ds, client),
         "config": build_config_view(client),
         "triggers": [

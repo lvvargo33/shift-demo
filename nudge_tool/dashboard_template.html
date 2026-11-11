@@ -303,6 +303,44 @@ button, input, textarea, select { font-family: inherit; }
 .metric-toggle .mt-btn:last-of-type { border-radius: 0 8px 8px 0; border-left: none; }
 .metric-toggle .mt-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
+/* --- insights builder (Block 28) --- */
+.ib-controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px 14px; margin-bottom: 14px; }
+.ib-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ib-field .period-select { width: 100%; min-width: 0; }
+.ib-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.ib-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 6px 5px 11px; border-radius: 999px; background: var(--primary-tint); border: 1px solid var(--red-tile-border); font-size: 12px; font-weight: 600; color: var(--fg); }
+.ib-chip button { border: none; background: transparent; cursor: pointer; font-size: 18px; line-height: 1; color: var(--fg-subtle); padding: 4px 8px; min-width: 30px; min-height: 30px; }
+.ib-chip button:hover { color: var(--destructive); }
+.ib-add { font-weight: 500; max-width: 100%; }
+.ib-card .carousel-body { min-height: 180px; }
+.ib-svg { max-height: 260px; }
+.ib-legend { flex-wrap: wrap; gap: 8px 18px; }
+.ib-swatch { display: inline-block; width: 16px; height: 0; border-top: 3px solid; vertical-align: middle; margin-right: 5px; }
+.ib-hit { fill: none; stroke: transparent; stroke-width: 16px; cursor: pointer; pointer-events: stroke; }
+.ib-pt { cursor: pointer; }
+.ib-leg { cursor: pointer; background: none; border: none; padding: 0; font: inherit; color: inherit; }
+.ib-leg.on { font-weight: 700; color: var(--fg); }
+.ib-hint { color: var(--fg-hint); font-size: 11.5px; }
+.ib-val { font-weight: 700; font-size: 10.5px; paint-order: stroke; stroke: var(--card, #fff); stroke-width: 3px; stroke-linejoin: round; }
+.ib-swatch.dashed { border-top-style: dashed; border-top-width: 2px; }
+.ib-numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.ib-number { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: var(--bg-subtle); }
+.ib-number-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-subtle); font-weight: 700; }
+.ib-number-value { font-size: 34px; font-weight: 700; color: var(--fg); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.ib-number-sub { font-size: 11.5px; color: var(--fg-hint); margin-top: 2px; }
+.ib-table-wrap { overflow-x: auto; max-width: 100%; }
+.ib-table th, .ib-table td { white-space: nowrap; }
+.ib-table td.num, .ib-table th.num { text-align: right; }
+.ib-note { font-size: 11.5px; color: var(--fg-subtle); margin-top: 10px; }
+.ib-warn { display: inline-block; margin-top: 12px; }
+.ib-foot { display: flex; gap: 6px 18px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+.ib-foot .how-text { flex-basis: 100%; order: 3; }
+.ib-off { margin-top: 10px; }
+.ib-more-row { display: flex; gap: 6px 18px; flex-wrap: wrap; align-items: center; margin: -4px 0 14px; }
+.ib-more-row .how-link { margin-top: 0; font-size: 12.5px; }
+.ib-more-box { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-subtle); }
+@media (max-width: 500px) { .ib-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; } .ib-field .period-select { padding: 7px 8px; font-size: 12.5px; } .ib-number-value { font-size: 28px; } }
+
 /* --- insights: single-chart carousel --- */
 .carousel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-card); padding: 18px 20px 12px; }
 .carousel-head { margin-bottom: 14px; min-height: 50px; }
@@ -2216,6 +2254,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
   return slides;
 }
 function renderInsights() {
+  if (ibOn()) { renderBuilder(); return; }   // Block 28 preview (?builder=1)
   const sv = DATA.survey || {};
   // all-time list (fallback: the inbox-windowed one), so survey slides don't
   // vanish once every response is older than the inbox window
@@ -2257,6 +2296,866 @@ function renderInsights() {
     '<div class="carousel-counter">' + (INSIGHTS_SLIDE + 1) + ' of ' + slides.length + '</div>' +
   '</div>';
 
+  $('view-insights').innerHTML = h;
+}
+
+/* ============================ INSIGHTS BUILDER (Block 28) ============================
+   Pick-your-own chart on DATA.insights (nudge_tool/insights_rows.py): one
+   packed row per first-timer clock, no identity. "Defined metrics, free
+   views": the user picks who, what, when, a split, filters and a chart type,
+   never a formula. Every rule below is the old carousel's own rule (period
+   ranges, the "has had N days" cut, whole-month trend windows), so a view
+   picked from "Start from" shows the old chart's numbers.
+   PREVIEW until the Block 28 release: the old carousel stays the default and
+   this page shows only with ?builder=1 (remembered per browser; ?builder=0
+   turns it off). SHARED block: identical in the ABC and SHIFT templates. */
+const IB_KEY = 'sendItInsightsView', IB_PREVIEW_KEY = 'sendItBuilderPreview', IB_SMALL = 30;
+const IB_COLORS = ['#BE4528', '#16A34A', '#2563EB', '#7C3AED', '#D97706', '#0F766E'];
+const IBC = {};
+let IB = null, IB_EXITED = false, IB_MORE = null;
+// Lines whose numbers are showing (by line name) and the lines of the chart on
+// screen. Clicking a line, a point or its legend name flips that one line.
+let IB_VALS = [], IB_LINES = [];
+function ibData() { return DATA.insights || {}; }
+function ibAvailable() {
+  const d = ibData();
+  if (!(d.enabled && (d.rows || []).length)) return false;
+  if (IBC.d == null) (d.cols || []).forEach((c, i) => { IBC[c] = i; });
+  return true;
+}
+function ibPreview() {
+  const q = (typeof location !== 'undefined' && location.search) || '';
+  try {
+    if (/[?&]builder=1\b/.test(q)) localStorage.setItem(IB_PREVIEW_KEY, '1');
+    if (/[?&]builder=0\b/.test(q)) localStorage.removeItem(IB_PREVIEW_KEY);
+    return localStorage.getItem(IB_PREVIEW_KEY) === '1';
+  } catch (e) { return /[?&]builder=1\b/.test(q); }
+}
+function ibOn() { return !IB_EXITED && ibAvailable() && ibPreview(); }
+function ibEnd() { return ibData().data_through || ''; }
+
+/* ---- what can be picked ---- */
+function ibMetrics() {
+  const w = ibData().windows || {}, rd = w.return_days || 30, J = w.join_days || [30, 60, 90];
+  const back = n => r => r[IBC.r2] != null && r[IBC.r2] >= 1 && r[IBC.r2] <= n;
+  const join = n => r => r[IBC.j] != null && r[IBC.j] >= 0 && r[IBC.j] <= n;
+  const F = 'First-timers';
+  return [
+    { k: 'ftv', label: 'First-timers', unit: 'count', win: 0, pred: null },
+    { k: 'back', label: 'Came back within ' + rd + ' days', unit: 'pct', win: rd, pred: back(rd) },
+  ].concat(J.map((d, i) => ({ k: 'j' + i, label: 'Joined within ' + d + ' days', unit: 'pct', win: d, pred: join(d), hide: i < J.length - 1 }))).concat([
+    { k: 'nm', label: 'New members (first-timers who joined)', unit: 'count', win: 0, pred: r => r[IBC.j] != null },
+    { k: 'jn', label: 'Joined within ' + J[2] + ' days (count)', unit: 'count', win: 0, pred: join(J[2]), hide: true },
+  ]).map(m => Object.assign(m, { family: F })).concat(ibSeriesMetrics(), ibLegacyMetrics());
+}
+// Month-by-month numbers for the whole gym (nudge_tool/insights_series.py):
+// counted by the Home page's own rules, one calendar month at a time. They
+// are not rows of people, so Who and the filters do not apply to them.
+function ibMonthly() { const m = ibData().monthly || {}; return m.enabled ? m : null; }
+function ibSeriesMetrics() {
+  const mo = ibMonthly();
+  if (!mo) return [];
+  const M = mo.members, S = mo.sales, N = mo.notes || {};
+  const mk = (k, label, family, unit, vals, agg, note, extra) =>
+    Object.assign({ k: k, label: label, family: family, unit: unit, series: true, vals: vals, agg: agg, note: note || '' }, extra || {});
+  return [
+    mk('m_new', 'New members', 'Members', 'count', M.new, 'sum', N.members),
+    mk('m_cancels', 'Cancellations', 'Members', 'count', M.cancels, 'sum', N.cancels || N.members),
+    mk('m_net', 'Net change in members', 'Members', 'count', M.net, 'sum', N.cancels || N.members),
+    mk('m_active', 'Member count (end of month)', 'Members', 'count', M.active, 'last', N.active || N.members),
+    mk('m_frozen', 'Frozen members (end of month)', 'Members', 'count', M.frozen, 'last', N.frozen || N.members),
+    mk('l_bands', 'Members by length of membership (today)', 'Members', 'count', null, null, N.length, { snap: 'bands' }),
+    mk('l_plan', 'Average membership length by plan (today)', 'Members', 'months', null, null, N.length, { snap: 'plan' }),
+    mk('s_pass', 'Pass sales', 'Sales', 'money', S.pass, 'sum', '', { products: 'amount' }),
+    mk('s_mem', 'Membership sales', 'Sales', 'money', S.membership, 'sum'),
+    mk('s_asp', 'Average pass price', 'Sales', 'price', null, 'ratio', '', { num: S.pass, den: S.pass_qty, products: 'asp' }),
+    mk('s_qty', 'Passes sold', 'Sales', 'count', S.pass_qty, 'sum', '', { products: 'qty', hide: true }),
+  ];
+}
+// The survey-answer and email charts are shown exactly as the old page drew
+// them (the same functions), so their numbers cannot drift. Emails count
+// EMAILS, not people: they are their own family and take no people split.
+function ibLegacyMetrics() {
+  const out = [];
+  try {
+    const sv = DATA.survey || {}, responses = sv.all_responses || sv.responses || [];
+    buildInsightSlides(false, surveyOn() && responses.length > 0, sv, responses).forEach(sl => out.push({
+      k: 'x_' + sl.title.toLowerCase().replace(/[^a-z0-9]+/g, '_'), label: sl.title,
+      family: sl.fixed ? 'Survey answers' : 'Emails', unit: 'legacy', legacy: true, slide: sl }));
+  } catch (e) {}
+  return out;
+}
+function ibMetric() { const M = ibMetrics(); return M.find(m => m.k === IB.metric) || M[0]; }
+// splits worked out on the page from the day counts
+const IB_DERIVED = {
+  back2: { label: 'Days to 2nd visit', values: ['Within 7 days', '8 to 14 days', '15 to 30 days', '31 days or more', 'Not yet'],
+    code: r => { const v = r[IBC.r2]; return v == null ? 4 : v <= 7 ? 0 : v <= 14 ? 1 : v <= 30 ? 2 : 3; } },
+  visits: { label: 'Total visits (the first one included)', values: ['1 visit', '2 visits', '3 visits', '4–5 visits', '6+ visits'],
+    code: r => { const v = r[IBC.nva]; return v < 1 ? -1 : v === 1 ? 0 : v === 2 ? 1 : v === 3 ? 2 : v <= 5 ? 3 : 4; } },
+  tojoin: { label: 'Days to joining', values: ['Within 1 week', '1–2 weeks', '2–4 weeks', '1–2 months', '2–3 months', '3+ months', 'Has not joined'],
+    code: r => { const v = r[IBC.j]; return v == null ? 6 : v <= 7 ? 0 : v <= 14 ? 1 : v <= 30 ? 2 : v <= 60 ? 3 : v <= 90 ? 4 : 5; } },
+};
+const IB_DIM_ORDER = ['cat', 'kind', 'email', 'age', 'party', 'price', 'chan', 'wd', 'tod', 'back2', 'visits', 'tojoin', 'intent', 'blocker'];
+const IB_SIZE_SORT = ['cat', 'email', 'intent', 'blocker'];
+// Split by: these six lead the list, the rest sit under "More splits" (Luke, 2026-11-11)
+const IB_DIM_TOP = ['cat', 'kind', 'party', 'age', 'back2', 'email'];
+function ibNice(key, v) {
+  if (key === 'intent' && typeof intentLabel === 'function' && ['high', 'medium', 'low'].includes(v)) return intentLabel(v);
+  if (key === 'blocker' && typeof blockerLabel === 'function' && /^[a-z_]+$/.test(v)) return blockerLabel(v);
+  if (key === 'email' && /^[A-Za-z0-9_]+$/.test(v)) {
+    const t = v.replace(/^send_it_/i, '').replace(/_/g, ' ');
+    return 'Email: ' + t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  return v;
+}
+function ibDim(key) {
+  if (IB_DERIVED[key]) return Object.assign({ key: key, available: true, note: '', sort: 'fixed' }, IB_DERIVED[key]);
+  const d = (ibData().dims || {})[key];
+  if (!d || IBC[key] == null) return null;
+  return { key: key, label: d.label, values: d.values.map(v => ibNice(key, v)), available: d.available !== false, note: d.note || '',
+    sort: IB_SIZE_SORT.includes(key) ? 'size' : 'fixed', code: r => r[IBC[key]] };
+}
+function ibDims() { return IB_DIM_ORDER.map(ibDim).filter(Boolean); }
+function ibPeriods() {
+  const o = ibData().scorecard_start ? [['pilot', 'Since the pilot started']] : [];
+  return o.concat([['r:30', 'Last 30 days'], ['r:90', 'Last 90 days'], ['r:180', 'Last 6 months'], ['r:365', 'Last 12 months'], ['all', 'All time']]);
+}
+const IB_TIMES = [['none', 'Not over time'], ['month', 'By month'], ['week', 'By week']];
+const IB_COMPARES = [['none', 'Nothing'], ['yoy', 'Same dates last year'], ['prev', 'The period before']];
+const IB_CHARTS = [['auto', 'Best fit'], ['line', 'Line'], ['bar', 'Bars'], ['table', 'Table'], ['number', 'Big number'], ['funnel', 'Funnel']];
+function ibPresets() {
+  const p = [
+    ['rate_time', 'Conversion rate over time', { metric: 'j2', also: 'back', time: 'month', group: 'none', chart: 'auto' }],
+    ['glance', 'First-timers & conversion', { metric: 'j2', chart: 'funnel', time: 'none', group: 'none', also: 'none' }],
+    ['visits', 'Conversion by return visits', { metric: 'j2', also: 'none', time: 'none', group: 'visits', chart: 'auto' }],
+    ['entry', 'Conversion by entry product', { metric: 'j2', also: 'none', time: 'none', group: 'cat', chart: 'auto' }],
+    ['trend', 'First-timers and new members over time', { metric: 'ftv', also: 'jn', time: 'month', group: 'none', chart: 'auto' }],
+    ['timing', 'When members join', { metric: 'nm', also: 'none', time: 'none', group: 'tojoin', chart: 'auto' }],
+  ];
+  if (ibData().scorecard_start) p.push(['scorecard', 'Pilot scorecard',
+    { metric: 'j2', type: 'qualified', period: 'pilot', chart: 'funnel', compare: 'yoy', time: 'none', group: 'none', also: 'none', filters: {} }]);
+  if (ibMonthly()) {
+    const base = { time: 'month', group: 'none', chart: 'auto', compare: 'none', period: 'r:365' };
+    p.push(['mem_move', 'Members: new and cancelled each month', Object.assign({}, base, { metric: 'm_new', also: 'm_cancels' })]);
+    p.push(['mem_count', 'Members: count over the past year', Object.assign({}, base, { metric: 'm_active', also: 'none' })]);
+    p.push(['mem_length', 'Members: how long they have been members', Object.assign({}, base, { metric: 'l_bands', also: 'none', time: 'none' })]);
+    p.push(['pass_sales', 'Sales: passes each month', Object.assign({}, base, { metric: 's_pass', also: 'none' })]);
+    p.push(['mem_sales', 'Sales: memberships each month', Object.assign({}, base, { metric: 's_mem', also: 'none' })]);
+    p.push(['pass_price', 'Sales: average pass price each month', Object.assign({}, base, { metric: 's_asp', also: 'none' })]);
+  }
+  ibLegacyMetrics().forEach(m => p.push([m.k, m.family + ': ' + m.label, { metric: m.k, also: 'none', group: 'none', compare: 'none', chart: 'auto' }]));
+  return p;
+}
+
+/* ---- the remembered view ---- */
+function ibDefault() {
+  return { preset: 'rate_time', type: 'qualified', metric: 'j2', also: 'back', period: 'r:365', time: 'month',
+    group: 'none', compare: 'none', chart: 'auto', filters: {} };
+}
+function ibClean(s) {
+  const d = ibDefault(), has = (list, v) => list.some(o => o[0] === v);
+  const types = ibData().types || [];
+  if (!types.some(t => t.key === s.type)) s.type = (types[0] || {}).key || d.type;
+  const mk = ibMetrics().map(m => m.k);
+  if (!mk.includes(s.metric)) s.metric = d.metric;
+  if (s.also !== 'none' && !mk.includes(s.also)) s.also = 'none';
+  if (!has(ibPeriods(), s.period)) s.period = d.period;
+  if (!has(IB_TIMES, s.time)) s.time = d.time;
+  if (!has(IB_COMPARES, s.compare) || s.period === 'all') s.compare = 'none';
+  if (!has(IB_CHARTS, s.chart)) s.chart = 'auto';
+  const cur = ibMetrics().find(m => m.k === s.metric);
+  if (cur.series || cur.legacy) {
+    // whole-gym numbers: months only, and the one split is the pass type
+    if (s.group !== 'none' && !(s.group === 'product' && cur.products)) s.group = 'none';
+    if (s.time === 'week') s.time = 'month';
+    if (s.chart === 'funnel') s.chart = 'auto';
+  } else {
+    const g = s.group === 'none' ? null : ibDim(s.group);
+    if (s.group !== 'none' && !(g && g.available)) s.group = 'none';
+  }
+  const f = {};
+  Object.keys(s.filters && typeof s.filters === 'object' ? s.filters : {}).forEach(k => {
+    const dim = ibDim(k), v = s.filters[k];
+    if (dim && dim.available && Array.isArray(v)) {
+      const ok = v.filter(c => Number.isInteger(c) && c >= 0 && c < dim.values.length);
+      if (ok.length) f[k] = ok;
+    }
+  });
+  s.filters = f;
+  if (!ibPresets().some(p => p[0] === s.preset)) s.preset = '';
+  return s;
+}
+function ibLoad() {
+  const d = ibDefault();
+  try {
+    const s = JSON.parse(localStorage.getItem(IB_KEY) || 'null');
+    if (s && typeof s === 'object') Object.keys(d).forEach(k => { if (s[k] != null) d[k] = s[k]; });
+  } catch (e) {}
+  return ibClean(d);
+}
+function ibSave() { try { localStorage.setItem(IB_KEY, JSON.stringify(IB)); } catch (e) {} }
+function ibSet(key, value) {
+  IB[key] = value; IB.preset = '';
+  ibClean(IB); ibSave(); renderBuilder();
+}
+function ibStartFrom(k) {
+  const p = ibPresets().find(x => x[0] === k);
+  if (!p) return;
+  Object.assign(IB, ibDefault(), p[2]); IB.preset = k;
+  ibClean(IB); IB.preset = k; ibSave(); renderBuilder();
+}
+function ibAddFilter(v) {
+  const p = String(v || '').split('|');
+  if (p.length !== 2) return;
+  const cur = (IB.filters[p[0]] || []).slice(), c = +p[1];
+  if (!cur.includes(c)) cur.push(c);
+  IB.filters[p[0]] = cur; IB.preset = '';
+  ibClean(IB); ibSave(); renderBuilder();
+}
+function ibDropFilter(k, c) {
+  IB.filters[k] = (IB.filters[k] || []).filter(x => x !== c); IB.preset = '';
+  ibClean(IB); ibSave(); renderBuilder();
+}
+function ibReset() { IB = ibClean(ibDefault()); IB_VALS = []; ibSave(); renderBuilder(); }
+function ibToggleMore() { IB_MORE = !IB_MORE; renderBuilder(); }
+function ibToggleVals(i) {
+  const nm = IB_LINES[i];
+  if (nm == null) return;
+  const k = IB_VALS.indexOf(nm);
+  if (k < 0) IB_VALS.push(nm); else IB_VALS.splice(k, 1);
+  renderBuilder();
+}
+function ibExit() { IB_EXITED = true; try { localStorage.removeItem(IB_PREVIEW_KEY); } catch (e) {} renderInsights(); }
+
+/* ---- dates ---- */
+function ibShiftYear(iso, n) {   // Feb 29 lands on Feb 28, as engine._shift_year
+  if (!iso) return '';
+  const y = +iso.slice(0, 4) + n, md = iso.slice(4);
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  return y + (md === '-02-29' && !leap ? '-02-28' : md);
+}
+function ibDayDiff(a, b) { return Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 86400000); }
+function ibPeriodDays() {
+  const p = IB.period;
+  if (p.startsWith('r:')) return +p.slice(2);
+  if (p === 'pilot') return ibDayDiff(ibData().scorecard_start, ibEnd()) + 1;
+  return 0;
+}
+// First-visit dates [lo, hi] counted for a number whose window is n days: the
+// old page's periodRange. cmp shifts the same range back a year (the Pilot
+// scorecard's "same dates last year", engine._scorecard_parts) or back by
+// the period's own length.
+function ibRange(n, cmp) {
+  const end = ibEnd(), p = IB.period;
+  let lo = p === 'pilot' ? ibData().scorecard_start : p.startsWith('r:') ? addDays(end, -(+p.slice(2)) - n + 1) : '';
+  let hi = addDays(end, -n);
+  if (cmp === 'yoy') { lo = lo ? ibShiftYear(lo, -1) : ''; hi = addDays(ibShiftYear(end, -1), -n); }
+  else if (cmp === 'prev') { const len = ibPeriodDays(); lo = lo ? addDays(lo, -len) : ''; hi = addDays(hi, -len); }
+  return [lo, hi];
+}
+// Whole months for a count over time on a rolling period (the old page's
+// trendWindow): the last N completed months plus the month so far, so the
+// oldest point is never a partial month.
+function ibTrendMonths(cmp) {
+  const cur = ibEnd().slice(0, 7);
+  if (!cur || !IB.period.startsWith('r:')) return null;
+  const n = Math.max(1, Math.round(+IB.period.slice(2) / 30));
+  const back = cmp === 'yoy' ? 12 : cmp === 'prev' ? n + 1 : 0;
+  return { start: ibMonthAdd(cur, -n - back), end: ibMonthAdd(cur, -back) };
+}
+function ibMonthAdd(ym, delta) {
+  const p = ym.split('-');
+  let y = +p[0], m = +p[1] - 1 + delta;
+  y += Math.floor(m / 12); m = ((m % 12) + 12) % 12;
+  return y + '-' + ('0' + (m + 1)).slice(-2);
+}
+function ibMonthSeq(start, end) {
+  const out = [];
+  for (let m = start; m <= end && out.length < 120; m = ibMonthAdd(m, 1)) out.push(m);
+  return out;
+}
+function ibWeek(iso) {   // the Monday of that week
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+function ibBucket(r) { return IB.time === 'week' ? ibWeek(r[0]) : r[0].slice(0, 7); }
+function ibBucketLabel(k) {
+  if (k.length === 7) return monthName(k);
+  const p = k.split('-');
+  return MONTHS[+p[1] - 1] + ' ' + (+p[2]);
+}
+// where a compare bucket sits on the current axis
+function ibAlign(k, cmp, wholeMonths) {
+  if (k.length === 7) return ibMonthAdd(k, cmp === 'yoy' ? 12 : Math.max(1, Math.round(ibPeriodDays() / 30)) + (wholeMonths ? 1 : 0));
+  return addDays(k, cmp === 'yoy' ? 364 : 7 * Math.max(1, Math.round(ibPeriodDays() / 7)));
+}
+
+/* ---- counting ---- */
+function ibBase() {
+  const types = ibData().types || [], t = types.find(x => x.key === IB.type) || types[0] || { bit: 1 };
+  const ti = IBC.types, f = Object.keys(IB.filters).map(k => [ibDim(k), IB.filters[k]]).filter(x => x[0] && x[1].length);
+  return (ibData().rows || []).filter(r => (r[ti] & t.bit) && f.every(x => x[1].includes(x[0].code(r))));
+}
+function ibPop(m, rows, cmp, monthly) {   // the rows a metric counts in the picked period
+  const tw = monthly && m.unit === 'count' ? ibTrendMonths(cmp) : null;
+  if (tw) {
+    const cap = cmp ? tw.end + ibEnd().slice(7) : '';
+    return rows.filter(r => { const k = r[0].slice(0, 7); return k >= tw.start && k <= tw.end && (!cap || r[0] <= cap); });
+  }
+  const g = ibRange(m.win, cmp);
+  return rows.filter(r => r[0] >= g[0] && r[0] <= g[1]);
+}
+function ibCell(m, rows) {
+  const of = rows.length, num = m.pred ? rows.filter(m.pred).length : of;
+  return { of: of, num: num, unit: m.unit, v: m.unit === 'pct' ? (of ? 100 * num / of : null) : num };
+}
+function ibFmt(c) {
+  if (!c || c.v == null) return 'n/a';
+  if (c.unit === 'pct') return c.v.toFixed(1) + '%';
+  if (c.unit === 'money') return (c.v < 0 ? '-$' : '$') + Math.abs(Math.round(c.v)).toLocaleString();
+  if (c.unit === 'price') return '$' + c.v.toFixed(2);
+  if (c.unit === 'months') return c.v.toFixed(1) + ' months';
+  return c.v.toLocaleString();
+}
+function ibTip(c) {
+  if (!c) return '';
+  if (c.unit === 'price' && c.of) return '$' + Math.round(c.num).toLocaleString() + ' from ' + c.of.toLocaleString() + ' passes';
+  if (c.unit === 'months' && c.of) return c.of.toLocaleString() + (c.of === 1 ? ' member' : ' members');
+  return c.unit === 'pct' ? c.num.toLocaleString() + ' of ' + c.of.toLocaleString() + ' people' : '';
+}
+function ibChart() {
+  if (IB.chart !== 'auto') return IB.chart;
+  return IB.time !== 'none' ? 'line' : IB.group !== 'none' ? 'bar' : 'number';
+}
+function ibTypeLabel() { const t = (ibData().types || []).find(x => x.key === IB.type); return t ? t.label : ''; }
+function ibCmpLabel() { return IB.compare === 'yoy' ? 'Same dates last year' : 'The period before'; }
+
+// The months of the monthly block inside the picked period. A rolling
+// period is whole months (the last N finished months plus the month so far).
+function ibMonthIdx() {
+  const ms = ibMonthly().months, last = ms.length - 1, p = IB.period;
+  let first = 0;
+  if (p.startsWith('r:')) first = Math.max(0, last - Math.max(1, Math.round(+p.slice(2) / 30)));
+  else if (p === 'pilot') { const k = (ibData().scorecard_start || '').slice(0, 7), i = ms.findIndex(x => x >= k); first = i < 0 ? last : i; }
+  const out = [];
+  for (let i = first; i <= last; i++) out.push(i);
+  return out;
+}
+// one number for a set of months: a flow adds up, a head count takes the last
+// month, a price is dollars over passes. A month with no number (before the
+// gym's records start) makes a total n/a rather than a low total.
+function ibSeriesCell(m, idx) {
+  if (idx.some(i => i < 0)) return null;
+  if (m.agg === 'ratio') {
+    let a = 0, b = 0;
+    idx.forEach(i => { a += m.num[i] || 0; b += m.den[i] || 0; });
+    return { unit: m.unit, num: a, of: b, v: b > 0 ? a / b : null };
+  }
+  const xs = idx.map(i => m.vals[i]);
+  if (m.agg === 'last') { const v = xs.length ? xs[xs.length - 1] : null; return { unit: m.unit, num: 0, of: 0, v: v == null ? null : v }; }
+  return { unit: m.unit, num: 0, of: 0, v: xs.length && xs.every(v => v != null) ? xs.reduce((a, b) => a + b, 0) : null };
+}
+function ibSeriesModel(metric, M) {
+  const mo = ibMonthly();
+  const model = { metric: metric, used: [metric], cmp: null, rowHead: '', rowLabels: [], series: [], notes: [], whole: true };
+  let chart = ibChart();
+  if (metric.snap) {   // a today number: no period, no months
+    const L = mo.length || {};
+    model.kind = 'group'; model.snap = true;
+    model.chart = chart === 'table' ? 'table' : 'bar';
+    if (metric.snap === 'bands') {
+      model.rowHead = 'Time as a member'; model.rowLabels = (L.bands || []).map(b => b.label);
+      model.series = [{ name: 'Members', cells: (L.bands || []).map(b => ({ unit: 'count', num: 0, of: 0, v: b.n })), cmp: null }];
+    } else {
+      const rows = (L.by_plan || []).slice(0, 12);
+      model.rowHead = 'Plan'; model.rowLabels = rows.map(r => r.label);
+      model.series = [{ name: 'Average length', cells: rows.map(r => ({ unit: 'months', num: 0, of: r.n, v: r.avg_months })), cmp: null }];
+    }
+    if (L.n != null && L.of != null && L.n < L.of) model.notes.push('Counts ' + L.n.toLocaleString() + ' of ' + L.of.toLocaleString() + ' members: the rest cannot be dated from their own purchases.');
+    return model;
+  }
+  const cmp = IB.compare !== 'none' && IB.period !== 'all' ? IB.compare : null;
+  const idx = ibMonthIdx(), shift = cmp === 'yoy' ? 12 : idx.length;
+  const cidx = cmp ? idx.map(i => i - shift) : null;
+  const prods = IB.group === 'product' && metric.products ? (mo.sales.products || []) : null;
+  const also = M.find(m => m.k === IB.also);
+  if (chart === 'auto' || chart === 'funnel') chart = IB.time !== 'none' ? 'line' : prods ? 'bar' : 'number';
+  const metrics = [metric];
+  if (also && also.series && !also.snap && also.k !== metric.k && also.unit === metric.unit) {
+    if (prods) model.notes.push('"Also show" is not used when the chart is split.');
+    else if (chart === 'bar') model.notes.push('Bars show one number at a time. Pick Line or Table to see both.');
+    else metrics.push(also);
+  }
+  if (chart === 'number' && IB.time !== 'none') model.notes.push('A big number is one total for the period, so "Over time" is not used here.');
+  if (chart === 'number' && prods) model.notes.push('A big number has no split, so "Split by" is not used here.');
+  if (chart === 'bar' && prods && IB.time !== 'none') model.notes.push('Bars show the split for the whole period. Pick Line or Table to see it over time.');
+  model.used = metrics; model.cmp = cmp;
+  const lines = prods
+    ? prods.map(p => ({ name: p.label, m: Object.assign({}, metric, metric.agg === 'ratio' ? { num: p.amount, den: p.qty } : { vals: metric.products === 'qty' ? p.qty : p.amount }) }))
+    : metrics.map(m => ({ name: m.label, m: m }));
+  const over = chart === 'line' || (IB.time !== 'none' && chart === 'table') || (IB.time !== 'none' && chart === 'bar' && !prods);
+  model.chart = chart;
+  if (over) {
+    model.kind = prods ? 'timegroup' : 'time';
+    model.keys = idx.map(i => mo.months[i]);
+    model.rowHead = 'Month';
+    const curM = (mo.data_through || '').slice(0, 7);
+    model.rowLabels = model.keys.map(k => monthName(k) + (k === curM ? ' (so far)' : ''));
+    model.series = lines.map(l => ({ name: l.name, cells: idx.map(i => ibSeriesCell(l.m, [i])),
+      cmp: cidx && !prods ? cidx.map(i => ibSeriesCell(l.m, [i])) : null }));
+    if (cmp && prods) model.notes.push('"Compare to" is not drawn when a chart is both over time and split.');
+  } else if (prods && chart !== 'number') {
+    model.kind = 'group'; model.rowHead = 'Pass type'; model.rowLabels = lines.map(l => l.name);
+    model.series = [{ name: metric.label, cells: lines.map(l => ibSeriesCell(l.m, idx)), cmp: cidx ? lines.map(l => ibSeriesCell(l.m, cidx)) : null }];
+  } else {
+    model.kind = 'single'; model.rowHead = 'Number'; model.rowLabels = lines.map(l => l.name);
+    model.series = [{ name: 'Value', cells: lines.map(l => ibSeriesCell(l.m, idx)), cmp: cidx ? lines.map(l => ibSeriesCell(l.m, cidx)) : null }];
+  }
+  model.months = model.keys || idx.map(i => mo.months[i]);
+  if (model.series.some(sr => sr.cells.some(c => !c || c.v == null)) && metric.note) model.notes.push(metric.note);
+  return model;
+}
+// One model for every chart type: rowLabels down the side, one or more
+// series across, each cell {of, num, v, unit}; cmp = the same cell for the
+// compare period (or null).
+function ibModel() {
+  const M = ibMetrics(), metric = M.find(m => m.k === IB.metric) || M[0];
+  if (metric.legacy) return { kind: 'legacy', chart: 'legacy', metric: metric, used: [metric], cmp: null, rowHead: '', rowLabels: [], series: [], notes: [], whole: true };
+  if (metric.series) return ibSeriesModel(metric, M);
+  const chart = ibChart(), base = ibBase();
+  const cmp = IB.compare !== 'none' && IB.period !== 'all' ? IB.compare : null;
+  const also = M.find(m => m.k === IB.also);
+  const gdim = IB.group !== 'none' ? ibDim(IB.group) : null;
+  const model = { chart: chart, cmp: cmp, metric: metric, used: [metric], rowHead: '', rowLabels: [], series: [], notes: [] };
+
+  if (chart === 'funnel') {
+    const steps = M.filter(m => m.k === 'ftv' || m.unit === 'pct');
+    model.kind = 'funnel'; model.used = steps; model.rowHead = 'Step';
+    model.rowLabels = steps.map(m => m.label);
+    model.series = [{ name: 'Value', cells: steps.map(m => ibCell(m, ibPop(m, base, null))),
+      cmp: cmp ? steps.map(m => ibCell(m, ibPop(m, base, cmp))) : null }];
+    if (gdim) model.notes.push('A funnel has no split, so "Split by" is not used here.');
+    return model;
+  }
+  const timed = IB.time !== 'none';
+  const kind = chart === 'number' ? 'single'
+    : chart === 'line' ? (gdim ? 'timegroup' : 'time')
+    : chart === 'table' ? (timed ? (gdim ? 'timegroup' : 'time') : gdim ? 'group' : 'single')
+    : gdim ? 'group' : timed ? 'time' : 'single';   // bars: the split wins
+  model.kind = kind;
+  if (chart === 'number' && gdim) model.notes.push('A big number has no split, so "Split by" is not used here.');
+  if (chart === 'number' && timed) model.notes.push('A big number is one total for the period, so "Over time" is not used here.');
+  if (chart === 'bar' && gdim && timed) model.notes.push('Bars show the split for the whole period. Pick Line or Table to see it over time.');
+  const metrics = [metric];
+  if (also && also.k !== metric.k) {
+    if (also.unit !== metric.unit) model.notes.push('"Also show" needs the same kind of number (two counts or two percents).');
+    else if (kind === 'group' || kind === 'timegroup') model.notes.push('"Also show" is not used when the chart is split.');
+    else if (chart === 'bar') model.notes.push('Bars show one number at a time. Pick Line or Table to see both.');
+    else metrics.push(also);
+  }
+  model.used = metrics;
+
+  if (kind === 'single') {
+    model.rowHead = 'Number'; model.rowLabels = metrics.map(m => m.label);
+    model.series = [{ name: 'Value', cells: metrics.map(m => ibCell(m, ibPop(m, base, null))),
+      cmp: cmp ? metrics.map(m => ibCell(m, ibPop(m, base, cmp))) : null }];
+    return model;
+  }
+  if (kind === 'group') {
+    const pop = ibPop(metric, base, null), popC = cmp ? ibPop(metric, base, cmp) : null;
+    const by = rows => { const o = {}; rows.forEach(r => { const c = gdim.code(r); (o[c] = o[c] || []).push(r); }); return o; };
+    const g = by(pop), gc = popC ? by(popC) : null;
+    let items = gdim.values.map((label, c) => ({ label: label, cell: ibCell(metric, g[c] || []), cmp: gc ? ibCell(metric, gc[c] || []) : null }));
+    // an empty group is not drawn (a rate with nobody behind it, a count of 0)
+    items = items.filter(x => metric.unit === 'pct' ? x.cell.of > 0 : x.cell.v > 0);
+    if (gdim.sort === 'size') items.sort((a, b) => b.cell.of - a.cell.of);
+    model.rowHead = gdim.label; model.rowLabels = items.map(x => x.label);
+    model.series = [{ name: metric.label, cells: items.map(x => x.cell), cmp: cmp ? items.map(x => x.cmp) : null }];
+    return model;
+  }
+  // over time
+  if (IB.time === 'none') IB.time = 'month';
+  const monthly = IB.time === 'month';
+  const points = (m, rows, c) => {
+    const map = {};
+    ibPop(m, rows, c, monthly).forEach(r => { const k = ibBucket(r); (map[k] = map[k] || []).push(r); });
+    const tw = monthly && m.unit === 'count' ? ibTrendMonths(c) : null;
+    const out = {};
+    (tw ? ibMonthSeq(tw.start, tw.end) : Object.keys(map)).forEach(k => { out[c ? ibAlign(k, c, !!tw) : k] = ibCell(m, map[k] || []); });
+    return out;
+  };
+  let lines = [];
+  if (kind === 'timegroup') {
+    const pop = ibPop(metric, base, null, monthly), size = {};
+    pop.forEach(r => { const c = gdim.code(r); size[c] = (size[c] || 0) + 1; });
+    let codes = Object.keys(size).map(Number).filter(c => c >= 0).sort((a, b) => size[b] - size[a]);
+    if (chart === 'line' && codes.length > IB_COLORS.length) {
+      codes = codes.slice(0, IB_COLORS.length);
+      model.notes.push('Showing the ' + IB_COLORS.length + ' biggest groups. Pick Table to see them all.');
+    }
+    lines = codes.map(c => ({ name: gdim.values[c], m: metric, rows: base.filter(r => gdim.code(r) === c) }));
+    if (cmp) model.notes.push('"Compare to" is not drawn when a chart is both over time and split.');
+  } else {
+    lines = metrics.map(m => ({ name: m.label, m: m, rows: base }));
+  }
+  const pts = lines.map(l => points(l.m, l.rows, null));
+  const cpts = cmp && kind === 'time' ? lines.map(l => points(l.m, l.rows, cmp)) : null;
+  const keys = [...new Set([].concat.apply([], pts.map(p => Object.keys(p))))].sort();
+  const cur = monthly ? ibEnd().slice(0, 7) : ibWeek(ibEnd());
+  model.keys = keys;
+  model.rowHead = monthly ? 'Month' : 'Week starting';
+  model.rowLabels = keys.map(k => ibBucketLabel(k) + (k === cur && lines.some(l => l.m.unit === 'count') ? ' (so far)' : ''));
+  model.series = lines.map((l, i) => ({ name: l.name, cells: keys.map(k => pts[i][k] || null),
+    cmp: cpts ? keys.map(k => cpts[i][k] || null) : null }));
+  return model;
+}
+function ibSmall(model) {
+  return model.series.some(s => s.cells.concat(s.cmp || []).some(c => c && c.unit === 'pct' && c.of > 0 && c.of < IB_SMALL));
+}
+// the model as a plain grid: the Table view and the CSV both read this
+function ibMatrix(model) {
+  const head = [model.rowHead], cl = ibCmpLabel();
+  const rate = model.series.some(s => s.cells.some(c => c && c.unit === 'pct'));
+  model.series.forEach(s => {
+    const n = model.series.length > 1 ? s.name + ': ' : '';
+    if (rate) head.push(n + 'People counted', n + 'Did it');
+    head.push(n + (model.kind === 'funnel' || model.kind === 'single' ? 'Value' : (model.series.length > 1 ? 'value' : s.name)) +
+      (model.whole && model.metric.unit === 'money' ? ' ($)' : model.whole && model.metric.unit === 'months' ? ' (months)' : ''));
+    if (s.cmp) { if (rate) head.push(n + cl + ': people counted', n + cl + ': did it'); head.push(n + cl); }
+  });
+  const rows = model.rowLabels.map((label, i) => {
+    const row = [label];
+    model.series.forEach(s => {
+      const put = c => {
+        if (rate) row.push(c ? c.of : '', c && c.unit === 'pct' ? c.num : '');
+        row.push(c && c.v != null ? (c.unit === 'pct' ? c.v.toFixed(1) + '%' : c.unit === 'count' ? c.v : Math.round(c.v * 100) / 100) : '');
+      };
+      put(s.cells[i]);
+      if (s.cmp) put(s.cmp[i]);
+    });
+    return row;
+  });
+  return { head: head, rows: rows };
+}
+
+/* ---- words around the chart ---- */
+function ibFilterText() {
+  return Object.keys(IB.filters).map(k => { const d = ibDim(k); return d.label + ': ' + IB.filters[k].map(c => d.values[c]).join(' or '); }).join('; ');
+}
+function ibPeriodLabel() { const o = ibPeriods().find(x => x[0] === IB.period); return o ? o[1] : ''; }
+function ibTitle(model) {
+  // an untouched named chart carries its own name (changing any box clears IB.preset)
+  const named = IB.preset && model.kind !== 'legacy' ? ibPresets().find(p => p[0] === IB.preset) : null;
+  if (named) return named[1];
+  if (model.kind === 'funnel') return 'First-timers and what they did next';
+  if (model.kind === 'legacy' || model.snap) return model.metric.label;
+  let t = model.used.map(m => m.label).join(' and ');
+  if (model.whole) return t + (IB.group === 'product' && model.metric.products ? ', by pass type' : '') + (model.kind === 'time' || model.kind === 'timegroup' ? ', month by month' : '');
+  if (model.kind === 'group' || model.kind === 'timegroup') t += ', by ' + ibDim(IB.group).label.toLowerCase();
+  if (model.kind === 'time' || model.kind === 'timegroup') t += IB.time === 'week' ? ', week by week' : ', month by month';
+  return t;
+}
+function ibWho() {
+  if (ibMetric().series || ibMetric().legacy) return 'The whole gym';
+  const f = ibFilterText();
+  return ibTypeLabel() + (IB.type === 'qualified' && (ibData().types || []).length > 1 ? ' first-timers' : '') + (f ? ' (' + f + ')' : '');
+}
+function ibMonthsText(model) {
+  const ms = model.months || [];
+  if (!ms.length) return '';
+  const cur = ((ibMonthly() || {}).data_through || '').slice(0, 7), last = ms[ms.length - 1];
+  return (ms.length > 1 ? monthName(ms[0]) + ' through ' : '') + monthName(last) + (last === cur ? ' (so far)' : '');
+}
+function ibHow(model) {
+  if (model.whole) {
+    const fam = model.metric.family, parts = [];
+    if (model.snap) parts.push('A today number: each paying member’s time since their current stretch of membership began (a plan switch keeps the clock, a comeback after a real gap restarts it). The same members and rule as “Avg member lifespan” on Home.');
+    else parts.push('Counted by calendar month for the whole gym, with the same rules as the Gym card on Home.');
+    if (fam === 'Sales') parts.push('Sales are net sales: before sales tax, minus refunds, gift cards left out. Passes = day passes, punch passes and trials. Memberships = every membership dollar (dues, prepaid plans and new sign-ups). Average pass price = pass sales divided by passes sold.');
+    if (fam === 'Members' && !model.snap) parts.push('New members and cancellations count people, not plans: a plan switch is neither. Member count = paying members on the last day of the month (today, for the month so far); frozen members are left out.');
+    if (model.metric.note) parts.push(model.metric.note);
+    return parts.join(' ');
+  }
+  const open = ibData().post_opening_date || '';
+  const monthly = (model.kind === 'time' || model.kind === 'timegroup') && IB.time === 'month';
+  const parts = model.used.map(m => {
+    const tw = monthly && m.unit === 'count' ? ibTrendMonths(null) : null;
+    if (tw) return m.label + ': first visits in ' + monthName(tw.start) + ' through ' + monthName(tw.end) + ' (whole months, so the oldest point is never a part month).';
+    const g = ibRange(m.win, null);
+    return m.label + ': first visits ' + shortDate(g[0] || open) + ' to ' + shortDate(g[1]) +
+      (m.win ? ' (only people who have had ' + m.win + ' days, so nobody is counted as a miss too early).' : '.');
+  });
+  parts.push('Joined = a paid membership that is not a youth plan. Came back = a check-in on a later day.');
+  if (IB.group === 'email' || IB.filters.email) parts.push('Last email = the last Send It email sent after the first visit and before the day they came back. It is a last-touch label, not proof the email caused the visit.');
+  if (IB.group === 'intent' || IB.group === 'blocker') parts.push('Survey splits cover only people who answered the survey.');
+  return parts.join(' ');
+}
+
+// Cautions a careful analyst would say out loud (fresh-eyes round 2026-11-10).
+function ibAdvice(model) {
+  const out = [], rolling = IB.period.startsWith('r:');
+  const J = ((ibData().windows || {}).join_days || [30, 60, 90])[2];
+  const over = model.kind === 'time' || model.kind === 'timegroup';
+  if (model.whole) {
+    if (over && model.cmp && !model.snap) out.push('The newest month is a part month; its comparison point is a full month.');
+    return out;
+  }
+  if (model.kind === 'funnel') out.push('Each bar looks at the first visits old enough to judge it' +
+    (rolling ? ', so the bars cover different dates and a later bar can count more people than the first one.' : ', so the later bars count fewer people than the first one.') +
+    ' A longer window can show a lower rate for the same reason.');
+  if (IB.type !== 'qualified' && (ibData().types || []).length > 1) out.push('A guest who later pays their own way in is counted once here, on the guest visit. Under Who = Qualified the same person counts on their first paid visit, so Qualified alone is larger than the Qualified group inside this view.');
+  if (IB.group === 'kind' && model.metric.unit === 'pct') out.push('Joined on day one = a membership or a trial within 2 days of the first visit. A trial or a youth plan is not a paid membership, so that group is not 100% joined.');
+  if (IB.group === 'email' || IB.filters.email) out.push('People with no email are mostly those who came back before any email went out. Do not read this as emails keeping people away.');
+  if (over && model.used.some(m => m.k === 'jn' || m.k === 'nm')) out.push('The newest months are still filling in: those first-timers have not had ' + J + ' days to join yet.');
+  return out;
+}
+// the first-visit dates behind the chart, for the line under the title
+function ibRangeText(model) {
+  const open = ibData().post_opening_date || '';
+  const monthly = (model.kind === 'time' || model.kind === 'timegroup') && IB.time === 'month';
+  const rs = model.used.map(m => {
+    const tw = monthly && m.unit === 'count' ? ibTrendMonths(null) : null;
+    if (tw) return 'in ' + monthName(tw.start) + ' through ' + monthName(tw.end) + ' (whole months)';
+    const g = ibRange(m.win, null);
+    return shortDate(g[0] || open) + ' to ' + shortDate(g[1]);
+  });
+  const uniq = [...new Set(rs)];
+  return uniq.length === 1 ? 'First visits ' + uniq[0] + '.'
+    : model.kind === 'time' || model.kind === 'timegroup' ? 'The newest ' + (IB.time === 'week' ? 'weeks' : 'months') + ' are still filling in.'
+    : 'Each number counts only first visits old enough to judge.';
+}
+
+/* ---- drawing ---- */
+function ibLineChart(labels, series, unit) {
+  IB_LINES = series.map(s => s.name);
+  const shown = series.filter(s => IB_VALS.includes(s.name)), showVals = shown.length > 0;
+  const narrow = typeof window !== 'undefined' && window.innerWidth < 560;
+  const W = narrow ? 400 : 760, H = narrow ? 250 : 220, P = { l: unit === 'money' ? 58 : 46, r: showVals ? 26 : 16, t: showVals ? 24 : 14, b: 26 };
+  const innerW = W - P.l - P.r, innerH = H - P.t - P.b, n = labels.length;
+  const all = [].concat.apply([], series.map(s => s.vals)).filter(v => v != null);
+  const yMax = niceMax(Math.max(1, all.length ? Math.max.apply(null, all) : 1));
+  const low = all.length ? Math.min.apply(null, all) : 0;
+  const yMin = low < 0 ? -niceMax(-low) : 0;   // a net change can dip below zero
+  const tick = v => unit === 'pct' ? Math.round(v) + '%' : unit === 'money' || unit === 'price' ? (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString() : Math.round(v).toLocaleString();
+  const x = i => P.l + i * (innerW / Math.max(1, n - 1)), y = v => P.t + innerH - ((v - yMin) / (yMax - yMin)) * innerH;
+  let svg = '<svg class="chart-svg ib-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">';
+  for (let i = 0; i <= 4; i++) {
+    const yPos = P.t + (innerH / 4) * i;
+    svg += '<line class="chart-grid" x1="' + P.l + '" y1="' + yPos + '" x2="' + (W - P.r) + '" y2="' + yPos + '"/>';
+    svg += '<text class="chart-tick" x="' + (P.l - 6) + '" y="' + (yPos + 3) + '" text-anchor="end">' + tick(yMax - ((yMax - yMin) / 4) * i) + '</text>';
+  }
+  svg += '<line class="chart-axis" x1="' + P.l + '" y1="' + y(0) + '" x2="' + (W - P.r) + '" y2="' + y(0) + '"/>';
+  const skip = Math.ceil(n / (narrow ? 4 : 9));
+  labels.forEach((lab, i) => {
+    // the last point is labelled only when it is clear of the label before it
+    if (i % skip === 0 || (i === n - 1 && (n - 1) % skip >= Math.ceil(skip * 0.7)))
+      svg += '<text class="chart-tick" x="' + x(i) + '" y="' + (H - P.b + 16) + '" text-anchor="' + (i === n - 1 && i ? 'end' : i === 0 ? 'start' : 'middle') + '">' + escapeHtml(lab) + '</text>';
+  });
+  series.forEach((s, si) => {
+    let d = '', pen = false;
+    s.vals.forEach((v, i) => { if (v == null) { pen = false; return; } d += (pen ? ' L' : ' M') + x(i) + ',' + y(v); pen = true; });
+    if (d) svg += '<path d="' + d.trim() + '" fill="none" stroke="' + s.color + '" stroke-width="' + (s.dashed ? 1.8 : 2.5) + '"' +
+      (s.dashed ? ' stroke-dasharray="5 4" opacity="0.75"' : '') + ' stroke-linejoin="round" stroke-linecap="round"/>';
+    // a wide, see-through copy of the line so it is easy to click or tap
+    if (d) svg += '<path class="ib-hit" d="' + d.trim() + '" onclick="ibToggleVals(' + si + ')"><title>Click to show or hide this line’s numbers</title></path>';
+    s.vals.forEach((v, i) => {
+      if (v == null) return;
+      svg += '<circle class="ib-pt" onclick="ibToggleVals(' + si + ')" cx="' + x(i) + '" cy="' + y(v) + '" r="' + (s.dashed ? 2.5 : 3.5) + '" fill="' + s.color + '" stroke="#fff" stroke-width="1.5"><title>' + escapeHtml(s.tips[i]) + '</title></circle>';
+    });
+  });
+  if (showVals) {
+    // Numbers for the clicked lines only (Luke, 2026-11-11): every point,
+    // thinned on a long run, counted back from the newest point so it always
+    // has its number. When two clicked lines sit close at a point, the lower
+    // one's number drops below its point.
+    const val = v => unit === 'pct' ? (Math.abs(v) < 10 ? v.toFixed(1) : Math.round(v)) + '%'
+      : unit === 'money' ? (v < 0 ? '-$' : '$') + (Math.abs(v) >= 10000 ? (Math.abs(v) / 1000).toFixed(1) + 'k' : Math.abs(Math.round(v)).toLocaleString())
+      : unit === 'price' ? '$' + v.toFixed(2) : unit === 'months' ? v.toFixed(1) : Math.round(v).toLocaleString();
+    const every = Math.ceil(n / (narrow ? 7 : 18));
+    const put = (s, i, below) => {
+      const v = s.vals[i], yy = y(v) + (below ? 14 : -8);
+      svg += '<text class="chart-tick ib-val" x="' + x(i) + '" y="' + Math.max(9, Math.min(H - P.b - 2, yy)) + '" text-anchor="' +
+        (i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle') + '" style="fill:' + s.color + '">' + val(v) + '</text>';
+    };
+    for (let i = 0; i < n; i++) {
+      if ((n - 1 - i) % every) continue;
+      const here = shown.filter(s => s.vals[i] != null).sort((a, b) => b.vals[i] - a.vals[i]);
+      here.forEach((s, k) => put(s, i, k > 0 && y(s.vals[i]) - y(here[k - 1].vals[i]) < 26));
+    }
+  }
+  svg += '</svg><div class="chart-legend ib-legend">' + series.map((s, si) =>
+    '<button class="ib-leg' + (IB_VALS.includes(s.name) ? ' on' : '') + '" onclick="ibToggleVals(' + si + ')" aria-pressed="' + (IB_VALS.includes(s.name) ? 'true' : 'false') + '">' +
+    '<span class="ib-swatch' + (s.dashed ? ' dashed' : '') + '" style="border-color:' + s.color + '"></span>' + escapeHtml(s.name) + '</button>').join('') +
+    '<span class="ib-hint">' + (showVals ? 'Click a line again to hide its numbers.' : 'Click a line to see its numbers.') + '</span></div>';
+  return svg;
+}
+function ibDrawLine(model) {
+  if (model.rowLabels.length < 2) return noData('This view has fewer than two points. Pick a longer period to see a trend.');
+  const first = [].concat.apply([], model.series.map(s => s.cells)).find(c => c);
+  const unit = first ? first.unit : 'count';
+  const out = [];
+  model.series.forEach((s, i) => {
+    const color = IB_COLORS[i % IB_COLORS.length];
+    const tips = (cells, name) => cells.map((c, j) => c ? model.rowLabels[j] + ' · ' + name + ': ' + ibFmt(c) + (ibTip(c) ? ' (' + ibTip(c) + ')' : '') : '');
+    out.push({ name: s.name, color: color, vals: s.cells.map(c => c ? c.v : null), tips: tips(s.cells, s.name) });
+    if (s.cmp) out.push({ name: s.name + ', ' + ibCmpLabel().toLowerCase(), color: color, dashed: true,
+      vals: s.cmp.map(c => c ? c.v : null), tips: tips(s.cmp, s.name + ', ' + ibCmpLabel().toLowerCase()) });
+  });
+  return ibLineChart(model.rowLabels, out, unit);
+}
+function ibDrawBars(model) {
+  if (!model.rowLabels.length) return noData('Nobody fits this view yet. Pick a longer period or remove a filter.');
+  const s = model.series[0], vals = s.cells.map(c => c && c.v != null ? c.v : 0), max = Math.max.apply(null, vals.concat([0]));
+  return model.rowLabels.map((label, i) => {
+    const c = s.cells[i], cc = s.cmp ? s.cmp[i] : null;
+    let sub = ibTip(c);
+    if (c && c.unit === 'pct' && c.of > 0 && c.of < IB_SMALL) sub += ' · small group';
+    if (s.cmp) sub += (sub ? ' · ' : '') + ibCmpLabel() + ': ' + ibFmt(cc) + (ibTip(cc) ? ' (' + ibTip(cc) + ')' : '');
+    return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
+      '<div class="bar-count">' + ibFmt(c) + '</div></div>' +
+      '<div class="bar-track">' + fillHtml(vals[i], max > 0 ? 100 * vals[i] / max : 0) + '</div>' +
+      (sub ? '<div class="bar-sub">' + escapeHtml(sub) + '</div>' : '') + '</div>';
+  }).join('');
+}
+function ibGoals() {   // the pilot goals show only on the scorecard's own view
+  const sc = DATA.scorecard || {};
+  const exact = IB.type === 'qualified' && IB.period === 'pilot' && IB.compare === 'yoy' && !Object.keys(IB.filters).length;
+  return exact && sc.goals ? sc.goals : {};
+}
+function ibDrawFunnel(model) {
+  const s = model.series[0], top = s.cells[0], goals = ibGoals(), n = model.used.length;
+  if (!top.v) return noData('Nobody fits this view yet. Pick a longer period or remove a filter.');
+  return model.rowLabels.map((label, i) => {
+    const c = s.cells[i], cc = s.cmp ? s.cmp[i] : null, m = model.used[i];
+    let sub = i === 0 ? 'Everyone whose first visit is in the period.'
+      : (c.of ? c.num.toLocaleString() + ' of the ' + c.of.toLocaleString() + ' people who have had ' + m.win + ' days.' : 'Nobody has had ' + m.win + ' days yet.');
+    if (cc) sub += ' ' + ibCmpLabel() + ': ' + ibFmt(cc) + (ibTip(cc) ? ' (' + ibTip(cc) + ')' : '') + '.';
+    if (m.k === 'back' && goals.return) sub += ' Goal: ' + goals.return + '.';
+    if (i === n - 1 && goals.join) sub += ' Goal: ' + goals.join + '.';
+    if (c.unit === 'pct' && c.of > 0 && c.of < IB_SMALL) sub += ' Small group.';
+    const w = i === 0 ? 100 : (c.v || 0);
+    return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
+      '<div class="bar-count">' + (i === 0 ? top.v.toLocaleString() : ibFmt(c)) + '</div></div>' +
+      '<div class="bar-track">' + fillHtml(i === 0 ? top.v : (c.v || 0), w) + '</div>' +
+      '<div class="bar-sub">' + escapeHtml(sub) + '</div></div>';
+  }).join('');
+}
+function ibDrawNumber(model) {
+  const s = model.series[0];
+  return '<div class="ib-numbers">' + model.rowLabels.map((label, i) => {
+    const c = s.cells[i], cc = s.cmp ? s.cmp[i] : null;
+    let sub = ibTip(c);
+    if (cc) sub += (sub ? ' · ' : '') + ibCmpLabel() + ': ' + ibFmt(cc) + (ibTip(cc) ? ' (' + ibTip(cc) + ')' : '');
+    return '<div class="ib-number"><div class="ib-number-label">' + escapeHtml(label) + '</div>' +
+      '<div class="ib-number-value">' + ibFmt(c) + '</div>' +
+      (sub ? '<div class="ib-number-sub">' + escapeHtml(sub) + '</div>' : '') + '</div>';
+  }).join('') + '</div>';
+}
+function ibDrawTable(model) {
+  const mx = ibMatrix(model);
+  if (!mx.rows.length) return noData('Nobody fits this view yet. Pick a longer period or remove a filter.');
+  return '<div class="ib-table-wrap"><table class="conv-table ib-table"><thead><tr>' +
+    mx.head.map((h, i) => '<th' + (i ? ' class="num"' : '') + '>' + escapeHtml(h) + '</th>').join('') + '</tr></thead><tbody>' +
+    mx.rows.map(r => '<tr>' + r.map((v, i) => '<td' + (i ? ' class="num"' : '') + '>' + escapeHtml(typeof v === 'number' ? v.toLocaleString() : v) + '</td>').join('') + '</tr>').join('') +
+    '</tbody></table></div>';
+}
+function ibCsv() {
+  const model = ibModel(), mx = ibMatrix(model);
+  const esc = v => { v = String(v == null ? '' : v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const lines = [['Send It Insights', DATA.client || ''], ['Chart', ibTitle(model)], ['Who', ibWho()],
+    ['Period', model.snap ? 'Today' : model.whole ? ibMonthsText(model) : ibPeriodLabel()],
+    ['Filters', model.whole ? 'None' : ibFilterText() || 'None'],
+    model.whole ? ['Sales through', ibMonthly().data_through] : ['Check-ins through', ibEnd()], [], mx.head].concat(mx.rows);
+  return lines.map(r => r.map(esc).join(',')).join('\r\n');
+}
+function ibDownload() {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([ibCsv()], { type: 'text/csv' }));
+  a.download = 'send-it-' + (ibTitle(ibModel()).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'insights') + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function ibSelect(label, key, opts, cur, handler) {
+  return '<label class="ib-field"><span class="period-label">' + escapeHtml(label) + '</span>' +
+    '<select class="period-select" onchange="' + (handler || 'ibSet(\'' + key + '\', this.value)') + '">' +
+    opts.map(o => '<option value="' + escapeHtml(o[0]) + '"' + (o[0] === cur ? ' selected' : '') + (o[2] ? ' disabled' : '') + '>' + escapeHtml(o[1]) + '</option>').join('') +
+    '</select></label>';
+}
+function renderBuilder() {
+  if (!IB) IB = ibLoad();
+  const model = ibModel(), M = ibMetrics(), dims = ibDims();
+  const cur = model.metric, whole = !!model.whole, legacy = model.kind === 'legacy', fixed = legacy || !!model.snap;
+  // Simplified layout (Luke, 2026-11-11): four boxes show, the rest sit under
+  // "More options". A split the gym has no data for is left out of the list.
+  const avail = dims.filter(d => d.available);
+  const listed = (m, curK) => !m.hide || m.k === curK;
+  const gopt = (v, l) => '<option value="' + escapeHtml(v) + '"' + (v === IB.group ? ' selected' : '') + '>' + escapeHtml(l) + '</option>';
+  const topDims = IB_DIM_TOP.map(k => avail.find(d => d.key === k)).filter(Boolean);
+  const moreDims = avail.filter(d => !IB_DIM_TOP.includes(d.key));
+  const groupSel = '<label class="ib-field"><span class="period-label">Split by</span><select class="period-select" onchange="ibSet(\'group\', this.value)"' + (fixed ? ' disabled' : '') + '>' +
+    gopt('none', 'No split') + (whole ? (cur.products ? gopt('product', 'Pass type') : '')
+      : topDims.map(d => gopt(d.key, d.label)).join('') +
+        (moreDims.length ? '<optgroup label="More splits">' + moreDims.map(d => gopt(d.key, d.label)).join('') + '</optgroup>' : '')) +
+    '</select></label>';
+  const pair = m => !m.legacy && !m.snap && !!m.series === !!cur.series && m.unit === cur.unit;
+  const alsoOpts = [['none', 'Nothing']].concat(M.filter(m => m.k !== IB.metric && !m.legacy && listed(m, IB.also)).map(m => [m.k, m.label, fixed || !pair(m)]));
+  const funnel = model.kind === 'funnel';
+  const fams = [];
+  M.forEach(m => { if (!fams.includes(m.family)) fams.push(m.family); });
+  const showSel = '<label class="ib-field"><span class="period-label">Show</span><select class="period-select" onchange="ibSet(\'metric\', this.value)">' +
+    fams.map(f => '<optgroup label="' + escapeHtml(f) + '">' + M.filter(m => m.family === f && listed(m, cur.k)).map(m =>
+      '<option value="' + escapeHtml(m.k) + '"' + (m.k === cur.k ? ' selected' : '') + (funnel && !m.series && !m.legacy ? ' disabled' : '') + '>' + escapeHtml(m.label) + '</option>').join('') + '</optgroup>').join('') +
+    '</select></label>';
+  const dis = (opts, all) => opts.map(o => [o[0], o[1], all || o[2]]);
+  let h = pageHeader('Insights', 'Build the chart you need: pick what to count, the period, and how to split it.');
+  const types = ibData().types || [];
+  const defType = types.some(t => t.key === 'qualified') ? 'qualified' : (types[0] || {}).key;
+  // what is set out of sight when "More options" is closed
+  const nset = (IB.compare !== 'none' ? 1 : 0) + (whole ? 0 : Object.keys(IB.filters).length + (types.length > 1 && IB.type !== defType ? 1 : 0));
+  if (IB_MORE == null) IB_MORE = nset > 0;
+  h += '<div class="ib-controls">' +
+    ibSelect('Start from', 'preset', [['', IB.preset ? 'Choose a chart' : 'Your own view']].concat(ibPresets().map(p => [p[0], p[1]])), IB.preset, 'ibStartFrom(this.value)') +
+    showSel +
+    ibSelect('Period', 'period', dis(ibPeriods(), fixed), IB.period) +
+    groupSel + '</div>';
+  h += '<div class="ib-more-row"><button class="how-link ib-more" aria-expanded="' + (IB_MORE ? 'true' : 'false') + '" onclick="ibToggleMore()">' +
+    (IB_MORE ? 'Fewer options' : 'More options') + (nset ? ' (' + nset + ' set)' : '') + '</button>' +
+    '<button class="how-link ib-reset" onclick="ibReset()">Reset</button></div>';
+  const fopts = avail.map(d => '<optgroup label="' + escapeHtml(d.label) + '">' +
+    d.values.map((v, c) => '<option value="' + d.key + '|' + c + '">' + escapeHtml(v) + '</option>').join('') + '</optgroup>').join('');
+  if (IB_MORE) {
+    h += '<div class="ib-controls ib-more-box">' +
+      (types.length > 1 ? ibSelect('Who', 'type', whole ? [[IB.type, 'The whole gym', true]] : types.map(t => [t.key, t.label]), IB.type) : '') +
+      ibSelect('Also show', 'also', alsoOpts, IB.also) +
+      ibSelect('Over time', 'time', dis(IB_TIMES.map(o => [o[0], o[1], whole && o[0] === 'week']), fixed), IB.time) +
+      ibSelect('Compare to', 'compare', dis(IB_COMPARES.map(o => [o[0], o[1], o[0] !== 'none' && IB.period === 'all']), fixed), IB.compare) +
+      ibSelect('Chart', 'chart', dis(IB_CHARTS.map(o => [o[0], o[1], (whole && o[0] === 'funnel') || (model.snap && !['auto', 'bar', 'table'].includes(o[0]))]), legacy), IB.chart) + '</div>';
+    if (whole) h += '<div class="ib-filters"><span class="ib-note" style="margin:0">' +
+      (legacy ? 'This chart always covers ' + (cur.family === 'Emails' ? 'every email sent' : 'every answer so far') + '.' : 'A whole-gym number: “Who” and filters do not apply.') + '</span></div>';
+    else h += '<div class="ib-filters"><span class="period-label">Only count</span>' +
+      Object.keys(IB.filters).map(k => { const d = ibDim(k); return IB.filters[k].map(c =>
+        '<span class="ib-chip">' + escapeHtml(d.label + ': ' + d.values[c]) +
+        '<button onclick="ibDropFilter(\'' + k + '\',' + c + ')" aria-label="Remove this filter">×</button></span>').join(''); }).join('') +
+      '<select class="period-select ib-add" onchange="ibAddFilter(this.value)"><option value="">Add a filter</option>' + fopts + '</select></div>';
+  }
+  if (whole && (legacy || cur.family === 'Emails')) h += '<div class="ib-filters">' +
+    (cur.family === 'Emails' ? '<span class="period-note">Counts emails, not people</span>' : '') + (legacy ? metricToggleHtml() : '') + '</div>';
+  const body = legacy ? cur.slide.html : model.chart === 'funnel' ? ibDrawFunnel(model) : model.chart === 'table' ? ibDrawTable(model)
+    : model.chart === 'number' ? ibDrawNumber(model) : model.chart === 'line' ? ibDrawLine(model) : ibDrawBars(model);
+  let notes = model.notes.concat(ibAdvice(model)).map(n => '<div class="ib-note">' + escapeHtml(n) + '</div>').join('');
+  // the orange box is kept for a split or a filter, where a small group misleads most; a plain view gets a quiet note
+  if (ibSmall(model)) notes += IB.group !== 'none' || Object.keys(IB.filters).length
+    ? '<div class="period-note ib-warn">Small groups: at least one number here counts fewer than ' + IB_SMALL + ' people. Read it as a direction, not a result.</div>'
+    : '<div class="ib-note ib-small">Some points here count fewer than ' + IB_SMALL + ' people. Read them as a direction, not a result.</div>';
+  if (IB.metric !== model.metric.k) IB.metric = model.metric.k;
+  h += '<div class="carousel ib-card"><div class="carousel-head"><div class="card-title">' + icon('sparkles') + escapeHtml(ibTitle(model)) + '</div>' +
+    '<div class="card-description">' + escapeHtml(legacy ? cur.slide.desc : model.snap ? 'Paying members today.'
+      : whole ? 'The whole gym, ' + ibMonthsText(model) + '. Sales through ' + shortDate(ibMonthly().data_through) + '.'
+      : ibWho() + ', ' + ibPeriodLabel().toLowerCase() + '. ' + ibRangeText(model) + ' Check-ins through ' + shortDate(ibEnd()) + '.') + '</div></div>' +
+    '<div class="carousel-body">' + body + '</div>' + notes +
+    (legacy ? '' : '<div class="ib-foot">' + howLink('how-builder', ibHow(model)) +
+    '<button class="how-link" onclick="ibDownload()">Download CSV</button></div>') + '</div>';
+  h += '<div class="ib-off"><button class="how-link" onclick="ibExit()">Back to the old charts (preview only)</button></div>';
   $('view-insights').innerHTML = h;
 }
 
