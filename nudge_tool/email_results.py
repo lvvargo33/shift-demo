@@ -28,7 +28,14 @@ Groups (the order the site shows them):
                   site shows it as its own block under the Survey emails
                   slide (Luke 2026-10-28), only when it has sends.
 
-I/O lives in `fetch_rows` only (one Sheets read, read-only scope); the rest is
+Per-email rows and A/B versions (Block 28 leftover, 2026-11-11, Luke): every
+group also carries `rows` (one per email that has sends, the sheet's own
+"automation" rows) and the payload carries `tests` (the sheet's "variant" rows,
+one entry per test, each with its version rows), so the Insights builder can
+split an email chart by which email or by A/B version. Still the sheet's own
+counts, all-time totals: nothing is recounted here.
+
+I/O lives in `fetch` only (one Sheets read, read-only scope); the rest is
 pure. The web service calls `refresh()` from a background thread every few
 minutes and hands `snapshot()` to engine.build_payload, so a page render never
 waits on Google. Shared by both gyms (CLAUDE.md rule 4): keep this file
@@ -98,6 +105,35 @@ COUNT_KEYS = tuple(HEADERS.values()) + ("deliv_den",)
 DELIVERED_FALLBACK = frozenset({"ABC"})
 
 
+# Which email chart a test's versions belong to, by the test's name on the
+# sheet (allgyms_push.TEST_ARMS / the blocker and round-two subject tests).
+# First match wins. A test that matches nothing is NOT dropped: it is shown
+# under the come-back chart and a FAILED line prints (CLAUDE.md rule 5), and
+# _verify_insights_browser.py fails while a live test is unmapped.
+TEST_GROUP_RULES = (
+    ("survey", "surveys"),
+    ("membership", "membership"),
+    ("trial", "membership"),
+    ("day pass", "regulars"),
+    ("day-pass", "regulars"),
+    ("offer", "comeback"),
+    ("blocker", "comeback"),
+    ("round two", "comeback"),
+)
+TEST_GROUP_FALLBACK = "comeback"
+# the sheet's context rows inside a test: sends that were never in the test
+CONTEXT_PREFIXES = ("Before the test started", "Not in the test")
+
+
+def test_group(name: str) -> str | None:
+    """The email chart a test belongs to (None = no rule names it)."""
+    low = (name or "").lower()
+    for word, group in TEST_GROUP_RULES:
+        if word in low:
+            return group
+    return None
+
+
 class LayoutError(ValueError):
     """The Data tab lacks columns the site needs (old layout or a rename)."""
 
@@ -133,9 +169,11 @@ def _num(v) -> int:
         return 0
 
 
-def parse_rows(values: list, gym: str) -> list[dict]:
-    """The Data tab's values (header first) -> this gym's automation rows as
-    {label, section, updated, <count keys>}. Missing columns read 0."""
+def parse_rows(values: list, gym: str, level: str = "automation") -> list[dict]:
+    """The Data tab's values (header first) -> this gym's rows of one level
+    ("automation" = one per email, "variant" = one per test version) as
+    {label, section, tag, updated, <count keys>}. Missing columns read 0. On a
+    variant row `section` is the test's name and `label` the version."""
     if not values:
         return []
     hdr = [str(h).strip() for h in values[0]]
@@ -155,10 +193,11 @@ def parse_rows(values: list, gym: str) -> list[dict]:
     for r in values[1:]:
         if not r or str(cell(r, "Gym")).strip() != gym:
             continue
-        if str(cell(r, "Level")).strip() != "automation":
+        if str(cell(r, "Level")).strip() != level:
             continue
         row = {"label": str(cell(r, "Automation / email version")).strip(),
                "section": str(cell(r, "Section")).strip(),
+               "tag": str(cell(r, "Tag")).strip(),
                "updated": str(cell(r, "Updated")).strip()}
         for h, k in HEADERS.items():
             row[k] = _num(cell(r, h))
@@ -171,11 +210,40 @@ def parse_rows(values: list, gym: str) -> list[dict]:
     return out
 
 
-def build(rows: list[dict], gym: str) -> dict:
+def _counts(r: dict) -> dict:
+    return {c: r[c] for c in COUNT_KEYS}
+
+
+def build_tests(variants: list[dict]) -> list[dict]:
+    """The sheet's variant rows -> one entry per test that has sends:
+    {name, group, mapped, rows: [{label, tag, context, <count keys>}]}, tests
+    in sheet order, each test's context rows last."""
+    by_name: dict[str, list[dict]] = {}
+    for r in variants:
+        by_name.setdefault(r["section"], []).append(r)
+    out = []
+    for name, rs in by_name.items():
+        rs = [r for r in rs if r["sends"]]
+        if not name or not rs:
+            continue
+        g = test_group(name)
+        if g is None:
+            print(f"  email results: A/B test {name!r} has no chart rule FAILED "
+                  f"(shown under {TEST_GROUP_FALLBACK}; add it to TEST_GROUP_RULES)")
+        vrows = [{"label": r["label"], "tag": r.get("tag", ""),
+                  "context": r["label"].startswith(CONTEXT_PREFIXES), **_counts(r)} for r in rs]
+        vrows.sort(key=lambda v: v["context"])   # stable: context rows last
+        out.append({"name": name, "group": g or TEST_GROUP_FALLBACK, "mapped": g is not None,
+                    "rows": vrows})
+    return out
+
+
+def build(rows: list[dict], gym: str, variants: list[dict] | None = None) -> dict:
     """Group this gym's sheet rows for the site. Every group carries summed
     counts; the page computes each rate from them the way the sheet does
-    (outcome rates from the mature counts only)."""
-    groups = {k: {"key": k, "label": lbl, "emails": [],
+    (outcome rates from the mature counts only). `rows` on a group = its
+    emails one by one (those with sends); `tests` = the A/B versions."""
+    groups = {k: {"key": k, "label": lbl, "emails": [], "rows": [],
                   **{c: 0 for c in COUNT_KEYS}} for k, lbl in GROUPS}
     for r in rows:
         g = group_of(r["section"], r["label"])
@@ -184,6 +252,7 @@ def build(rows: list[dict], gym: str) -> dict:
         gr = groups[g]
         if r["sends"]:
             gr["emails"].append(r["label"])  # the emails that went out, for the caption
+            gr["rows"].append({"label": r["label"], **_counts(r)})
         for c in COUNT_KEYS:
             gr[c] += r[c]
     stamps = sorted({r["updated"] for r in rows if r["updated"]})
@@ -196,18 +265,25 @@ def build(rows: list[dict], gym: str) -> dict:
                              definitions.JOIN_DAYS_LONG],
                     "redeem": definitions.REDEEM_DAYS},
         "groups": [groups[k] for k, _l in GROUPS],
+        "tests": build_tests(variants or []),
     }
 
 
-def fetch_rows(gym: str, svc=None) -> list[dict]:
-    """One read-only Sheets read of the Data tab -> this gym's rows."""
+def fetch(gym: str, svc=None) -> tuple[list[dict], list[dict]]:
+    """One read-only Sheets read of the Data tab -> (this gym's email rows,
+    this gym's test-version rows)."""
     if svc is None:
         from . import drive_io
         svc = drive_io.sheets_service(_RO)
     values = svc.spreadsheets().values().get(
         spreadsheetId=SHEET_ID, range=DATA_RANGE,
         valueRenderOption="UNFORMATTED_VALUE").execute(num_retries=5).get("values", [])
-    return parse_rows(values, gym)
+    return parse_rows(values, gym), parse_rows(values, gym, "variant")
+
+
+def fetch_rows(gym: str, svc=None) -> list[dict]:
+    """This gym's email rows only (kept for the callers that group them)."""
+    return fetch(gym, svc)[0]
 
 
 # --- the web service's cached copy -----------------------------------------------
@@ -222,10 +298,11 @@ def refresh(slug: str) -> dict | None:
     if gym is None:
         return None
     try:
-        payload = build(fetch_rows(gym), gym)
+        rows, variants = fetch(gym)
+        payload = build(rows, gym, variants)
     except LayoutError as exc:
         print(f"  email results: {exc}; the page says the sheet is not updated yet")
-        payload = {"available": False, "gym": gym, "groups": [], "reason": "layout"}
+        payload = {"available": False, "gym": gym, "groups": [], "tests": [], "reason": "layout"}
     except Exception as exc:  # noqa: BLE001 (a Sheets blip must never 500 the page)
         print(f"  email results: sheet read FAILED ({type(exc).__name__}: {exc}); "
               f"keeping the last copy")
@@ -245,7 +322,7 @@ def snapshot(slug: str) -> dict | None:
     with _lock:
         ent = _state.get(slug)
     if ent is None:
-        return {"available": False, "gym": gym, "groups": []}
+        return {"available": False, "gym": gym, "groups": [], "tests": []}
     return ent["payload"]
 
 

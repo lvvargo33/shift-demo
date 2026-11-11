@@ -330,7 +330,8 @@ button, input, textarea, select { font-family: inherit; }
 .ib-number-sub { font-size: 11.5px; color: var(--fg-hint); margin-top: 2px; }
 .ib-table-wrap { overflow-x: auto; max-width: 100%; }
 .ib-table th, .ib-table td { white-space: nowrap; }
-.ib-table td.num, .ib-table th.num { text-align: right; }
+.ib-table td.num, .ib-table th.num { text-align: center; }
+.ib-email th:first-child, .ib-email td:first-child { white-space: normal; min-width: 120px; max-width: 260px; position: sticky; left: 0; background: var(--card); }
 .ib-note { font-size: 11.5px; color: var(--fg-subtle); margin-top: 10px; }
 .ib-warn { display: inline-block; margin-top: 12px; }
 .ib-foot { display: flex; gap: 6px 18px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
@@ -2032,7 +2033,7 @@ function emailResultSlides() {
     if (ciOn) inner += '<div class="er-sub">' + escapeHtml(ci.label) + '</div>' +
       '<div class="er-sub-note">Sent to each new member 14 days after the membership starts. Not a first-timer email: it is left out of every other number on this page.</div>' +
       head(ci) + opened(ci) + clicked(ci);
-    out.push({ title: 'Survey emails', pilot: true,
+    out.push({ title: 'Survey emails', er: 'surveys', pilot: true,
       desc: 'The first-visit survey email and what came of it.' + (ciOn ? ' Below it, the day-14 member check-in email.' : '') + per + src,
       html: inner + engInfoBtn('emails') });
   }
@@ -2044,7 +2045,7 @@ function emailResultSlides() {
       'Checked in on a later day within ' + W.return + ' days of the email, with or without the code.', W.return);
     inner += erBar('Redeemed the 50% offer', g.redeems, 0, 0,
       'Bought a day pass or punch pass at half off or more within ' + (W.redeem || 30) + ' days of the email. The front desk must ring it as a discount to count.', 0, true);
-    out.push({ title: 'Come-back offers', pilot: true,
+    out.push({ title: 'Come-back offers', er: 'comeback', pilot: true,
       desc: 'The 50% come-back offer, its reminder, and the emails written to survey answers, for first-timers who had not come back.' + per + src,
       html: inner + engInfoBtn('emails') });
   }
@@ -2053,7 +2054,7 @@ function emailResultSlides() {
     let inner = head(g) + opened(g);
     if (OFFER_EMAILS_HAVE_LINKS) inner += clicked(g);
     inner += joins(g);
-    out.push({ title: MEMBERSHIP_SLIDE_TITLE, pilot: true,
+    out.push({ title: MEMBERSHIP_SLIDE_TITLE, er: 'membership', pilot: true,
       desc: 'Offers sent after a second visit. These go to people who already came back, so they are judged on joining, not on coming back.' + per + src,
       html: inner + engInfoBtn('emails') });
   }
@@ -2062,7 +2063,7 @@ function emailResultSlides() {
     let inner = head(g) + opened(g);
     if (OFFER_EMAILS_HAVE_LINKS) inner += clicked(g);
     inner += joins(g);
-    out.push({ title: 'Day-pass regulars', pilot: true,
+    out.push({ title: 'Day-pass regulars', er: 'regulars', pilot: true,
       desc: 'The offer for people who bought 2 or more day passes in 30 days. They already come often, so it is judged on joining.' + per + src,
       html: inner + engInfoBtn('emails') });
   }
@@ -2381,7 +2382,7 @@ function ibLegacyMetrics() {
     const sv = DATA.survey || {}, responses = sv.all_responses || sv.responses || [];
     buildInsightSlides(false, surveyOn() && responses.length > 0, sv, responses).forEach(sl => out.push({
       k: 'x_' + sl.title.toLowerCase().replace(/[^a-z0-9]+/g, '_'), label: sl.title,
-      family: sl.fixed ? 'Survey answers' : 'Emails', unit: 'legacy', legacy: true, slide: sl }));
+      family: sl.fixed ? 'Survey answers' : 'Emails', unit: 'legacy', legacy: true, slide: sl, er: sl.er || '' }));
   } catch (e) {}
   return out;
 }
@@ -2466,7 +2467,7 @@ function ibClean(s) {
   const cur = ibMetrics().find(m => m.k === s.metric);
   if (cur.series || cur.legacy) {
     // whole-gym numbers: months only, and the one split is the pass type
-    if (s.group !== 'none' && !(s.group === 'product' && cur.products)) s.group = 'none';
+    if (s.group !== 'none' && !(s.group === 'product' && cur.products) && !ibEmailSplits(cur).some(o => o[0] === s.group)) s.group = 'none';
     if (s.time === 'week') s.time = 'month';
     if (s.chart === 'funnel') s.chart = 'auto';
   } else {
@@ -2849,6 +2850,7 @@ function ibTitle(model) {
   const named = IB.preset && model.kind !== 'legacy' ? ibPresets().find(p => p[0] === IB.preset) : null;
   if (named) return named[1];
   if (model.kind === 'funnel') return 'First-timers and what they did next';
+  if (model.kind === 'legacy' && ibEmailSplitOn(model.metric)) return model.metric.label + (IB.group === 'er_ab' ? ', by A/B version' : ', by email');
   if (model.kind === 'legacy' || model.snap) return model.metric.label;
   let t = model.used.map(m => m.label).join(' and ');
   if (model.whole) return t + (IB.group === 'product' && model.metric.products ? ', by pass type' : '') + (model.kind === 'time' || model.kind === 'timegroup' ? ', month by month' : '');
@@ -3052,6 +3054,77 @@ function ibDrawNumber(model) {
       (sub ? '<div class="ib-number-sub">' + escapeHtml(sub) + '</div>' : '') + '</div>';
   }).join('') + '</div>';
 }
+// ---- email charts split by which email / A/B version (Luke, 2026-11-11) ----
+// The All Gyms sheet's own rows (email_results.py: a group's `rows`, the
+// payload's `tests`), shown as a table with every number side by side. Each
+// cell follows the summed chart's rule (erBar): Opened over delivered, Clicked
+// over opened, outcomes over the emails old enough only. All-time totals.
+function ibEmailRows(key) {
+  const g = erGroup(key);
+  let rows = g && g.rows ? g.rows.slice() : [];
+  if (key === 'surveys') {
+    const ci = erGroup('checkin');
+    if (ci && ci.rows) rows = rows.concat(ci.rows.map(r => Object.assign({}, r, { label: r.label + ' (new members, not first-timers)', other: true })));
+  }
+  return rows;
+}
+function ibEmailTests(key) {
+  const e = erData();
+  // a test with a single version on the sheet has nothing to compare (its email is still under Which email)
+  return e && e.available ? (e.tests || []).filter(t => t.group === key && t.rows.filter(r => !r.context).length > 1) : [];
+}
+function ibEmailSplits(m) {
+  const e = erData();
+  if (!m || !m.er || !e || !e.available) return [];
+  const out = [];
+  if (ibEmailRows(m.er).length > 1) out.push(['er_email', 'Which email']);
+  if (ibEmailTests(m.er).length) out.push(['er_ab', 'A/B version']);
+  return out;
+}
+function ibEmailCols(key) {
+  const W = erData().windows || { answer: 14, return: 30, join: [30, 60, 90] }, J = W.join || [30, 60, 90];
+  const cols = [['Opened', r => [r.opens, r.opens, r.deliv_den]]];
+  if (key === 'surveys' || OFFER_EMAILS_HAVE_LINKS) cols.push(['Clicked', r => [r.clicks, r.clicks, r.opens]]);
+  if (key === 'surveys') cols.push(['Answered', r => r.other ? null : [r.responses, r.m_resp14, r.m_sends14]]);
+  else if (key === 'comeback') {
+    cols.push(['Came back within ' + W.return + ' days', r => [r.returned, r.m_ret30, r.m_sends30]]);
+    cols.push(['Redeemed the offer', r => [r.redeems, null, null]]);
+  } else J.forEach((d, i) => cols.push(['Joined within ' + d + ' days',
+    r => [r[['converted30', 'converted', 'converted90'][i]], r[['m_conv30', 'm_conv60', 'm_conv90'][i]], r[['m_sends30', 'm_sends60', 'm_sends90'][i]]]]));
+  return cols;
+}
+function ibEmailMatrix(m) {
+  const key = m.er, cols = ibEmailCols(key), pct = metricIsPct();
+  const cell = (r, c) => {
+    const v = c[1](r);
+    if (!v) return '-';                                  // this email has no such number (the member check-in)
+    if (v[1] === null) return v[0] || 0;                 // a count with no % on the sheet (redemptions)
+    return pct ? (v[2] ? erPct(v[1], v[2]) : 'n/a') : (v[0] || 0);
+  };
+  const mk = (name, rows, first) => ({ name: name, head: [first, 'Sent'].concat(cols.map(c => c[0])),
+    rows: rows.map(r => [r.label + (r.sends < ER_SMALL_N ? ' *' : ''), r.sends || 0].concat(cols.map(c => cell(r, c)))),
+    small: rows.some(r => r.sends < ER_SMALL_N), context: rows.some(r => r.context) });
+  return IB.group === 'er_ab' ? ibEmailTests(key).map(t => mk(t.name, t.rows, 'Version')) : [mk('', ibEmailRows(key), 'Email')];
+}
+function ibDrawEmailTable(m) {
+  const T = ibEmailMatrix(m), e = erData();
+  if (!T.length) return noData('No email has gone out here yet.');
+  const notes = [metricIsPct()
+    ? 'Opened is out of the emails delivered. Clicked is out of the emails opened. Every other % counts only the emails old enough to judge (n/a = none is old enough yet).'
+    : 'Counts include every email sent. The % view counts only the emails old enough to judge, so a result can show a count here while its % is still 0 or n/a.'];
+  if (metricIsPct()) notes.push('Sent is always a count.' + (m.er === 'comeback' ? ' Redeemed is a count too: the All Gyms sheet has no % for it.' : ''));
+  if (T.some(t => t.rows.some(r => r.includes('-')))) notes.push('- = this email does not ask the survey question.');
+  if (T.some(t => t.small)) notes.push('* Small sample (under ' + ER_SMALL_N + ' emails), directional only.');
+  if (T.some(t => t.context)) notes.push('Rows that start with “Before the test started” or “Not in the test” are context only: those emails were never part of the test.');
+  notes.push('All-time totals from the All Gyms sheet' + (e.updated ? ', updated ' + e.updated : '') + '.');
+  return T.map(t => (t.name ? '<div class="er-sub">' + escapeHtml(t.name) + '</div>' : '') +
+    '<div class="ib-table-wrap"><table class="conv-table ib-table ib-email"><thead><tr>' +
+    t.head.map((x, i) => '<th' + (i ? ' class="num"' : '') + '>' + escapeHtml(x) + '</th>').join('') + '</tr></thead><tbody>' +
+    t.rows.map(r => '<tr>' + r.map((v, i) => '<td' + (i ? ' class="num"' : '') + '>' + escapeHtml(typeof v === 'number' ? v.toLocaleString() : v) + '</td>').join('') + '</tr>').join('') +
+    '</tbody></table></div>').join('') +
+    notes.map(n => '<div class="ib-note">' + escapeHtml(n) + '</div>').join('') + engInfoBtn('emails');
+}
+function ibEmailSplitOn(m) { return !!(m && m.legacy && IB.group !== 'none' && ibEmailSplits(m).some(o => o[0] === IB.group)); }
 function ibDrawTable(model) {
   const mx = ibMatrix(model);
   if (!mx.rows.length) return noData('Nobody fits this view yet. Pick a longer period or remove a filter.');
@@ -3061,8 +3134,15 @@ function ibDrawTable(model) {
     '</tbody></table></div>';
 }
 function ibCsv() {
-  const model = ibModel(), mx = ibMatrix(model);
+  const model = ibModel();
   const esc = v => { v = String(v == null ? '' : v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  if (ibEmailSplitOn(model.metric)) {
+    const el = [['Send It Insights', DATA.client || ''], ['Chart', ibTitle(model)], ['Counts emails, not people'],
+      ['Numbers', metricIsPct() ? 'Percent' : 'Counts'], ['All Gyms sheet updated', erData().updated || '']];
+    ibEmailMatrix(model.metric).forEach(t => { el.push([]); if (t.name) el.push([t.name]); el.push(t.head); t.rows.forEach(r => el.push(r)); });
+    return el.map(r => r.map(esc).join(',')).join('\r\n');
+  }
+  const mx = ibMatrix(model);
   const lines = [['Send It Insights', DATA.client || ''], ['Chart', ibTitle(model)], ['Who', ibWho()],
     ['Period', model.snap ? 'Today' : model.whole ? ibMonthsText(model) : ibPeriodLabel()],
     ['Filters', model.whole ? 'None' : ibFilterText() || 'None'],
@@ -3085,6 +3165,7 @@ function renderBuilder() {
   if (!IB) IB = ibLoad();
   const model = ibModel(), M = ibMetrics(), dims = ibDims();
   const cur = model.metric, whole = !!model.whole, legacy = model.kind === 'legacy', fixed = legacy || !!model.snap;
+  const esp = legacy ? ibEmailSplits(cur) : [], esOn = ibEmailSplitOn(cur);   // an email chart's own splits
   // Simplified layout (Luke, 2026-11-11): four boxes show, the rest sit under
   // "More options". A split the gym has no data for is left out of the list.
   const avail = dims.filter(d => d.available);
@@ -3092,8 +3173,8 @@ function renderBuilder() {
   const gopt = (v, l) => '<option value="' + escapeHtml(v) + '"' + (v === IB.group ? ' selected' : '') + '>' + escapeHtml(l) + '</option>';
   const topDims = IB_DIM_TOP.map(k => avail.find(d => d.key === k)).filter(Boolean);
   const moreDims = avail.filter(d => !IB_DIM_TOP.includes(d.key));
-  const groupSel = '<label class="ib-field"><span class="period-label">Split by</span><select class="period-select" onchange="ibSet(\'group\', this.value)"' + (fixed ? ' disabled' : '') + '>' +
-    gopt('none', 'No split') + (whole ? (cur.products ? gopt('product', 'Pass type') : '')
+  const groupSel = '<label class="ib-field"><span class="period-label">Split by</span><select class="period-select" onchange="ibSet(\'group\', this.value)"' + (fixed && !esp.length ? ' disabled' : '') + '>' +
+    gopt('none', 'No split') + (esp.length ? esp.map(o => gopt(o[0], o[1])).join('') : whole ? (cur.products ? gopt('product', 'Pass type') : '')
       : topDims.map(d => gopt(d.key, d.label)).join('') +
         (moreDims.length ? '<optgroup label="More splits">' + moreDims.map(d => gopt(d.key, d.label)).join('') + '</optgroup>' : '')) +
     '</select></label>';
@@ -3116,7 +3197,7 @@ function renderBuilder() {
   h += '<div class="ib-controls">' +
     ibSelect('Start from', 'preset', [['', IB.preset ? 'Choose a chart' : 'Your own view']].concat(ibPresets().map(p => [p[0], p[1]])), IB.preset, 'ibStartFrom(this.value)') +
     showSel +
-    ibSelect('Period', 'period', dis(ibPeriods(), fixed), IB.period) +
+    ibSelect('Period', 'period', legacy ? [[IB.period, cur.family === 'Emails' ? 'All time (every email)' : 'All time (every answer)', true]] : dis(ibPeriods(), fixed), IB.period) +
     groupSel + '</div>';
   h += '<div class="ib-more-row"><button class="how-link ib-more" aria-expanded="' + (IB_MORE ? 'true' : 'false') + '" onclick="ibToggleMore()">' +
     (IB_MORE ? 'Fewer options' : 'More options') + (nset ? ' (' + nset + ' set)' : '') + '</button>' +
@@ -3140,7 +3221,7 @@ function renderBuilder() {
   }
   if (whole && (legacy || cur.family === 'Emails')) h += '<div class="ib-filters">' +
     (cur.family === 'Emails' ? '<span class="period-note">Counts emails, not people</span>' : '') + (legacy ? metricToggleHtml() : '') + '</div>';
-  const body = legacy ? cur.slide.html : model.chart === 'funnel' ? ibDrawFunnel(model) : model.chart === 'table' ? ibDrawTable(model)
+  const body = esOn ? ibDrawEmailTable(cur) : legacy ? cur.slide.html : model.chart === 'funnel' ? ibDrawFunnel(model) : model.chart === 'table' ? ibDrawTable(model)
     : model.chart === 'number' ? ibDrawNumber(model) : model.chart === 'line' ? ibDrawLine(model) : ibDrawBars(model);
   let notes = model.notes.concat(ibAdvice(model)).map(n => '<div class="ib-note">' + escapeHtml(n) + '</div>').join('');
   // the orange box is kept for a split or a filter, where a small group misleads most; a plain view gets a quiet note
@@ -3153,7 +3234,7 @@ function renderBuilder() {
       : whole ? 'The whole gym, ' + ibMonthsText(model) + '. Sales through ' + shortDate(ibMonthly().data_through) + '.'
       : ibWho() + ', ' + ibPeriodLabel().toLowerCase() + '. ' + ibRangeText(model) + ' Check-ins through ' + shortDate(ibEnd()) + '.') + '</div></div>' +
     '<div class="carousel-body">' + body + '</div>' + notes +
-    (legacy ? '' : '<div class="ib-foot">' + howLink('how-builder', ibHow(model)) +
+    (esOn ? '<div class="ib-foot"><span></span><button class="how-link" onclick="ibDownload()">Download CSV</button></div>' : legacy ? '' : '<div class="ib-foot">' + howLink('how-builder', ibHow(model)) +
     '<button class="how-link" onclick="ibDownload()">Download CSV</button></div>') + '</div>';
   h += '<div class="ib-off"><button class="how-link" onclick="ibExit()">Back to the old charts (preview only)</button></div>';
   $('view-insights').innerHTML = h;
