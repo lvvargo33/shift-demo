@@ -108,6 +108,11 @@ BASIC_PASS = os.getenv("LIVE_PASS")
 NAMED_LOGINS = {k[len("LIVE_PASS_"):].lower(): v for k, v in os.environ.items()
                 if k.upper().startswith("LIVE_PASS_") and len(k) > len("LIVE_PASS_") and v}
 AUTH_ON = bool((BASIC_USER and BASIC_PASS) or NAMED_LOGINS)
+# Staff logins (2026-11-12, Chris: the email splits and A/B tests are ours, not
+# the gym's): env LIVE_STAFF = comma-separated usernames of per-person logins.
+# Only those get the per-email / A/B numbers in the page. The shared login and
+# every other named login get the client copy. Unset = nobody is staff.
+STAFF_LOGINS = email_results.staff_logins()
 
 # Auto-reload interval (seconds) baked into every page so the bare URL refreshes
 # itself (handy for a "watch it land" demo without appending ?refresh=). 0 = off
@@ -397,8 +402,9 @@ def render(client_slug: str, asof: date) -> str:
                                   "sheet_ok": False, "sheet_error": tb.strip().splitlines()[-1]}
 
     template = DASHBOARD_TEMPLATE.read_text(encoding="utf-8")
-    data_str = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
-    return template.replace("__DATA_JSON__", data_str)
+    # one render, two copies (2026-11-12): the string is the staff page, its
+    # .client is the same page without the per-email / A/B numbers
+    return email_results.pages(template, payload)
 
 
 # --- A2 step 4: member survey replies (ported from ABC's live_server) ------------
@@ -924,7 +930,11 @@ class Handler(survey_page.handler_base()):
 
     def _authed(self) -> bool:
         """True if Basic Auth is off, or the request carries the right creds
-        (the shared login or a per-person LIVE_PASS_<NAME> one)."""
+        (the shared login or a per-person LIVE_PASS_<NAME> one). Also notes
+        whether this is a staff login (self._staff, see STAFF_LOGINS): with no
+        login gate (local) everyone is; behind the gate only a per-person
+        login named in LIVE_STAFF is, never the shared login."""
+        self._staff = not AUTH_ON
         if not AUTH_ON:
             return True
         header = self.headers.get("Authorization", "")
@@ -935,6 +945,7 @@ class Handler(survey_page.handler_base()):
                     return True
                 named = NAMED_LOGINS.get(user.strip().lower())
                 if named and hmac.compare_digest(pw.encode(), named.encode()):
+                    self._staff = user.strip().lower() in STAFF_LOGINS
                     return True
             except Exception:
                 pass
@@ -1034,7 +1045,7 @@ class Handler(survey_page.handler_base()):
         slug = params.get("client", [self.server.default_client])[0]
         try:
             asof = _resolve_asof(params, slug)
-            html = render(slug, asof)
+            html = email_results.for_login(render(slug, asof), getattr(self, "_staff", False))
             refresh = int(params["refresh"][0]) if params.get("refresh") else DEFAULT_REFRESH
             if refresh > 0:
                 html = _inject_refresh(html, refresh)
@@ -1350,6 +1361,10 @@ def main() -> None:
     print(f"  open   : {url}")
     print(f"  auth   : {'Basic Auth ON' if AUTH_ON else 'OPEN (no LIVE_USER/LIVE_PASS set)'}"
           + (f" | named logins: {', '.join(sorted(NAMED_LOGINS))}" if NAMED_LOGINS else ""))
+    print(f"  staff  : {', '.join(sorted(STAFF_LOGINS)) or 'nobody (LIVE_STAFF unset)'}"
+          " see the email splits; every other login gets the client page")
+    for _name in sorted(STAFF_LOGINS - set(NAMED_LOGINS)):
+        print(f"  staff login {_name!r} FAILED: no LIVE_PASS_{_name.upper()} is set, so nobody can sign in as it")
     print(f"  as-of  : today + {DEFAULT_DAYS_AHEAD}d by default (override ?asof= or ?days=)")
     print("  the cron+static demo is untouched and still your backup.")
     print("  Ctrl+C to stop.\n")

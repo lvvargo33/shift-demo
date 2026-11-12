@@ -334,3 +334,121 @@ def refresher(slug: str) -> None:
     while True:
         refresh(slug)
         time.sleep(REFRESH_SECS)
+
+
+# --- staff-only splits (Chris, 2026-11-12) ----------------------------------------
+# "Which email" and "A/B version" are ours, not the gym's: a group's `rows` and
+# the payload's `tests` only go to a staff login. Everyone else gets the same
+# page with those two emptied, so the page offers no such split and the numbers
+# are not in the page source either. Group totals stay for everyone.
+# Same day, after the fresh-eyes round (Luke: "yes"): the builder's "Last email
+# before coming back" split is staff only too (at SHIFT its values are the A/B
+# version tags), and the per-send `tag` (the version each person got) is left
+# out of the client copy's sent log and queue. The page never reads that tag.
+_DATA_TOKEN = "__DATA_JSON__"
+STAFF_DIMS = ("email",)             # insights columns only a staff login gets
+TAGGED_LISTS = ("sent_log", "queue")  # payload lists whose rows carry a per-send `tag`
+TRIGGER_BLANKS = ("tag", "description")  # blanked on every message-catalog entry
+
+
+def staff_logins(raw: str | None = None) -> set[str]:
+    """Env LIVE_STAFF = comma-separated usernames of the per-person logins
+    (LIVE_PASS_<NAME>) that see the splits. Unset = nobody does. Forgiving
+    about how the list is typed (fresh-eyes 11/12: "luke; chris" or quotes
+    made one junk name and staff quietly got the client page)."""
+    import re
+    raw = os.getenv("LIVE_STAFF", "") if raw is None else raw
+    return {n.lower() for n in re.split(r"[\s,;|\uff0c\"'\[\](){}]+", raw) if n}
+
+
+def client_view(payload):
+    """The email results a gym's own login gets: every group's totals, no
+    per-email rows, no A/B tests. Never changes the dict it is given."""
+    if not isinstance(payload, dict):
+        return payload
+    out = dict(payload)
+    out["groups"] = [{**g, "rows": []} for g in payload.get("groups", [])]
+    out["tests"] = []
+    return out
+
+
+class Page(str):
+    """The staff page (the string itself) carrying the client copy beside it,
+    so everything that passes a page around as a str keeps working."""
+    client: str = ""
+
+
+def for_login(html: str, staff: bool) -> str:
+    """Pick the copy for this request. A plain str has no splits to hide."""
+    return html if staff else getattr(html, "client", html)
+
+
+def pages(template: str, payload: dict) -> Page:
+    """Fill the dashboard template twice from one payload: the Page itself is
+    the staff copy, `.client` the copy without the splits."""
+    import json
+
+    def dump(obj) -> str:
+        return json.dumps(obj, ensure_ascii=False).replace("<", "\\u003c")
+
+    page = Page(template.replace(_DATA_TOKEN, dump(payload)))
+    page.client = template.replace(_DATA_TOKEN, dump(client_payload(payload)))
+    return page
+
+
+def client_insights(ins):
+    """The builder's rows for a gym's own login: every staff-only column
+    (STAFF_DIMS) is blanked on every row, its value list is cut to the first
+    (the 'none' value) and it is marked not available, so the page hides the
+    split and the filter. Never changes the dict it is given."""
+    if not isinstance(ins, dict):
+        return ins
+    cols = list(ins.get("cols") or [])
+    hide = [c for c in STAFF_DIMS if c in cols or c in (ins.get("dims") or {})]
+    if not hide:
+        return ins
+    out = dict(ins)
+    ix = [cols.index(c) for c in hide if c in cols]
+    if ix:
+        rows = []
+        for r in ins.get("rows") or []:
+            r = list(r)
+            for i in ix:
+                if i < len(r):
+                    r[i] = 0
+            rows.append(r)
+        out["rows"] = rows
+    dims = dict(ins.get("dims") or {})
+    for c in hide:
+        if isinstance(dims.get(c), dict):
+            dims[c] = {**dims[c], "values": list(dims[c].get("values") or [])[:1],
+                       "available": False, "note": ""}
+    out["dims"] = dims
+    return out
+
+
+def client_payload(payload: dict) -> dict:
+    """The whole page payload for a gym's own login. Never changes the dict
+    it is given; everything not named here is passed through as is."""
+    out = dict(payload)
+    if "email_results" in out:
+        out["email_results"] = client_view(out["email_results"])
+    if "insights" in out:
+        out["insights"] = client_insights(out["insights"])
+    for key in TAGGED_LISTS:
+        if isinstance(out.get(key), list):
+            out[key] = [{k: v for k, v in r.items() if k != "tag"} if isinstance(r, dict) else r
+                        for r in out[key]]
+    # the message catalog (`triggers`, also under `config`): each entry's tag is
+    # a version tag at a gym with a test on, and its description is our own
+    # build note ("ARM B of the ... A/B test"). No page shows either (the old
+    # Settings view is not reachable), so the client copy carries them blank.
+    def catalog(items):
+        return [{**t, **{k: "" for k in TRIGGER_BLANKS if k in t}} if isinstance(t, dict) else t
+                for t in items]
+    if isinstance(out.get("triggers"), list):
+        out["triggers"] = catalog(out["triggers"])
+    cfg = out.get("config")
+    if isinstance(cfg, dict) and isinstance(cfg.get("triggers"), list):
+        out["config"] = {**cfg, "triggers": catalog(cfg["triggers"])}
+    return out
