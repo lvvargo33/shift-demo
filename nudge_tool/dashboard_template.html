@@ -2255,7 +2255,10 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
   return slides;
 }
 function renderInsights() {
-  if (ibOn()) { renderBuilder(); return; }   // Block 28 preview (?builder=1)
+  // The builder IS the Insights page (2026-11-12, Chris's OK). What follows
+  // only draws when the builder has no rows to work with (a demo client, or a
+  // day its rows failed to build): nobody can pick it.
+  if (ibOn()) { renderBuilder(); return; }
   const sv = DATA.survey || {};
   // all-time list (fallback: the inbox-windowed one), so survey slides don't
   // vanish once every response is older than the inbox window
@@ -2307,13 +2310,15 @@ function renderInsights() {
    never a formula. Every rule below is the old carousel's own rule (period
    ranges, the "has had N days" cut, whole-month trend windows), so a view
    picked from "Start from" shows the old chart's numbers.
-   PREVIEW until the Block 28 release: the old carousel stays the default and
-   this page shows only with ?builder=1 (remembered per browser; ?builder=0
-   turns it off). SHARED block: identical in the ABC and SHIFT templates. */
-const IB_KEY = 'sendItInsightsView', IB_PREVIEW_KEY = 'sendItBuilderPreview', IB_SMALL = 30;
+   RELEASED 2026-11-12: this is the Insights page for everyone. The preview
+   switch (?builder=1 / ?builder=0) and the "back to the old charts" link are
+   gone; an old link with ?builder= in it just opens this page.
+   SHARED block: identical in the ABC and SHIFT templates. */
+const IB_KEY = 'sendItInsightsView', IB_SMALL = 30;
+try { localStorage.removeItem('sendItBuilderPreview'); } catch (e) {}   // the preview switch's leftover
 const IB_COLORS = ['#BE4528', '#16A34A', '#2563EB', '#7C3AED', '#D97706', '#0F766E'];
 const IBC = {};
-let IB = null, IB_EXITED = false, IB_MORE = null;
+let IB = null, IB_MORE = null;
 // Lines whose numbers are showing (by line name) and the lines of the chart on
 // screen. Clicking a line, a point or its legend name flips that one line.
 let IB_VALS = [], IB_LINES = [];
@@ -2324,15 +2329,7 @@ function ibAvailable() {
   if (IBC.d == null) (d.cols || []).forEach((c, i) => { IBC[c] = i; });
   return true;
 }
-function ibPreview() {
-  const q = (typeof location !== 'undefined' && location.search) || '';
-  try {
-    if (/[?&]builder=1\b/.test(q)) localStorage.setItem(IB_PREVIEW_KEY, '1');
-    if (/[?&]builder=0\b/.test(q)) localStorage.removeItem(IB_PREVIEW_KEY);
-    return localStorage.getItem(IB_PREVIEW_KEY) === '1';
-  } catch (e) { return /[?&]builder=1\b/.test(q); }
-}
-function ibOn() { return !IB_EXITED && ibAvailable() && ibPreview(); }
+function ibOn() { return ibAvailable(); }
 function ibEnd() { return ibData().data_through || ''; }
 
 /* ---- what can be picked ---- */
@@ -2526,7 +2523,6 @@ function ibToggleVals(i) {
   if (k < 0) IB_VALS.push(nm); else IB_VALS.splice(k, 1);
   renderBuilder();
 }
-function ibExit() { IB_EXITED = true; try { localStorage.removeItem(IB_PREVIEW_KEY); } catch (e) {} renderInsights(); }
 
 /* ---- dates ---- */
 function ibShiftYear(iso, n) {   // Feb 29 lands on Feb 28, as engine._shift_year
@@ -3236,7 +3232,6 @@ function renderBuilder() {
     '<div class="carousel-body">' + body + '</div>' + notes +
     (esOn ? '<div class="ib-foot"><span></span><button class="how-link" onclick="ibDownload()">Download CSV</button></div>' : legacy ? '' : '<div class="ib-foot">' + howLink('how-builder', ibHow(model)) +
     '<button class="how-link" onclick="ibDownload()">Download CSV</button></div>') + '</div>';
-  h += '<div class="ib-off"><button class="how-link" onclick="ibExit()">Back to the old charts (preview only)</button></div>';
   $('view-insights').innerHTML = h;
 }
 
