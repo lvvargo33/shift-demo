@@ -188,10 +188,13 @@ _activity_lock = threading.Lock()
 # an unsubscribed climber showed as "queued" while the Send button (which
 # reads the list itself) would refuse them. None until the first read lands.
 _unsub_set: set | None = None
+# The bounced ("cleaned") part of it: the only Mailchimp status that stops a
+# Brevo survey email (2026-11-13; a marketing unsubscribe no longer does).
+_cleaned_set: set | None = None
 
 
 def _refresh_activity_once(client_slug: str) -> None:
-    global _activity_map, _journey_ids, _unsub_set
+    global _activity_map, _journey_ids, _unsub_set, _cleaned_set
     client = load_client(client_slug)
     try:
         settings = load_settings(client, require=True)
@@ -213,8 +216,10 @@ def _refresh_activity_once(client_slug: str) -> None:
     # restart shows it within seconds, not after the whole sweep below
     try:
         unsub = mc.suppressed_emails()
+        cleaned = mc.cleaned_emails()
         with _activity_lock:
             _unsub_set = unsub
+            _cleaned_set = cleaned
     except Exception as exc:  # noqa: BLE001 (display only: never cost the activity pass)
         print(f"  unsubscribe list read failed (keeping the last one): {exc}")
     fetched: dict = {}
@@ -288,7 +293,9 @@ def send_now(client_slug: str, req: dict) -> dict:
 
         # Never tag a suppressed/unsubscribed email; if we can't read that list, abort.
         try:
-            unsub = MailchimpClient(settings).suppressed_emails()
+            _mc_read = MailchimpClient(settings)
+            unsub = _mc_read.suppressed_emails()
+            cleaned = _mc_read.cleaned_emails()
         except (RuntimeError, MailchimpError, RequestException):
             return {"ok": False, "reason": "no_unsub",
                     "message": "Couldn’t reach Mailchimp to check unsubscribes, so "
@@ -296,7 +303,9 @@ def send_now(client_slug: str, req: dict) -> dict:
 
         asof = date.today()
         suppressed_out: list = []
+        from nudge_tool.survey_dispatch import survey_unsubscribed_for
         queue = engine.build_queue(ds, client, asof, log=log, unsubscribed=unsub,
+                                   unsubscribed_for=survey_unsubscribed_for(client, cleaned),
                                    suppressed_out=suppressed_out, dedup_email=True,
                                    own_email_guard=True)
         targets = livesend.derive_sends(queue)
@@ -366,9 +375,13 @@ def render(client_slug: str, asof: date) -> str:
         activity = _activity_map
         journeys = _journey_ids
         unsub = set(_unsub_set or ())
+        cleaned = set(_cleaned_set or ())
     suppressed_out: list = []
+    from nudge_tool.survey_dispatch import survey_unsubscribed_for
     queue = engine.build_queue(ds, client, asof, log=log,
-                               unsubscribed=unsub, suppressed_out=suppressed_out,
+                               unsubscribed=unsub,
+                               unsubscribed_for=survey_unsubscribed_for(client, cleaned),
+                               suppressed_out=suppressed_out,
                                dedup_email=True, own_email_guard=True)
     generated_at = datetime.now().isoformat(timespec="seconds")
     payload = engine.build_payload(ds, queue, client, asof, "dry-run",
@@ -471,13 +484,17 @@ def followup_now(client_slug: str, req: dict) -> dict:
 def _reply_suppressed(client, brevo) -> set:
     """Who a member reply must not go to: Brevo delivery blocks + Shift-sender
     unsubscribes (the shared account also holds ABC's unsubscribes, which do
-    not count here; same rule as survey_dispatch) plus Mailchimp
-    unsubscribed/cleaned. Raises when either list cannot be read."""
-    from nudge_tool import survey_dispatch
+    not count here; same rule as survey_dispatch) plus addresses that
+    bounced in Mailchimp plus Shift's survey opt-out list. A Mailchimp
+    MARKETING unsubscribe does not stop a reply since 2026-11-13 (Luke: a
+    personal reply to someone's own survey answer is not marketing; the same
+    rule as the survey itself). Raises when any list cannot be read."""
+    from nudge_tool import survey_dispatch, survey_optout
     from nudge_tool.mailchimp_client import MailchimpClient
     own = (getattr(getattr(brevo, "s", None), "sender_email", "") or "").strip().lower()
     out = {r["email"] for r in brevo.blocked_contacts() if survey_dispatch._blocks_shift(r, own)}
-    out |= {e.strip().lower() for e in MailchimpClient(load_settings(client, require=True)).suppressed_emails()}
+    out |= {e.strip().lower() for e in MailchimpClient(load_settings(client, require=True)).cleaned_emails()}
+    out |= {e.strip().lower() for e in survey_optout.opted_out_emails(client)}
     return out
 
 
@@ -559,7 +576,7 @@ def reply_now(client_slug: str, req: dict) -> dict:
                                "so nothing was sent. Try again in a moment."}
         if email in unsub:
             return {"ok": False, "reason": "suppressed",
-                    "message": "This member has unsubscribed or their address bounced, so the email service won\u2019t deliver to them."}
+                    "message": "This member opted out of these emails or their address bounced, so the email service won\u2019t deliver to them."}
         # a typo'd address is emailed at its corrected address (email_fix,
         # 2026-11-09): check THAT against Shift's own lists, not Brevo's alone
         esp_client.fix_blocklist = {e.strip().lower() for e in unsub}

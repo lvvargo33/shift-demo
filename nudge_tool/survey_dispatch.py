@@ -23,8 +23,15 @@ Every real send path uses it: send_nudges.py (cron), live_server.send_now
 after the flip.
 
 Suppression for native sends (decision 3, 2026-10-23):
-  Mailchimp unsubscribed / cleaned   read again here (the CLI goes on without
-                                     it; tester 2026-10-23)
+  Mailchimp cleaned (bounced)        read again here (the CLI goes on without
+                                     it; tester 2026-10-23). A Mailchimp
+                                     UNSUBSCRIBE does not stop a survey since
+                                     2026-11-13 (Chris's ask, Luke's ruling):
+                                     it is a no to Shift's marketing, and the
+                                     survey emails carry their own opt-out.
+                                     The people who had unsubscribed from a
+                                     Mailchimp SURVEY email were copied onto
+                                     the survey opt-out list that day.
   Shift survey opt-out list          survey_optout (our page); also honored on
                                      legacy once a dispatch block exists, so a
                                      switch back never re-mails an opt-out
@@ -115,6 +122,17 @@ def routing(client, program: str) -> str:
     return route if route in ROUTES else "hold"
 
 
+def survey_unsubscribed_for(client, cleaned) -> dict:
+    """engine.build_queue(unsubscribed_for=...): each survey trigger that goes
+    out by Brevo is checked against Mailchimp's bounced addresses only, not
+    the marketing unsubscribes (2026-11-13). A survey still on the Mailchimp
+    route is left out, so it keeps the full unsubscribed + cleaned list
+    (Mailchimp would not deliver it anyway)."""
+    block = {e.strip().lower() for e in (cleaned or ()) if e}
+    return {name: block for name, (program, _kind) in OPERATIONS.items()
+            if routing(client, program) == "native"}
+
+
 def route_for(client, target) -> str | None:
     """The route for one send target, or None when it is not a survey email."""
     op = OPERATIONS.get(getattr(target, "trigger_name", ""))
@@ -178,7 +196,7 @@ class Dispatcher:
                                      made while on Brevo still holds after a
                                      switch back (tester 2026-10-23)
           native                     the opt-out list + Mailchimp's
-                                     unsubscribed/cleaned list (read here, not
+                                     cleaned (bounced) list (read here, not
                                      trusted from the caller: the CLI carries
                                      on without it) + Brevo's block list"""
         self.prepared = True
@@ -216,9 +234,10 @@ class Dispatcher:
             from .brevo_client import BrevoClient
             self.brevo = BrevoClient(brevo_settings(self.client), self.client)
         try:
-            self.mc_suppressed = {e.strip().lower() for e in self.mc.suppressed_emails()}
+            # bounced addresses only (2026-11-13): see the module docstring
+            self.mc_suppressed = {e.strip().lower() for e in self.mc.cleaned_emails()}
         except Exception as exc:  # noqa: BLE001
-            raise DispatchError(f"could not read Mailchimp's unsubscribed list ({exc})") from exc
+            raise DispatchError(f"could not read Mailchimp's bounced list ({exc})") from exc
         try:
             rows = self.brevo.blocked_contacts()
         except Exception as exc:  # noqa: BLE001
@@ -232,7 +251,7 @@ class Dispatcher:
         self.brevo.fix_blocklist = set(self.optouts) | self.mc_suppressed | self.blocked
         lines.append(f"  survey dispatch: {n} survey email(s) route to Brevo; "
                      f"{len(self.optouts)} on the Shift survey opt-out list, "
-                     f"{len(self.mc_suppressed)} Mailchimp unsubscribed/cleaned, "
+                     f"{len(self.mc_suppressed)} bounced in Mailchimp, "
                      f"{len(self.blocked)} Brevo block(s) "
                      f"({ignored} other Brevo block(s) ignored: not Shift's)")
         lines.append(cap_line)
@@ -304,7 +323,7 @@ class Dispatcher:
         if fixed and fixed in self.optouts:
             return Outcome("none", "opted_out", f"corrected address {fx.address}")
         if email in self.mc_suppressed or (fixed and fixed in self.mc_suppressed):
-            return Outcome("none", "unsubscribed", "Mailchimp unsubscribed/cleaned")
+            return Outcome("none", "bounced", "the address bounced in Mailchimp")
         if email in self.blocked or (fixed and fixed in self.blocked):
             return Outcome("none", "blocked", "Brevo block")
         if self.cap is not None and self.brevo_today >= self.cap:

@@ -172,7 +172,7 @@ def _send_member_checkins(client, mc, cfg: dict, due: list, asof) -> None:
 
 def _send_member_surveys(client, mc, cands: list, quota: int, asof, share: int | None = None) -> None:
     """A2: send up to `quota` member surveys, walking `cands` (every member
-    due, in order). A member the dispatch refuses (opted out, unsubscribed,
+    due, in order). A member the dispatch refuses (opted out, bounced,
     Brevo block) is skipped and the next one tried; a "held" (warm-up cap,
     route not native) ends the step. Its own Dispatcher, prepared AFTER the
     first-timer rows are logged, so the cap counts them; any prepare failure
@@ -258,10 +258,17 @@ def run_send(a) -> None:
     # but can't read that list, abort rather than risk tagging a suppressed email.
     will_send = bool(a.i_have_shift_signoff and live_ok and a.yes)
     unsubscribed: set[str] = set()
+    # Bounced ("cleaned") addresses alone: the only Mailchimp status that
+    # stops a Brevo survey email (2026-11-13; a marketing unsubscribe does not).
+    cleaned: set[str] = set()
     try:
         settings = load_settings(client, require=True)
-        unsubscribed = MailchimpClient(settings).suppressed_emails()
+        _mc_read = MailchimpClient(settings)
+        unsubscribed = _mc_read.suppressed_emails()
+        cleaned = _mc_read.cleaned_emails()
         print(f"  mailchimp: {len(unsubscribed)} unsubscribed/cleaned (excluded)")
+        print(f"  mailchimp: {len(cleaned)} of those bounced; Brevo survey emails skip "
+              "only the bounced ones")
         stage(f"mailchimp unsub list done ({len(unsubscribed)} suppressed)")
     except (RuntimeError, MailchimpError, RequestException) as e:
         if will_send:
@@ -282,6 +289,7 @@ def run_send(a) -> None:
 
     suppressed_out: list = []
     queue = engine.build_queue(ds, client, asof, log=log, unsubscribed=unsubscribed,
+                               unsubscribed_for=survey_dispatch.survey_unsubscribed_for(client, cleaned),
                                suppressed_out=suppressed_out, dedup_email=True,
                                own_email_guard=True)
     targets = livesend.derive_sends(queue)
@@ -345,19 +353,24 @@ def run_send(a) -> None:
         # surveys (the except below prints FAILED), never guesses.
         qr_dates: dict = {}
         qr_pending: set = set()
+        ms_optouts: set = set()
         if ms_live and a.i_have_shift_signoff and live_ok and a.yes:
+            # the survey opt-out list, so opted-out members are held in the
+            # picker (2026-11-13). A failed read holds today's member surveys.
+            from nudge_tool import survey_optout
+            ms_optouts = survey_optout.opted_out_emails(client)
             from nudge_tool import member_qr
             qr_dates, qr_pending = member_qr.qr_state(client)
             print(f"  member QR sign: {len(qr_dates)} member(s) answered on the sign (count for the 90 days),"
                   f" {len(qr_pending)} mid-survey on the sign (wait a day)")
         ms = member_survey_native.find(
             client.memberships_csv, client.sessions_csv, asof, ms_cfg, log=log,
-            unsubscribed=unsubscribed,
+            unsubscribed=cleaned,     # bounced only (2026-11-13)
             staff_emails=member_checkin.staff_emails_of(client, ds),
             skip_emails={t.email for t in targets
                          if survey_dispatch.route_for(client, t) != "hold"}
             | {c.email for c in ci_due} | qr_pending,
-            qr_dates=qr_dates)
+            qr_dates=qr_dates, optouts=ms_optouts)
         print()
         for line in member_survey_native.report_lines(ms, ms_cfg, ms_live, asof):
             print(line)

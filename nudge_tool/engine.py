@@ -416,6 +416,7 @@ def _manual_item(c: Climber, order: int) -> QueueItem:
 
 def build_queue(ds: Dataset, client: ClientConfig, asof: date,
                 log=None, unsubscribed: set | None = None,
+                unsubscribed_for: dict | None = None,
                 suppressed_out: list | None = None,
                 dedup_email: bool = False,
                 own_email_guard: bool = False) -> list[QueueItem]:
@@ -479,7 +480,15 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
             if m is None:
                 continue
             siblings = group_tags.get(t.group) if t.group else None
-            reason = _suppressed(c, t, asof, log, unsubscribed, siblings)  # rules 4 + 5 + group
+            # unsubscribed_for (2026-11-13): {trigger name: its own block set}.
+            # SHIFT's Brevo survey emails pass Mailchimp's bounced addresses
+            # only, so a marketing unsubscribe no longer stops a survey.
+            # Not passed (ABC, every older caller) = no change.
+            unsub_t = (unsubscribed_for.get(t.name, unsubscribed)
+                       if unsubscribed_for else unsubscribed)
+            reason = _suppressed(c, t, asof, log, unsub_t, siblings)  # rules 4 + 5 + group
+            if reason == "unsubscribed" and unsubscribed_for and t.name in unsubscribed_for:
+                reason = "bounced"   # the short list holds bounced addresses only
             if reason:
                 if suppressed_out is not None:
                     suppressed_out.append((c, t, reason))

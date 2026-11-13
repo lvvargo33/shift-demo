@@ -115,10 +115,13 @@ def cmd_run(args: argparse.Namespace) -> int:
     # creds are missing, the read fails, or --skip-status is set, we warn and
     # suppress nobody (dry-run still works fully offline).
     unsubscribed: set[str] = set()
+    cleaned: set[str] = set()   # bounced only: what stops a Brevo survey (2026-11-13)
     if not args.skip_status:
         try:
             settings = load_settings(client, require=True)
-            unsubscribed = MailchimpClient(settings).suppressed_emails()
+            _mc_read = MailchimpClient(settings)
+            unsubscribed = _mc_read.suppressed_emails()
+            cleaned = _mc_read.cleaned_emails()
             print(f"  mailchimp status: {len(unsubscribed)} unsubscribed/cleaned "
                   "(will not be tagged)")
         except (RuntimeError, MailchimpError, RequestException) as e:
@@ -133,8 +136,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     from . import residency
     residency.attach_for_active_triggers(ds, client, asof, log)
     suppressed_out: list = []
+    from . import survey_dispatch as _sd
     queue = engine.build_queue(ds, client, asof, log=log,
                                unsubscribed=unsubscribed,
+                               unsubscribed_for=_sd.survey_unsubscribed_for(client, cleaned),
                                suppressed_out=suppressed_out,
                                dedup_email=True, own_email_guard=True)
     generated_at = datetime.now().isoformat(timespec="seconds")

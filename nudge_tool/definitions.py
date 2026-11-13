@@ -451,8 +451,10 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  "", "Email results"]),
         ("row", ["Unsubscribed",
                  "Used the unsubscribe link in this exact email. A person who "
-                 "leaves counts once, on the email that made them leave, and "
-                 "gets no later emails.",
+                 "leaves counts once, on the email that made them leave. At "
+                 "ABC they get no later emails. At SHIFT, leaving a marketing "
+                 "email stops marketing emails and leaving a survey email "
+                 "stops survey emails; the two lists are separate.",
                  "", "Email results"]),
         ("row", ["Offer redemption",
                  "Bought the offered day pass after the email. The two gyms "

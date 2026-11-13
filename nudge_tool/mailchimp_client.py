@@ -163,6 +163,13 @@ class MailchimpClient:
             out |= self.list_emails_by_status(status)
         return out
 
+    def cleaned_emails(self) -> set[str]:
+        """Addresses Mailchimp marked "cleaned" (they bounced). The only
+        Mailchimp status that stops a Brevo SURVEY email since 2026-11-13: a
+        marketing unsubscribe no longer does (Chris's ask, Luke's ruling;
+        surveys have their own opt-out list, survey_optout)."""
+        return self.list_emails_by_status("cleaned")
+
     # ---- write (caller must gate behind --test/--live) -----------------
     def upsert_member(
         self, email: str, first_name: str = "", status_if_new: str = "subscribed"

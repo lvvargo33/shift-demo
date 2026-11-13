@@ -1268,7 +1268,7 @@ function actWhy(q) {
     (q.days_since != null ? ', ' + q.days_since + ' ' + plural(q.days_since, 'day', 'days') + ' ago' : '');
 }
 function reasonLabel(r) {
-  return ({ unsubscribed: 'Unsubscribed', already_sent: 'Already got this email', cooldown: 'Got an email recently',
+  return ({ unsubscribed: 'Unsubscribed', bounced: 'Email address bounced', already_sent: 'Already got this email', cooldown: 'Got an email recently',
     shared_inbox: 'Shares an email address with another climber', shared_email: 'Shares an email address with another climber',
     group_sent: 'Already got the offer email' })[r] || String(r || '').replace(/_/g, ' ');
 }
@@ -1818,7 +1818,7 @@ const ENG_INFO = {
     body:
       '<h4>Who gets the survey</h4>' +
       '<p>Every first-time visitor with their own email on file gets it 1 to 2 days after their visit, including guests who were brought along by a friend. That’s why the “sent” number here is bigger than the scorecard’s paid first-timer count: this is a wider group.</p>' +
-      '<p>Who doesn’t get it: guests who checked in under the pass-buyer’s email (we have no address for them) and anyone who has unsubscribed.</p>' +
+      '<p>Who doesn’t get it: guests who checked in under the pass-buyer’s email (we have no address for them), anyone who has opted out of survey emails, and anyone whose email address bounced. Unsubscribing from the gym’s marketing emails does not stop the survey.</p>' +
       '<h4>What the bars mean</h4>' +
       '<p><strong>Opened</strong>: the email was viewed. This reads a little high, because some mail apps open emails automatically in the background. <strong>Clicked the survey link</strong>: they tapped through to the feedback form. <strong>Answered</strong>: they submitted it.</p>' +
       '<h4>Why the survey exists</h4>' +

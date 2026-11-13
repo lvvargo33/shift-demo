@@ -13,9 +13,11 @@ the two cannot disagree; gym_metrics._beta_episodes underneath):
     kids discount codes out first), staff plans + freeze-fee rows out
   * 30+ days in a row as a member (decision 2), counted from the episode start
 Held back (decision 4): frozen, staff (email list + staff plan rows), no
-email, Mailchimp unsubscribed / cleaned, an email shared by two or more
-current members (decision: shared or missing emails are skipped). The Shift
-survey opt-out list and Brevo blocks are applied at send time by
+email, an address that bounced in Mailchimp ("cleaned"; a Mailchimp marketing
+UNSUBSCRIBE does not hold a member since 2026-11-13), the Shift survey
+opt-out list when the caller hands it in (`optouts`), an email shared by two
+or more current members (decision: shared or missing emails are skipped). The
+opt-out list and Brevo blocks are applied again at send time by
 survey_dispatch. Members with no check-in for `inactive_days` (60) or more
 are INCLUDED and marked inactive (decision 4, revised).
 
@@ -184,7 +186,7 @@ def is_first_wave(m: Member, go_live: date, min_member_days: int) -> bool:
 
 
 def find(memberships, sessions, asof: date, cfg: dict, *, log=None, unsubscribed=(),
-         staff_emails=(), skip_emails=(), qr_dates=None) -> Result:
+         staff_emails=(), skip_emails=(), qr_dates=None, optouts=()) -> Result:
     """Who gets the member survey on the run dated asof. `skip_emails` =
     inboxes getting another email from today's run (they wait a day).
     `qr_dates` = {climber_id: "YYYY-MM-DD"} of member surveys answered on the
@@ -203,6 +205,10 @@ def find(memberships, sessions, asof: date, cfg: dict, *, log=None, unsubscribed
     # save that on their survey (fresh-eyes 11/02: 262 of 262 on stale files)
     ci_ref = min(asof, max(seen_ci.values())) if seen_ci else asof
     unsub = {e.strip().lower() for e in unsubscribed if e}
+    # `optouts` (2026-11-13) = Shift's survey opt-out list. Held here so an
+    # opted-out member never heads the line as "never asked", refused by the
+    # dispatch every day (enough of them would stall the day's surveys).
+    opted = {e.strip().lower() for e in optouts if e}
     staff = {e.strip().lower() for e in staff_emails if e}
     today = {e.strip().lower() for e in skip_emails if e}
     min_days, inactive_days = int(cfg["min_member_days"]), int(cfg["inactive_days"])
@@ -237,7 +243,9 @@ def find(memberships, sessions, asof: date, cfg: dict, *, log=None, unsubscribed
         elif key in staff:
             m.skip = "staff"
         elif key in unsub:
-            m.skip = "unsubscribed in Mailchimp"
+            m.skip = "email bounced in Mailchimp"
+        elif key in opted:
+            m.skip = "opted out of survey emails"
         current.append(m)
 
     owners: dict[str, set] = {}
