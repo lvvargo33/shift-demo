@@ -18,8 +18,22 @@ Home can never disagree about a rule:
                                 net sales for the month, to the cent.
 
 What each gym's system cannot say ships as None with a plain note, never a
-guess (ABC: no cancellations before its status history began, no member
-count before the weekly log began, no frozen count for past months).
+silent guess.
+
+ABC past months (2026-11-17, Luke's ruling; reverses "No backfill estimate"):
+RGP keeps no cancel dates, but it does keep its own DAILY member count back
+to opening (/dailynumbers, written to member_daily_numbers.csv by the
+rgp_pull cron). With that file present:
+  member count / frozen at month end   RGP's count on the month's last day (exact)
+  net change                           this month-end count minus the last one (exact)
+  cancellations before the status      new members minus net change, flagged in
+  history began                        est["cancels"] and drawn as an estimate.
+                                       It reads a little low: people who join on
+                                       someone else's plan are not in the
+                                       new-member count. A negative answer ships
+                                       as None.
+Without the file ABC is as before (no number for those months). SHIFT never
+reads it: its Memberships.csv carries real start and cancel dates.
 
 Nothing here identifies a person: counts and dollars per month, and plan
 names read from the gym's price list (ABC's membership lines carry the
@@ -31,8 +45,10 @@ Pure read + shape. No network. Never raises into a page: build() returns
 """
 from __future__ import annotations
 
+import csv
 from collections import defaultdict
 from datetime import date, timedelta
+from pathlib import Path
 
 from . import gym_metrics as gm
 from . import ingest
@@ -254,6 +270,55 @@ def _beta_members(client: ClientConfig, today: date, months: list[date]) -> tupl
     return series, {"length": length, "notes": notes}, plan_names
 
 
+DAILY_FILE = "member_daily_numbers.csv"
+# a month end with no daily row (RGP skipped a day) may borrow an earlier day
+DAILY_REACH_DAYS = 3
+
+
+def daily_path(member_status_csv) -> Path:
+    """RGP's daily member counts sit beside member_status.csv (rgp_pull.py
+    writes the file, live_server.py pulls it)."""
+    return Path(member_status_csv).with_name(DAILY_FILE)
+
+
+def _int(v) -> int | None:
+    try:
+        return int(float(str(v or "").strip()))
+    except ValueError:
+        return None
+
+
+def load_daily(path) -> dict:
+    """{day: {"active": int, "frozen": int | None}} from member_daily_numbers.csv.
+    A missing or unreadable file is {} (the gym has no daily counts), never an error.
+    The days before RGP's first count above zero are dropped: ABC's file reads 0
+    members from 2023-07-08 to 2023-08-25 and 122 the next day, i.e. RGP was not
+    counting yet, and a 0 there would chart as an empty gym."""
+    out: dict[date, dict] = {}
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                d, ok = gm._d(r.get("date")), _int(r.get("members_ok"))
+                if d is not None and ok is not None:
+                    out[d] = {"active": ok, "frozen": _int(r.get("members_frozen"))}
+    except OSError:
+        return {}
+    started = min((d for d, row in out.items() if row["active"] > 0), default=None)
+    if started is None:
+        return {}
+    return {d: row for d, row in out.items() if d >= started}
+
+
+def _daily_on(daily: dict, day: date) -> dict | None:
+    """RGP's count at the end of `day`: that day's row, else the nearest
+    earlier one within DAILY_REACH_DAYS."""
+    for back in range(DAILY_REACH_DAYS + 1):
+        row = daily.get(day - timedelta(days=back))
+        if row is not None:
+            return row
+    return None
+
+
 def _rgp_members(client: ClientConfig, today: date, months: list[date], tx_rows: list) -> tuple[dict, dict]:
     from . import member_counts
     ms_rows = gm._rows(client.member_status_csv)
@@ -270,21 +335,40 @@ def _rgp_members(client: ClientConfig, today: date, months: list[date], tx_rows:
     except Exception:                                 # noqa: BLE001 - no log, no earlier counts
         count_rows = []
     first_hist = min((gm._d(r["date"]) for r in hist if gm._d(r["date"])), default=None)
-    series = {k: [] for k in ("new", "cancels", "active", "frozen")}
+    daily = load_daily(daily_path(client.member_status_csv))
+    series = {k: [] for k in ("new", "cancels", "active", "frozen", "net")}
+    est_cancels: list[bool] = []
     for m in months:
         last = _next_month(m) - timedelta(days=1)
         end = min(last, today)
-        series["new"].append(len(gm.rgp_new_members(None, m, end, events)))
-        # a month the status history does not fully cover has no cancel count
-        covered = first_hist is not None and first_hist <= m
-        series["cancels"].append(len(gm._rgp_left(hist, m, end)[0]) if covered else None)
+        n_new = len(gm.rgp_new_members(None, m, end, events))
+        series["new"].append(n_new)
         if end == today:
-            series["active"].append(len(ok_keys))
-            series["frozen"].append(frozen_now)
+            active, frozen = len(ok_keys), frozen_now
         else:
-            on = gm._rgp_members_on(end, hist, count_rows)
-            series["active"].append(on["active"] if on else None)
-            series["frozen"].append(None)
+            day = _daily_on(daily, end)
+            if day:
+                active, frozen = day["active"], day["frozen"]
+            else:
+                on = gm._rgp_members_on(end, hist, count_rows)
+                active, frozen = (on["active"] if on else None), None
+        series["active"].append(active)
+        series["frozen"].append(frozen)
+        # net change = the count now minus RGP's count the day before the month began
+        before = _daily_on(daily, m - timedelta(days=1))
+        net = active - before["active"] if (active is not None and before) else None
+        # a month the status history does not fully cover has no tracked cancel count
+        covered = first_hist is not None and first_hist <= m
+        if covered:
+            cancels, est = len(gm._rgp_left(hist, m, end)[0]), False
+        elif net is not None and n_new - net >= 0:
+            cancels, est = n_new - net, True
+        else:
+            cancels, est = None, False
+        series["cancels"].append(cancels)
+        est_cancels.append(est)
+        # no daily count for the month: fall back to new minus cancellations
+        series["net"].append(net if net is not None else (None if cancels is None else n_new - cancels))
     starts = gm.rgp_stretch_starts(tx_rows, today, visits)
     dated = [k for k in ok_keys if k in starts]
     # the plan behind each dated member = their latest join / renewal line
@@ -301,17 +385,44 @@ def _rgp_members(client: ClientConfig, today: date, months: list[date], tx_rows:
                     latest[cid] = (d, _rgp_plan(desc))
     length = {"bands": _bands([starts[k] for k in dated], today), "n": len(dated), "of": len(ok_keys),
               "by_plan": _by_plan([(latest[k][1] if k in latest else "Plan not named", starts[k]) for k in dated], today)}
+    first_day = min(daily) if daily else None
+
+    def _plain(d: date) -> str:
+        return f"{d:%b} {d.day}, {d.year}"
+
+    full = next((m for m in months if first_hist is not None and m >= first_hist), None)
+    tracked = ""
+    if first_hist:
+        tracked = (" Day by day tracking began " + _plain(first_hist) + ", so "
+                   + (f"{full:%B} {full.year} is the first month counted in full." if full
+                      else "no month is counted in full yet."))
     notes = {
         "cancels": ("Cancellations are counted from " + first_hist.isoformat() + ", the day this gym's member "
                     "status history began. Earlier months have no number.") if first_hist
                    else "This gym has no member status history yet, so cancellations have no number.",
-        "active": "Member counts for past months come from the weekly member count log (since September 2026) "
-                  "and the status history. Earlier months have no number.",
-        "frozen": "Frozen members are known for today only.",
+        "active": ("Member counts for past months are the gym system's own daily count, which starts "
+                   + _plain(first_day) + ".") if first_day
+                  else "Member counts for past months come from the weekly member count log (since September 2026) "
+                       "and the status history. Earlier months have no number.",
+        "frozen": ("Frozen counts for past months are the gym system's own daily count, which starts "
+                   + _plain(first_day) + ".") if first_day else "Frozen members are known for today only.",
         "length": "Only members whose own membership purchases can be dated are counted "
                   f"({len(dated)} of {len(ok_keys)}); family members on someone else's plan are left out.",
     }
-    return series, {"length": length, "notes": notes}
+    if any(est_cancels):
+        # shown when a month has no number at all (the opening weeks)
+        notes["cancels"] = ("A month with no number comes before the gym system's daily member count began ("
+                            + _plain(first_day) + "). A total that includes such a month shows n/a.")
+        notes["cancels_est"] = ("Estimated numbers are marked \"about\" (dotted or lighter on a chart). The gym system "
+                                "keeps no cancel dates for those months, so cancellations are new members minus the "
+                                "change in its daily member count. Read an estimate as a floor: the real number is "
+                                "higher, because a past member who comes back, or a person who joins on someone "
+                                "else's plan, hides a cancellation." + tracked)
+    if first_day:
+        notes["net"] = ("Net change is the change in the gym system's own daily member count. It will not always "
+                        "equal new members minus cancellations: a past member who comes back, or a person who joins "
+                        "on someone else's plan, raises the count without being a new member.")
+    return series, {"length": length, "notes": notes, "est": {"cancels": est_cancels}}
 
 
 # --------------------------------------------------------------------------
@@ -339,7 +450,7 @@ def build(client: ClientConfig, today: date) -> dict:
         keys = [_key(m) for m in months]
         products = sorted({p for k in keys for p in sales[k]["products"]},
                           key=lambda p: -sum(sales[k]["products"].get(p, 0.0) for k in keys))
-        net = [None if (n is None or c is None) else n - c for n, c in zip(mem["new"], mem["cancels"])]
+        net = mem.get("net") or [None if (n is None or c is None) else n - c for n, c in zip(mem["new"], mem["cancels"])]
         qty = [sales[k]["pass_qty"] for k in keys]
         pass_amt = [round(sales[k]["pass"], 2) for k in keys]
         return {
@@ -351,6 +462,9 @@ def build(client: ClientConfig, today: date) -> dict:
             "months": keys,
             "members": {"new": mem["new"], "cancels": mem["cancels"], "net": net,
                         "active": mem["active"], "frozen": mem["frozen"]},
+            # which months of a members list are an estimate, not a count
+            # ({} at a gym whose system has real dates)
+            "est": extra.get("est") or {},
             "sales": {"pass": pass_amt,
                       "membership": [round(sales[k]["membership"], 2) for k in keys],
                       "other": [round(sales[k]["other"], 2) for k in keys],

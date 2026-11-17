@@ -318,6 +318,7 @@ button, input, textarea, select { font-family: inherit; }
 .ib-swatch { display: inline-block; width: 16px; height: 0; border-top: 3px solid; vertical-align: middle; margin-right: 5px; }
 .ib-hit { fill: none; stroke: transparent; stroke-width: 16px; cursor: pointer; pointer-events: stroke; }
 .ib-pt { cursor: pointer; }
+.ib-est-bar > * { opacity: 0.5; }
 .ib-leg { cursor: pointer; background: none; border: none; padding: 0; font: inherit; color: inherit; }
 .ib-leg.on { font-weight: 700; color: var(--fg); }
 .ib-hint { color: var(--fg-hint); font-size: 11.5px; }
@@ -2353,13 +2354,13 @@ function ibMonthly() { const m = ibData().monthly || {}; return m.enabled ? m : 
 function ibSeriesMetrics() {
   const mo = ibMonthly();
   if (!mo) return [];
-  const M = mo.members, S = mo.sales, N = mo.notes || {};
+  const M = mo.members, S = mo.sales, N = mo.notes || {}, E = mo.est || {};
   const mk = (k, label, family, unit, vals, agg, note, extra) =>
     Object.assign({ k: k, label: label, family: family, unit: unit, series: true, vals: vals, agg: agg, note: note || '' }, extra || {});
   return [
     mk('m_new', 'New members', 'Members', 'count', M.new, 'sum', N.members),
-    mk('m_cancels', 'Cancellations', 'Members', 'count', M.cancels, 'sum', N.cancels || N.members),
-    mk('m_net', 'Net change in members', 'Members', 'count', M.net, 'sum', N.cancels || N.members),
+    mk('m_cancels', 'Cancellations', 'Members', 'count', M.cancels, 'sum', N.cancels || N.members, { est: E.cancels, estNote: N.cancels_est }),
+    mk('m_net', 'Net change in members', 'Members', 'count', M.net, 'sum', N.cancels || N.members, { always: N.net }),
     mk('m_active', 'Member count (end of month)', 'Members', 'count', M.active, 'last', N.active || N.members),
     mk('m_frozen', 'Frozen members (end of month)', 'Members', 'count', M.frozen, 'last', N.frozen || N.members),
     mk('l_bands', 'Members by length of membership (today)', 'Members', 'count', null, null, N.length, { snap: 'bands' }),
@@ -2609,6 +2610,7 @@ function ibCell(m, rows) {
 }
 function ibFmt(c) {
   if (!c || c.v == null) return 'n/a';
+  if (c.est) return 'about ' + ibFmt(Object.assign({}, c, { est: false }));
   if (c.unit === 'pct') return c.v.toFixed(1) + '%';
   if (c.unit === 'money') return (c.v < 0 ? '-$' : '$') + Math.abs(Math.round(c.v)).toLocaleString();
   if (c.unit === 'price') return '$' + c.v.toFixed(2);
@@ -2651,7 +2653,10 @@ function ibSeriesCell(m, idx) {
   }
   const xs = idx.map(i => m.vals[i]);
   if (m.agg === 'last') { const v = xs.length ? xs[xs.length - 1] : null; return { unit: m.unit, num: 0, of: 0, v: v == null ? null : v }; }
-  return { unit: m.unit, num: 0, of: 0, v: xs.length && xs.every(v => v != null) ? xs.reduce((a, b) => a + b, 0) : null };
+  const cell = { unit: m.unit, num: 0, of: 0, v: xs.length && xs.every(v => v != null) ? xs.reduce((a, b) => a + b, 0) : null };
+  // a total that leans on even one estimated month is an estimate
+  if (cell.v != null && m.est && idx.some(i => m.est[i])) cell.est = true;
+  return cell;
 }
 function ibSeriesModel(metric, M) {
   const mo = ibMonthly();
@@ -2711,6 +2716,11 @@ function ibSeriesModel(metric, M) {
   }
   model.months = model.keys || idx.map(i => mo.months[i]);
   if (model.series.some(sr => sr.cells.some(c => !c || c.v == null)) && metric.note) model.notes.push(metric.note);
+  const anyEst = model.series.some(sr => sr.cells.concat(sr.cmp || []).some(c => c && c.est));
+  metrics.forEach(m => {
+    if (m.estNote && anyEst && !model.notes.includes(m.estNote)) model.notes.push(m.estNote);
+    if (m.always && !model.notes.includes(m.always)) model.notes.push(m.always);
+  });
   return model;
 }
 // One model for every chart type: rowLabels down the side, one or more
@@ -2811,8 +2821,9 @@ function ibSmall(model) {
   return model.series.some(s => s.cells.concat(s.cmp || []).some(c => c && c.unit === 'pct' && c.of > 0 && c.of < IB_SMALL));
 }
 // the model as a plain grid: the Table view and the CSV both read this
-function ibMatrix(model) {
+function ibMatrix(model, csv) {
   const head = [model.rowHead], cl = ibCmpLabel();
+  const anyEst = model.series.some(s => s.cells.concat(s.cmp || []).some(c => c && c.est));
   const rate = model.series.some(s => s.cells.some(c => c && c.unit === 'pct'));
   model.series.forEach(s => {
     const n = model.series.length > 1 ? s.name + ': ' : '';
@@ -2826,13 +2837,19 @@ function ibMatrix(model) {
     model.series.forEach(s => {
       const put = c => {
         if (rate) row.push(c ? c.of : '', c && c.unit === 'pct' ? c.num : '');
-        row.push(c && c.v != null ? (c.unit === 'pct' ? c.v.toFixed(1) + '%' : c.unit === 'count' ? c.v : Math.round(c.v * 100) / 100) : '');
+        const v = c && c.v != null ? (c.unit === 'pct' ? c.v.toFixed(1) + '%' : c.unit === 'count' ? c.v : Math.round(c.v * 100) / 100) : '';
+        row.push(c && c.est && !csv && v !== '' ? 'about ' + v.toLocaleString() : v);
       };
       put(s.cells[i]);
       if (s.cmp) put(s.cmp[i]);
     });
+    if (csv && anyEst) {
+      const now = model.series.some(s => s.cells[i] && s.cells[i].est), then = model.series.some(s => s.cmp && s.cmp[i] && s.cmp[i].est);
+      row.push(now ? 'yes' : then ? 'compare number only' : '');
+    }
     return row;
   });
+  if (csv && anyEst) head.push('Estimated');
   return { head: head, rows: rows };
 }
 
@@ -2873,6 +2890,8 @@ function ibHow(model) {
     if (fam === 'Sales') parts.push('Sales are net sales: before sales tax, minus refunds, gift cards left out. Passes = day passes, punch passes and trials. Memberships = every membership dollar (dues, prepaid plans and new sign-ups). Average pass price = pass sales divided by passes sold.');
     if (fam === 'Members' && !model.snap) parts.push('New members and cancellations count people, not plans: a plan switch is neither. Member count = paying members on the last day of the month (today, for the month so far); frozen members are left out.');
     if (model.metric.note) parts.push(model.metric.note);
+    // how an estimated month and the net change are counted, for every number on the chart
+    (model.used || [model.metric]).forEach(m => [m.estNote, m.always].forEach(t => { if (t && !parts.includes(t)) parts.push(t); }));
     return parts.join(' ');
   }
   const open = ibData().post_opening_date || '';
@@ -2953,13 +2972,29 @@ function ibLineChart(labels, series, unit) {
   series.forEach((s, si) => {
     let d = '', pen = false;
     s.vals.forEach((v, i) => { if (v == null) { pen = false; return; } d += (pen ? ' L' : ' M') + x(i) + ',' + y(v); pen = true; });
+    const est = s.est && s.est.some(Boolean) ? s.est : null;
+    if (d && est) {
+      // one piece per pair of neighbours: a piece that touches an estimated month is dashed
+      let solid = '', dash = '';
+      for (let i = 1; i < n; i++) {
+        if (s.vals[i - 1] == null || s.vals[i] == null) continue;
+        const seg = ' M' + x(i - 1) + ',' + y(s.vals[i - 1]) + ' L' + x(i) + ',' + y(s.vals[i]);
+        if (est[i - 1] || est[i]) dash += seg; else solid += seg;
+      }
+      const pen2 = (dd, dotted) => dd ? '<path' + (dotted ? ' class="ib-est-line"' : '') + ' d="' + dd.trim() + '" fill="none" stroke="' + s.color +
+        '" stroke-width="' + (s.dashed ? 1.8 : 2.5) + '"' + (s.dashed ? ' stroke-dasharray="5 4" opacity="0.75"' : dotted ? ' stroke-dasharray="0.1 6" opacity="0.85"' : '') +
+        ' stroke-linejoin="round" stroke-linecap="round"/>' : '';
+      svg += pen2(solid, false) + pen2(dash, true);
+    } else
     if (d) svg += '<path d="' + d.trim() + '" fill="none" stroke="' + s.color + '" stroke-width="' + (s.dashed ? 1.8 : 2.5) + '"' +
       (s.dashed ? ' stroke-dasharray="5 4" opacity="0.75"' : '') + ' stroke-linejoin="round" stroke-linecap="round"/>';
     // a wide, see-through copy of the line so it is easy to click or tap
     if (d) svg += '<path class="ib-hit" d="' + d.trim() + '" onclick="ibToggleVals(' + si + ')"><title>Click to show or hide this line’s numbers</title></path>';
     s.vals.forEach((v, i) => {
       if (v == null) return;
-      svg += '<circle class="ib-pt" onclick="ibToggleVals(' + si + ')" cx="' + x(i) + '" cy="' + y(v) + '" r="' + (s.dashed ? 2.5 : 3.5) + '" fill="' + s.color + '" stroke="#fff" stroke-width="1.5"><title>' + escapeHtml(s.tips[i]) + '</title></circle>';
+      const hollow = est && est[i];
+      svg += '<circle class="ib-pt' + (hollow ? ' ib-est-pt' : '') + '" onclick="ibToggleVals(' + si + ')" cx="' + x(i) + '" cy="' + y(v) + '" r="' + (s.dashed ? 2.5 : hollow ? 3 : 3.5) +
+        '" fill="' + (hollow ? '#fff' : s.color) + '" stroke="' + (hollow ? s.color : '#fff') + '" stroke-width="1.5"><title>' + escapeHtml(s.tips[i]) + '</title></circle>';
     });
   });
   if (showVals) {
@@ -2996,9 +3031,9 @@ function ibDrawLine(model) {
   model.series.forEach((s, i) => {
     const color = IB_COLORS[i % IB_COLORS.length];
     const tips = (cells, name) => cells.map((c, j) => c ? model.rowLabels[j] + ' · ' + name + ': ' + ibFmt(c) + (ibTip(c) ? ' (' + ibTip(c) + ')' : '') : '');
-    out.push({ name: s.name, color: color, vals: s.cells.map(c => c ? c.v : null), tips: tips(s.cells, s.name) });
+    out.push({ name: s.name, color: color, vals: s.cells.map(c => c ? c.v : null), est: s.cells.map(c => !!(c && c.est)), tips: tips(s.cells, s.name) });
     if (s.cmp) out.push({ name: s.name + ', ' + ibCmpLabel().toLowerCase(), color: color, dashed: true,
-      vals: s.cmp.map(c => c ? c.v : null), tips: tips(s.cmp, s.name + ', ' + ibCmpLabel().toLowerCase()) });
+      vals: s.cmp.map(c => c ? c.v : null), est: s.cmp.map(c => !!(c && c.est)), tips: tips(s.cmp, s.name + ', ' + ibCmpLabel().toLowerCase()) });
   });
   return ibLineChart(model.rowLabels, out, unit);
 }
@@ -3012,7 +3047,7 @@ function ibDrawBars(model) {
     if (s.cmp) sub += (sub ? ' · ' : '') + ibCmpLabel() + ': ' + ibFmt(cc) + (ibTip(cc) ? ' (' + ibTip(cc) + ')' : '');
     return '<div class="bar-row"><div class="bar-top"><div class="bar-label">' + escapeHtml(label) + '</div>' +
       '<div class="bar-count">' + ibFmt(c) + '</div></div>' +
-      '<div class="bar-track">' + fillHtml(vals[i], max > 0 ? 100 * vals[i] / max : 0) + '</div>' +
+      '<div class="bar-track' + (c && c.est ? ' ib-est-bar' : '') + '">' + fillHtml(vals[i], max > 0 ? 100 * vals[i] / max : 0) + '</div>' +
       (sub ? '<div class="bar-sub">' + escapeHtml(sub) + '</div>' : '') + '</div>';
   }).join('');
 }
@@ -3138,7 +3173,7 @@ function ibCsv() {
     ibEmailMatrix(model.metric).forEach(t => { el.push([]); if (t.name) el.push([t.name]); el.push(t.head); t.rows.forEach(r => el.push(r)); });
     return el.map(r => r.map(esc).join(',')).join('\r\n');
   }
-  const mx = ibMatrix(model);
+  const mx = ibMatrix(model, true);
   const lines = [['Send It Insights', DATA.client || ''], ['Chart', ibTitle(model)], ['Who', ibWho()],
     ['Period', model.snap ? 'Today' : model.whole ? ibMonthsText(model) : ibPeriodLabel()],
     ['Filters', model.whole ? 'None' : ibFilterText() || 'None'],
