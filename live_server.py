@@ -41,6 +41,7 @@ from nudge_tool import config, email_results, engine, gym_metrics, ingest, lives
 # A2 step 4 (2026-11-02): ABC's Members views, fed by the native member survey
 from nudge_tool import (member_followups, member_reply, member_reply_edits,  # noqa: E402
                         member_responses_native, member_survey, member_views)
+from nudge_tool import survey_views  # by-month survey charts on Insights (2026-11-18)  # noqa: E402
 from nudge_tool.config import DASHBOARD_TEMPLATE, load_client, load_settings
 
 DEFAULT_CLIENT = "shift_demo_live"
@@ -413,6 +414,16 @@ def render(client_slug: str, asof: date) -> str:
             payload["members"] = {"as_of": asof.isoformat(), "error": tb.strip().splitlines()[-1],
                                   "responses": [], "waves": [], "dims": [],
                                   "sheet_ok": False, "sheet_error": tb.strip().splitlines()[-1]}
+
+    # First-timer survey charts by month, for Insights (both gyms, 2026-11-18).
+    # Never fails the page: on an error the two charts are simply absent.
+    try:
+        _sv = payload.get("survey")
+        if isinstance(_sv, dict) and _sv.get("all_responses"):
+            _sv["charts"] = survey_views.charts(_sv["all_responses"], _sv.get("blocker_options"))
+    except Exception:  # noqa: BLE001
+        print("  survey charts FAILED (Insights shows no by-month survey charts):\n"
+              + traceback.format_exc())
 
     template = DASHBOARD_TEMPLATE.read_text(encoding="utf-8")
     # one render, two copies (2026-11-12): the string is the staff page, its

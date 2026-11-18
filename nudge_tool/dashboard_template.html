@@ -1717,6 +1717,54 @@ function pctLineChart(labels, series, label) {
   return svg;
 }
 
+/* --- First-timer survey charts by month: computed in Python (survey_views._charts),
+   every answer so far (DATA.survey.charts, both gyms). Shown on Insights (Survey answers), not on FTV Responses
+   (Luke 2026-11-18: one place for charts; the Top issues bars were the same
+   numbers as "Why first-timers hesitate", so they were dropped). --- */
+function frLineChart(labels, series, yMax, legend, tipOf) {
+  const W = 760, H = 200, P = { l: 38, r: 14, t: 14, b: 26 };
+  const innerW = W - P.l - P.r, innerH = H - P.t - P.b, n = labels.length;
+  const xStep = innerW / Math.max(1, n - 1);
+  const x = i => n === 1 ? P.l + innerW / 2 : P.l + i * xStep;
+  const y = v => P.t + innerH - (v / yMax) * innerH;
+  let svg = '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">';
+  for (let i = 0; i <= 4; i++) {
+    const yPos = P.t + (innerH / 4) * i, v = yMax - (yMax / 4) * i;
+    svg += '<line class="chart-grid" x1="' + P.l + '" y1="' + yPos + '" x2="' + (W - P.r) + '" y2="' + yPos + '"/>';
+    svg += '<text class="chart-tick" x="' + (P.l - 6) + '" y="' + (yPos + 3) + '" text-anchor="end">' + (Math.round(v * 100) / 100) + '</text>';
+  }
+  svg += '<line class="chart-axis" x1="' + P.l + '" y1="' + (H - P.b) + '" x2="' + (W - P.r) + '" y2="' + (H - P.b) + '"/>';
+  labels.forEach((lab, i) => { svg += '<text class="chart-tick" x="' + x(i) + '" y="' + (H - P.b + 16) + '" text-anchor="middle">' + escapeHtml(lab) + '</text>'; });
+  if (n > 1) svg += '<path class="chart-line-you" d="' + series.map((v, i) => (i === 0 ? 'M' : 'L') + x(i) + ',' + y(v)).join(' ') + '"/>';
+  series.forEach((v, i) => {
+    const tip = tipOf(i);
+    svg += '<circle class="chart-dot-you" cx="' + x(i) + '" cy="' + y(v) + '" r="3.5"><title>' + escapeHtml(tip) + '</title></circle>';
+    svg += '<rect x="' + (x(i) - 16) + '" y="' + P.t + '" width="32" height="' + innerH + '" fill="transparent" pointer-events="all"><title>' + escapeHtml(tip) + '</title></rect>';
+  });
+  return svg + '</svg><div class="chart-legend"><span><span class="legend-swatch-line"></span>' + escapeHtml(legend) + '</span></div>';
+}
+function frChartSlides() {
+  const c = (DATA.survey && DATA.survey.charts) || {}, months = c.months || [], total = c.total || 0;
+  if (!total) return [];
+  const note = t => '<div style="color:var(--fg-subtle);font-size:11.5px;margin-top:10px;">' + t + '</div>';
+  const early = total < 10 ? note('Early read: only ' + total + plural(total, ' survey', ' surveys') + ' answered so far, so one answer moves this a lot.') : '';
+  const per = m => m.n + plural(m.n, ' answer', ' answers');
+  const ms = months.filter(m => m.avg_overall != null);
+  const mi = months.filter(m => m.likely_pct != null);
+  return [
+    { title: 'Overall score by month', fixed: true,
+      desc: 'The 1 to 5 answer to "How was your first visit overall?", averaged over the people who answered that month.',
+      html: (ms.length ? frLineChart(ms.map(m => monthName(m.month)), ms.map(m => m.avg_overall), 5, 'Average overall score (out of 5)',
+          i => monthName(ms[i].month) + ': ' + ms[i].avg_overall.toFixed(1) + ' out of 5, ' + per(ms[i])) : noData('No scored answers yet.')) +
+        (c.avg_overall == null ? '' : note('Every answer so far: ' + c.avg_overall.toFixed(1) + ' out of 5 (' + (c.n_scored || 0) + ' scored).')) + early },
+    { title: 'Likely to become regulars, by month', fixed: true,
+      desc: 'Of the people who answered "How likely is it that climbing could become something you do regularly?", the share who said Likely.',
+      html: (mi.length ? frLineChart(mi.map(m => monthName(m.month)), mi.map(m => m.likely_pct), 100, 'Said Likely (%)',
+          i => monthName(mi[i].month) + ': ' + mi[i].likely_pct.toFixed(0) + '% said Likely (' + mi[i].likely + ' of ' + mi[i].n_intent + ')') : noData('No answers to that question yet.')) +
+        (c.n_intent ? note('Every answer so far: ' + Math.round(100 * c.likely / c.n_intent) + '% said Likely (' + (c.likely || 0) + ' of ' + c.n_intent + ').') : '') + early },
+  ];
+}
+
 /* ---- Insights carousel: one chart at a time, Counts/% toggle ---- */
 let INSIGHTS_SLIDE = 0;
 function metricIsPct() { return REPORT_METRIC === 'pct'; }
@@ -2155,6 +2203,7 @@ function buildInsightSlides(hasReport, hasSurvey, sv, responses) {
       ? ['high', 'medium', 'low'].filter(k => intents[k]).map(k => countBarM(intentLabel(k), intents[k], totI, Math.max(intents.high, intents.medium, intents.low))).join('')
       : noData('No intent answers yet.');
     slides.push({ title: 'How likely to become regulars', fixed: true, desc: 'Self-reported intent, every answer so far. High-intent first-timers get the round-two invite.', html: inner });
+    frChartSlides().forEach(sl => slides.push(sl));
   }
   // Pilot engagement funnels (survey + offer emails). These read the send log,
   // so they cover the whole pilot and ignore the period picker above.
