@@ -2055,7 +2055,10 @@ SCORECARD_HEADER = [
     "Joined within 30 days", "Joined: out of (30 days passed)", "Join % (30 days)",
     "Joined within 60 days", "Joined: out of (60 days passed)", "Join % (60 days)",
     "Joined within 90 days", "Joined: out of (90 days passed)", "Join % (90 days)",
-    "Goal: joined (90 days)", "Data through", "Updated"]
+    "Goal: joined (90 days)", "Note", "Data through", "Updated"]
+# "Note" (2026-11-19) sits BEFORE the last two on purpose: "Updated" must stay
+# last (_verify_reconcile.py drops the last cell as the run stamp). Rows are
+# re-laid by header name, so a gym still on the older code just leaves it blank.
 SCORECARD_NCOLS = len(SCORECARD_HEADER)
 # Block 21 rename (2026-10-15): the other gym's rows are re-laid by header
 # name, so read a renamed column under its old name too until both gyms run
@@ -2128,6 +2131,7 @@ def _scorecard_rows(sc: dict, stamp: str) -> list[list]:
             j60["n"], j60["of"], _sc_ratio(j60["n"], j60["of"]),
             j90["n"], j90["of"], _sc_ratio(j90["n"], j90["of"]),
             (goals.get("join") or no_goal) if pilot else "",
+            ((sc.get("price_change") or {}).get("note") or "") if pilot else "",
             sc["data_through"], stamp])
     return out
 
@@ -2301,6 +2305,12 @@ def _scorecard_fmt_requests(sheet_id: int, existing_cf: int) -> list:
             reqs.append(cell_fmt(rng(r0, r1, c + shift, c + shift + 1),
                                  {"numberFormat": {"type": "PERCENT", "pattern": "0.0%"}},
                                  ["numberFormat"]))
+        # the Note column holds a sentence: left-aligned and wrapped, or the
+        # filled cells beside it clip it to its middle (fresh-eyes 2026-11-19)
+        nc = SCORECARD_HEADER.index("Note") + shift
+        reqs.append(cell_fmt(rng(r0, r1, nc, nc + 1),
+                             {"horizontalAlignment": "LEFT", "wrapStrategy": "WRAP"},
+                             ["horizontalAlignment", "wrapStrategy"]))
     notes = [(SC_PICK_ROW - 1, 0, SC_PICK_NOTE)]
     for cidx, text in SCORECARD_NOTES.items():
         notes.append((SC_VIEW_HEADER_ROW - 1, cidx, text))
@@ -2309,7 +2319,11 @@ def _scorecard_fmt_requests(sheet_id: int, existing_cf: int) -> list:
         reqs.append({"updateCells": {
             "rows": [{"values": [{"note": text}]}], "fields": "note",
             "start": {"sheetId": sheet_id, "rowIndex": ridx, "columnIndex": cidx}}})
+    # the Note column is wide in both blocks (the view's sits one column left
+    # of the data block's, which has the type column in front)
+    _wide = {SCORECARD_HEADER.index("Note"), SC_DATA_HEADER.index("Note")}
     for i, w in enumerate([130, 150, 190] + [110] * (SC_DATA_NCOLS - 3)):
+        w = 260 if i in _wide else w
         reqs.append({"updateDimensionProperties": {
             "range": {"sheetId": sheet_id, "dimension": "COLUMNS",
                       "startIndex": i, "endIndex": i + 1},
@@ -2531,6 +2545,19 @@ def _update_experiments(svc, tests: dict, var_rows: list[dict]) -> None:
           f"{len(notes)} skipped with notes")
 
 
+def _exp_price_note(cells: dict, exp: dict, reporting, today) -> None:
+    """A test flagged "price_change_note" in experiments.json that was already
+    running when its gym changed prices says so at the end of its 'Statistical
+    result' cell (Luke 2026-11-19: the friend test keeps running, with a
+    note). Nothing is added before the price change date, for a test with no
+    flag, or for a test that started after the change. Edits `cells` in place."""
+    pc = definitions.price_change(reporting, today)
+    if (pc and exp.get("price_change_note")
+            and str(exp.get("started") or "9999")[:10] <= pc["date"]):
+        cells["Statistical result"] = (
+            f"{cells.get('Statistical result') or ''} Note: {pc['test_note']}").strip()
+
+
 def _update_experiments_v2(svc, client, records: list[dict], var_rows: list[dict],
                            sheet_id: int | None) -> None:
     """Experiments v2 (roadmap block 6, 2026-09-14): the gym's experiments.json
@@ -2610,6 +2637,7 @@ def _update_experiments_v2(svc, client, records: list[dict], var_rows: list[dict
         notes += res["notes"]
         rn = by_id.get(exp["sheet_id"])
         cells = dict(res["cells"])
+        _exp_price_note(cells, exp, getattr(client, "reporting", None), today)
         if rn is None:
             rn = next_free
             next_free += 1

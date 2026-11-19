@@ -1984,7 +1984,8 @@ function scorecardSlideV2(sc) {
   inner += engInfoBtn('scorecard');
   return { title: 'Pilot scorecard', pilot: true,
     desc: 'Qualified first-timers, since ' + longDate(sc.start) + ' (check-ins through ' + longDate(sc.data_through) +
-      '), and what they did next, beside the same dates in ' + yr + '.',
+      '), and what they did next, beside the same dates in ' + yr + '.' +
+      (sc.price_change && sc.price_change.note ? ' ' + sc.price_change.note : ''),
     html: inner };
 }
 /* ---- Email results (Block 15 session 3, 2026-09-24) ----
@@ -2967,6 +2968,10 @@ function ibAdvice(model) {
     if (over && model.cmp && !model.snap) out.push('The newest month is a part month; its comparison point is a full month.');
     return out;
   }
+  // the gym's price change (2026-11-19): shown under the Pilot scorecard view
+  // and any other funnel that starts at the pilot, from the change date on
+  const ibPc = (DATA.scorecard || {}).price_change;
+  if (ibPc && ibPc.note && model.kind === 'funnel' && IB.period === 'pilot') out.push(ibPc.note);
   if (model.kind === 'funnel') out.push('Each bar looks at the first visits old enough to judge it' +
     (rolling ? ', so the bars cover different dates and a later bar can count more people than the first one.' : ', so the later bars count fewer people than the first one.') +
     ' A longer window can show a lower rate for the same reason.');

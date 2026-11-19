@@ -924,6 +924,12 @@ def _scorecard_parts(ds: Dataset, client: ClientConfig,
         "pilot": split(pilot, 0),
         "baseline": split(base, base_shift),
     }
+    # the gym's price change, once its date has arrived (2026-11-19): a label
+    # only, no number changes. Absent = the key is absent (ABC, and SHIFT
+    # before go-live), so every payload and sheet row stays as it was.
+    pc = definitions.price_change(client.reporting, date.today())
+    if pc:
+        result["price_change"] = pc
     return {"pilot": pilot, "base": base, "result": result}
 
 

@@ -711,3 +711,39 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  "", ""]),
     ]
     return rows
+
+
+# ---------------------------------------------------------------------------
+# A gym's price change (2026-11-19, ROADMAP "SHIFT price change: 'Prices
+# lowered' notes"). ONE config key, client.json reporting.price_change =
+# {"date": "YYYY-MM-DD", "name": "Shift", "label": "Prices lowered"}, feeds
+# every place the note shows (the site's Pilot scorecard, the All Gyms
+# Scorecard tab, a test's Experiments row), so they cannot disagree. No key,
+# no date, or a date still in the future = None = nothing shows anywhere.
+# A label only (Luke 2026-11-19): no number is split or recounted.
+# ---------------------------------------------------------------------------
+PRICE_CHANGE_LABEL = "Prices lowered"
+
+
+def price_change(reporting, today) -> dict | None:
+    """{"date", "label", "note", "test_note"} once the gym's price change date
+    has arrived, else None. `reporting` = client.reporting (may be None)."""
+    # a hand-edited key of the wrong shape (a bare date, a list, true) must
+    # read as "no note", never raise: this runs inside the morning send run
+    cfg = reporting.get("price_change") if isinstance(reporting, dict) else None
+    if not isinstance(cfg, dict):
+        return None
+    day = _d(str(cfg.get("date") or "").strip())
+    now = _d(today)
+    if day is None or now is None or day > now:
+        return None
+    name = str(cfg.get("name") or "").strip() or "The gym"
+    when = f"{day.strftime('%B')} {day.day}, {day.year}"
+    return {
+        "date": day.isoformat(),
+        "label": str(cfg.get("label") or PRICE_CHANGE_LABEL).strip(),
+        "note": (f"{name} lowered its prices on {when}. People whose first visit was "
+                 f"on or after that date saw the new prices."),
+        "test_note": (f"{name} lowered its prices on {when}, part way through this test. "
+                      f"Both groups saw the new prices equally."),
+    }
