@@ -93,13 +93,42 @@ def _failure_notice(gym: str) -> tuple[str, str]:
     """(subject prefix, banner lines) for a SUCCESS run. Failed sends are
     never logged, so each is retried next run while the person is still due."""
     tried, failed = _SEND_TALLY["tried"], _SEND_TALLY["failed"]
-    if not failed:
-        return "SUCCESS", f"  SUCCESS - {gym}nudge send run complete.\n"
-    return (f"SUCCESS ({failed} of {tried} sends FAILED)",
-            f"  SUCCESS - {gym}nudge send run complete, BUT\n"
-            f"  FAILED: {failed} of {tried} email(s) did not send (lines marked FAILED\n"
-            f"  below). They were not logged, so each is retried next run while\n"
-            f"  still due.\n")
+    head, lines = "SUCCESS", f"  SUCCESS - {gym}nudge send run complete.\n"
+    if failed:
+        head = f"SUCCESS ({failed} of {tried} sends FAILED)"
+        lines = (f"  SUCCESS - {gym}nudge send run complete, BUT\n"
+                 f"  FAILED: {failed} of {tried} email(s) did not send (lines marked FAILED\n"
+                 f"  below). They were not logged, so each is retried next run while\n"
+                 f"  still due.\n")
+    missing = _DELIVERY["missing"]
+    if missing:
+        head += f" ({missing} logged send(s) FAILED to go out)"
+        lines += (f"  FAILED: {missing} email(s) logged as sent in the last few days never went\n"
+                  f"  out in Mailchimp (see DELIVERY CHECK below, lines marked NOT SENT).\n")
+    elif _DELIVERY["error"]:
+        head += " (delivery check FAILED to run)"
+        lines += ("  FAILED: the delivery check could not run or could not judge anything\n"
+                  "  (see DELIVERY CHECK below). Today's sends are unaffected.\n")
+    return head, lines
+
+
+# Phantom sends (2026-11-19): a row logged as sent while the Mailchimp journey
+# sent nothing. _delivery_check counts here; _failure_notice puts the count in
+# the subject and the banner.
+_DELIVERY: dict = {"missing": 0, "error": False}
+
+
+def _delivery_check(slug: str) -> None:
+    """Print the daily delivery check (nudge_tool/delivery_check.py). Read-only
+    on Mailchimp. The caller guards it: a failure here never fails the send."""
+    from nudge_tool import delivery_check
+    client = load_client(slug)
+    mc = MailchimpClient(load_settings(client, require=True))
+    res = delivery_check.check(mc, outreach.load_rows(client), date.today())
+    _DELIVERY["missing"] = len(res["missing"])
+    _DELIVERY["error"] = delivery_check.unproven(res)
+    for line in delivery_check.report_lines(res):
+        print(line)
 
 
 def _pull_outreach_log(client) -> None:
@@ -510,6 +539,24 @@ def main() -> None:
             stage("allgyms stats push FAILED (send run unaffected)")
         print(buf2.getvalue())
         report += "\n=== ALL GYMS STATS PUSH ===\n" + buf2.getvalue()
+
+    # Delivery check (2026-11-19): did Mailchimp really send what the log says
+    # was sent? Cloud runs only (a local log is stale). Guarded like the stats
+    # push; its failure branch prints FAILED (rule 5).
+    if status == "SUCCESS" and a.drive:
+        buf3 = io.StringIO()
+        stage("delivery check: start")
+        try:
+            with contextlib.redirect_stdout(buf3):
+                _delivery_check(a.client or os.getenv("NUDGE_CLIENT", "shift"))
+            stage(f"delivery check: done ({_DELIVERY['missing']} never went out)")
+        except Exception:
+            _DELIVERY["error"] = True
+            buf3.write("  delivery check FAILED to run (send run unaffected):\n"
+                       + traceback.format_exc())
+            stage("delivery check FAILED to run (send run unaffected)")
+        print(buf3.getvalue())
+        report += "\n=== DELIVERY CHECK (Mailchimp) ===\n" + buf3.getvalue()
 
     if a.notify:
         import beta_pull
