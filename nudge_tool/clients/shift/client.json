@@ -448,7 +448,6 @@
       "days_since_max": 7,
       "requires": {
         "no_return": true,
-        "not_surveyed": true,
         "ab_bucket": {
           "test": "friend_offer_ab",
           "variant": "B"
@@ -458,6 +457,7 @@
       "once_only": true,
       "active": true,
       "group": "second_visit",
+      "_survey_answerers_note": "2026-11-19: 'not_surveyed' REMOVED (ROADMAP Block 10 stage 2b hard rule). The survey follow-up emails are off (Chris paused the journeys 2026-11-06), so people who answered the survey now get this offer like everyone else. The description above still tells the old story.",
       "_active_note": "GATED OFF until the start morning (Luke 2026-11-02: build now, start when Chris's friend copy is in). swap_friend.py --date YYYY-MM-DD switches this trigger, its partner and the registry entry on together, and refuses while the 2026-11-02 placeholder copy (the plain email + one friend line, NOT Chris's) is still in the template.",
       "_tag_note": "Placeholder Mailchimp tag (2026-11-02). SHIFT's offer emails go out through Mailchimp journeys, so arm B needs a journey on this tag that Chris builds (or SHIFT's offers move to Brevo, a separate build). Asked in the 11/02 reply to Chris. swap_friend.py also asks you to confirm the journeys exist.",
       "_swap_note": "Switched ON 2026-11-06 by swap_friend.py (friend-offer test E-010)."
@@ -473,11 +473,11 @@
       "days_since_max": 7,
       "requires": {
         "no_return": true,
-        "not_surveyed": true,
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
       "active": true,
+      "_survey_answerers_note": "2026-11-19: 'not_surveyed' REMOVED (ROADMAP Block 10 stage 2b hard rule). The survey follow-up emails are off (Chris paused the journeys 2026-11-06), so people who answered the survey now get this offer like everyone else. The description above still tells the old story.",
       "_reengage_fix_note": "Was paused the morning of 2026-07-06: neither reengage journey fired on any tag because both had 'filter who can enter' send conditions (the S20 trap again). Luke removed the filters same morning; fresh-contact test then proved BOTH journeys send within a minute of tagging (FTV_reengage_subject_a and _b), so this trigger went back to active.",
       "group": "second_visit",
       "_active_note": "active:true = VISIBLE in the dashboard/queue for preview. SENDING is still fully OFF: the cloud copy forces live_enabled:false and the shift-nudge-send cron has NUDGE_LIVE_ENABLED=false, so the daily cron computes this queue and tags NOBODY. The 'active' flag never controlled sending (live_enabled does). To GO LIVE later: set first_visit_on_or_after (here AND on every other sending trigger) to the go-live date, build the Mailchimp Journey on each tag, then flip NUDGE_LIVE_ENABLED=true.",
@@ -515,7 +515,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
+      "_off_note": "OFF 2026-11-19 (ROADMAP Block 10 stage 2b). Chris paused all 8 survey follow-up journeys in Mailchimp on 2026-11-06 (his 11/05 email), so a tag here sent nothing but was logged as sent. Survey answerers now get the normal day 5-7 offer instead (not_surveyed removed from first_visit_reengage + first_visit_reengage_friend in the SAME commit). Do not switch this back on without first reading the journey's status in Mailchimp.",
       "group": "second_visit"
     },
     {
@@ -532,7 +533,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
+      "_off_note": "OFF 2026-11-19 (ROADMAP Block 10 stage 2b). Chris paused all 8 survey follow-up journeys in Mailchimp on 2026-11-06 (his 11/05 email), so a tag here sent nothing but was logged as sent. Survey answerers now get the normal day 5-7 offer instead (not_surveyed removed from first_visit_reengage + first_visit_reengage_friend in the SAME commit). Do not switch this back on without first reading the journey's status in Mailchimp.",
       "group": "second_visit"
     },
     {
@@ -549,7 +551,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
+      "_off_note": "OFF 2026-11-19 (ROADMAP Block 10 stage 2b). Chris paused all 8 survey follow-up journeys in Mailchimp on 2026-11-06 (his 11/05 email), so a tag here sent nothing but was logged as sent. Survey answerers now get the normal day 5-7 offer instead (not_surveyed removed from first_visit_reengage + first_visit_reengage_friend in the SAME commit). Do not switch this back on without first reading the journey's status in Mailchimp.",
       "group": "second_visit"
     },
     {
@@ -566,7 +569,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
+      "_off_note": "OFF 2026-11-19 (ROADMAP Block 10 stage 2b). Chris paused all 8 survey follow-up journeys in Mailchimp on 2026-11-06 (his 11/05 email), so a tag here sent nothing but was logged as sent. Survey answerers now get the normal day 5-7 offer instead (not_surveyed removed from first_visit_reengage + first_visit_reengage_friend in the SAME commit). Do not switch this back on without first reading the journey's status in Mailchimp.",
       "group": "second_visit"
     },
     {
@@ -583,7 +587,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
+      "_off_note": "OFF 2026-11-19 (ROADMAP Block 10 stage 2b). Chris paused all 8 survey follow-up journeys in Mailchimp on 2026-11-06 (his 11/05 email), so a tag here sent nothing but was logged as sent. Survey answerers now get the normal day 5-7 offer instead (not_surveyed removed from first_visit_reengage + first_visit_reengage_friend in the SAME commit). Do not switch this back on without first reading the journey's status in Mailchimp.",
       "group": "second_visit"
     },
     {
@@ -600,7 +605,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
+      "_off_note": "OFF 2026-11-19 (ROADMAP Block 10 stage 2b). Chris paused all 8 survey follow-up journeys in Mailchimp on 2026-11-06 (his 11/05 email), so a tag here sent nothing but was logged as sent. Survey answerers now get the normal day 5-7 offer instead (not_surveyed removed from first_visit_reengage + first_visit_reengage_friend in the SAME commit). Do not switch this back on without first reading the journey's status in Mailchimp.",
       "group": "second_visit"
     },
     {
@@ -617,7 +623,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
+      "_off_note": "OFF 2026-11-19 (ROADMAP Block 10 stage 2b). Chris paused all 8 survey follow-up journeys in Mailchimp on 2026-11-06 (his 11/05 email), so a tag here sent nothing but was logged as sent. Survey answerers now get the normal day 5-7 offer instead (not_surveyed removed from first_visit_reengage + first_visit_reengage_friend in the SAME commit). Do not switch this back on without first reading the journey's status in Mailchimp.",
       "group": "second_visit"
     },
     {
@@ -634,7 +641,8 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
+      "_off_note": "OFF 2026-11-19 (ROADMAP Block 10 stage 2b). Chris paused all 8 survey follow-up journeys in Mailchimp on 2026-11-06 (his 11/05 email), so a tag here sent nothing but was logged as sent. Survey answerers now get the normal day 5-7 offer instead (not_surveyed removed from first_visit_reengage + first_visit_reengage_friend in the SAME commit). Do not switch this back on without first reading the journey's status in Mailchimp.",
       "group": "second_visit"
     },
     {

@@ -206,6 +206,7 @@
       },
       "_pooled_note": "Pooled with the other gym's friend test (same pooled id = one row P-009, Gym 'Both'). Nothing is written while this entry is inactive.",
       "started": "2026-11-06",
+      "_population_note": "2026-11-19: people who answered the survey join this test from the 2026-11-20 send (not_surveyed removed from both offer triggers). Before that they got neither arm. Both arms gain them by the same hash, so the split stays fair; the population is a little wider from that day.",
       "active": true
     }
   ]
