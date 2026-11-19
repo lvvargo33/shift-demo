@@ -51,7 +51,9 @@
   "_low_commitment_skus_note": "Entry-level products. low_commitment minus trial_skus = the day-pass set used by daypass_repeat. Grounded in SHIFT's real Transactions export (1 day pass - adult, new day pass, 10 punch pass - adult, etc.). '(group) pass' + 'fall $35 family' added 2026-10-16: SHIFT's fall day-pass promo (Isaac 10/16, '90-Day Pilot') sells 'Fall $10 Day Pass' (already caught by 'day pass'), 'Fall $8 (Group) Pass' ($8 each, groups of 3+) and 'Fall $35 Family' (one purchase, a household). Luke promised Isaac all three count as first visits, so the same two words sit in reporting.product_rules (DAY_PASS) and reporting.group_visit.pass_words. Checked on the 10/16 pull: no other product name contains either word. Each is priced at its own promo price with no discount, so the 50%-off redemption footprint is not fooled.",
   "conversion_skus": [
     "recurring",
-    "prepaid"
+    "prepaid",
+    "annual",
+    "- seat"
   ],
   "_conversion_skus_note": "Substrings that mean 'became a member'. 'recurring' catches monthly recurring / presale monthly recurring / 3x recurring monthly membership / unlimited monthly recurring membership; 'prepaid' catches one month prepaid. NOTE we deliberately do NOT use bare 'membership' because 'two-week trial - trial membership' contains it. converted = bought a conversion_sku OR appears in Memberships.csv.",
   "converted_when": "buys any conversion_sku OR appears in Memberships",
@@ -148,6 +150,34 @@
           "unlimited monthly recurring",
           "youth unlimited recurring",
           "staff membership"
+        ]
+      },
+      {
+        "category": "MEMBERSHIP",
+        "any": [
+          "- seat",
+          "annual"
+        ]
+      },
+      {
+        "category": "MEMBERSHIP",
+        "all": [
+          "group",
+          "membership"
+        ]
+      },
+      {
+        "category": "MEMBERSHIP",
+        "all": [
+          "family",
+          "membership"
+        ]
+      },
+      {
+        "category": "MEMBERSHIP",
+        "all": [
+          "youth",
+          "membership"
         ]
       },
       {
@@ -284,7 +314,8 @@
         "membership"
       ]
     },
-    "_group_visit_note": "ROADMAP Block 16 (Luke 2026-09-28): a GROUP VISIT = a check-in on a day when one purchase bought `min_passes`+ day passes (every line whose name holds a `pass_words` word and no `exclude_words` word, summed within the purchase), by a climber who had not paid their own way in on or before that day. Paying their own way in = a day pass (the same pass test) or an `own_entry_words` line (trial, punch pass, membership), a membership start, or a check-in on a pass whose Beta pass_type is NOT in `single_visit_pass_types` (MONTHLY, 14-DAY, SEMIANNUAL, 110-DAY ...: a member, trial or punch pass someone paid for, fresh-eyes 2026-09-29: 33 such people were flagged before); a snack, gear or a rental does NOT count (Luke 2026-09-29: three 9/17 students bought a latte or cookies). A candidate must also ARRIVE WITH THE GROUP (Luke 2026-09-29): 5+ such unpaid first-timers checked in within 30 minutes of them (definitions.GROUP_BURST_*; optional `burst_people` / `burst_minutes` here override), so a friend's guest who came alone the same day is a normal first-timer. After a group visit, every check-in before their first paid one stays out (a free visit as a guest does not start the clock). Only a climber's LEADING check-in days can be group visits; they leave visit_days (ingest -> group_visit_days), so the sender, the scorecard and the sheet all start the clock at the first visit of their own (a fresh first-timer), and sends a group visit set off leave the All Gyms sheet and the site (the outreach log keeps them). On the 2026-09-29 pull: 15 group days since 2025-04; in the pilot 6/30, 7/16 (NEW Youth Day Pass x11), 8/3, 9/10 and 9/17 ($15 Day Pass x68, a Grand Haven school), the pilot's group sends leave the sheet (see ROADMAP Block 16 build record for the count). Remove this block to switch it off."
+    "_group_visit_note": "ROADMAP Block 16 (Luke 2026-09-28): a GROUP VISIT = a check-in on a day when one purchase bought `min_passes`+ day passes (every line whose name holds a `pass_words` word and no `exclude_words` word, summed within the purchase), by a climber who had not paid their own way in on or before that day. Paying their own way in = a day pass (the same pass test) or an `own_entry_words` line (trial, punch pass, membership), a membership start, or a check-in on a pass whose Beta pass_type is NOT in `single_visit_pass_types` (MONTHLY, 14-DAY, SEMIANNUAL, 110-DAY ...: a member, trial or punch pass someone paid for, fresh-eyes 2026-09-29: 33 such people were flagged before); a snack, gear or a rental does NOT count (Luke 2026-09-29: three 9/17 students bought a latte or cookies). A candidate must also ARRIVE WITH THE GROUP (Luke 2026-09-29): 5+ such unpaid first-timers checked in within 30 minutes of them (definitions.GROUP_BURST_*; optional `burst_people` / `burst_minutes` here override), so a friend's guest who came alone the same day is a normal first-timer. After a group visit, every check-in before their first paid one stays out (a free visit as a guest does not start the clock). Only a climber's LEADING check-in days can be group visits; they leave visit_days (ingest -> group_visit_days), so the sender, the scorecard and the sheet all start the clock at the first visit of their own (a fresh first-timer), and sends a group visit set off leave the All Gyms sheet and the site (the outreach log keeps them). On the 2026-09-29 pull: 15 group days since 2025-04; in the pilot 6/30, 7/16 (NEW Youth Day Pass x11), 8/3, 9/10 and 9/17 ($15 Day Pass x68, a Grand Haven school), the pilot's group sends leave the sheet (see ROADMAP Block 16 build record for the count). Remove this block to switch it off.",
+    "_product_rules_price_change_note": "2026-11-19, ahead of SHIFT's price change: 4 MEMBERSHIP rules added after the first three. '- seat' = the group plan, sold today as 'College - Seat 1 / 2 / 3' ($55 / $100 / $135, the exact group prices in Jadee's 11/19 email) and read as RETAIL until now; 'annual' = the new annual plans ($550 / $350 / $950); group / family / youth + 'membership' = guesses at the new plan names. Checked on the 2026-11-18 pull: of every product ever sold, only the three College seat products change category (RETAIL -> MEMBERSHIP); no name holds 'annual'. The real names are not known until SHIFT creates the products: re-check on the first sales after go-live."
   },
   "survey": {
     "enabled": true,
@@ -663,12 +694,13 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
       "_ended_note": "2026-10-19: OFF with membership_offer_control, the E-005 test ENDED (Chris on the 10/16 call, ROADMAP Block 24 decision 1). Every returner now falls through to membership_offer (the same email arm A got). The send_it_trial_offer Mailchimp journey just stops getting new tags.",
       "_reopen_note": "2026-10-22: BACK ON with membership_offer_control (Chris 10/21 kept the test; 10/22 'Copy is done!': new copy + subjects in both Mailchimp journeys, Lite removed from arm A). First sends 2026-10-23 11 AM ET. E-005 stays frozen as the old-copy record; the new-copy readout is a new Experiments row (ROADMAP Block 25 'Changes 2026-10-22').",
       "_zip_note": "2026-10-07: resident_zip_prefix [\"49\"] REMOVED from this trigger and membership_offer_control (Chris's yes 10/5, ROADMAP Block 20 decision 10). Dry run: +1 person in ~4 weeks (+6%); prior-trial and 2nd-visit volume are the real limits. With no zip-gated trigger, residency.attach_for_active_triggers does no Beta lookups. Zip wording in the descriptions below is history.",
       "_activation_note": "To GO LIVE: 1) replace templates/trial_offer_v1.md placeholder with Chris's copy (+ the verified buy link https://widgets.sendmoregetbeta.com/13353/pass?pmtType=2&showOnly=65600 ONLY after Isaac's explicit OK; he took the trial off his site on purpose), 2) build the Mailchimp journey on tag send_it_trial_offer (NO entry filter, the S20 trap), 3) set active:true. send_nudges.py already fetches zips for candidates when this trigger is active.",
-      "group": "returner_offer"
+      "group": "returner_offer",
+      "_price_change_note": "2026-11-19: OFF for SHIFT's price change (Jadee's 11/19 email: lower prices, likely live 2026-11-23; two-week trials, Membership Lite and the 30 for $30 deal all end). The $29 2-Week Trial is no longer sold, so test E-008 ends (same move as 2026-10-19): every returner falls through to membership_offer. The send_it_trial_offer Mailchimp journey just stops getting new tags."
     },
     {
       "name": "membership_offer_control",
@@ -688,10 +720,11 @@
         "first_visit_on_or_after": "2026-06-19"
       },
       "once_only": true,
-      "active": true,
+      "active": false,
       "_ended_note": "2026-10-19: OFF with trial_offer, the E-005 test ENDED (Block 24 decision 1). Its people now get membership_offer, the same email.",
       "_reopen_note": "2026-10-22: BACK ON with trial_offer (see trial_offer _reopen_note).",
-      "group": "returner_offer"
+      "group": "returner_offer",
+      "_price_change_note": "2026-11-19: OFF for SHIFT's price change (Jadee's 11/19 email: lower prices, likely live 2026-11-23; two-week trials, Membership Lite and the 30 for $30 deal all end). OFF with trial_offer, E-008 ended. Its people now get membership_offer, the same email."
     },
     {
       "name": "membership_offer",
@@ -737,9 +770,11 @@
       "once_only": true,
       "_once_only_note": "Changed false -> true on 2026-08-20 revival, and this is a CORRECTNESS fix, not a preference. A real send calls mailchimp_client.tag_member = upsert + add_tag(active); NOTHING in the live path ever removes a tag (remove_tag is only reachable from the `cleanup` command for test dummies). Re-adding a tag a contact already carries raises no 'tag added' event, so Mailchimp cannot fire the Journey a second time no matter what cooldown_days says. With once_only:false the tool would still re-queue these people after 30 days, log a send to the outreach log, and suppress them, while they received nothing: a phantom send, the same failure shape as the S20 trap. once_only:true makes the config describe what actually happens, ONE Membership Lite nudge per day-pass regular. cooldown_days below is now inert; it is kept so the intent is recoverable if the tool ever learns to untag after a send, which is what repeat sends would require.",
       "cooldown_days": 30,
-      "active": true
+      "active": false,
+      "_price_change_note": "2026-11-19: OFF for SHIFT's price change (Jadee's 11/19 email: lower prices, likely live 2026-11-23; two-week trials, Membership Lite and the 30 for $30 deal all end). This email IS the '30 Days for Just $30' offer Jadee asked us to stop. Its send window is 0-14 days after the last day pass, so a pause loses nobody. Back on only with new copy in the Mailchimp journey (draft: templates/_price_change_draft/daypass_to_trial_v1.md)."
     }
   ],
   "_triggers_note": "PROVISIONAL pilot catalog (FTV_PILOT_SPEC.md section 14.6). Order = precedence (first = highest priority; one message per person per run, section 14.7). survey_request + comeback_soft + daypass_to_trial compute from Beta alone today; the survey-anchored nudge_* + nudge_round_two need S2 survey data and match nobody until then. MANUAL (safety) and converted-stop are precedence rules in engine.py, not rows here. Roadmap rows (trial_convert, trial_winback, member_miss_you) are added one block at a time. A/B TEST 'membership_offer_ab' (2026-08-13): trial_offer (arm B) and membership_offer_control (arm A) hold the two arms of ONE test. The engine's ab_bucket requires-key hashes email+test name, so the split is deterministic and the two triggers can never both match one person. Config order is precedence, so they must stay ABOVE membership_offer.",
+  "_conversion_skus_price_change_note": "2026-11-19: 'annual' and '- seat' added so an annual or group-plan purchase stops the offers even before its Memberships row shows. Known gap, NOT fixed: on a group plan only the billed person has a Memberships row (8 seat rows on the 11/18 pull, 7 with pass_holders empty), so the other people in the group still read as non-members.",
   "_cloud_note": "Cloud copy. Beta CSVs are pulled from a private Drive folder at runtime (BETA_DRIVE_* env); none are in git."
 }

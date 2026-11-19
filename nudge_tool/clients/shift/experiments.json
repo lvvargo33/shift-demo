@@ -83,7 +83,7 @@
       "mwe": 0.05,
       "started": "2026-08-13",
       "ended": "2026-10-19",
-      "_ended_note": "ENDED 2026-10-19 (Chris on the 10/16 call, ROADMAP Block 24 decision 1): both arms' triggers are active:false in client.json, every returner gets membership_offer. active:false freezes this row on the Experiments tab at its final numbers. After SHIFT's $30-for-30 promo (ends 12/31) a no-commit offer test is planned (not built).",
+      "_ended_note": "ENDED 2026-10-19 (Chris on the 10/16 call, ROADMAP Block 24 decision 1): both arms' triggers are active:false in client.json, every returner gets membership_offer. active:false freezes this row on the Experiments tab at its final numbers. After SHIFT's $30-for-30 promo (ends 12/31) a no-commit offer test is planned (not built). 2026-11-19: that plan is void, the $30-for-30 promo ends early with SHIFT's price change.",
       "active": false
     },
     {
@@ -155,7 +155,9 @@
       "mwe": 0.05,
       "_baseline_note": "Copied from E-005, not re-estimated.",
       "started": "2026-10-23",
-      "active": true
+      "active": false,
+      "ended": "2026-11-19",
+      "_ended_note": "ENDED for SHIFT's price change (Jadee 2026-11-19: two-week trials are no longer sold from go-live, likely 2026-11-23). Both arm triggers are active:false in client.json; every returner gets membership_offer. active:false freezes this row at its final numbers. SET 'ended' TO THE DAY THIS IS PUSHED if that is not 2026-11-19."
     },
     {
       "exp_id": "shift_friend_offer_01",
