@@ -537,7 +537,9 @@ def tab_rows(stamp: str) -> list[tuple[str, list[str]]]:
                  "", "Scorecard tab"]),
         ("row", ["Email sections",
                  f"This sheet groups emails as {', '.join(SECTIONS[:-1])} and "
-                 f"{SECTIONS[-1]}. Each gym's page shows the same rows as four "
+                 f"{SECTIONS[-1]}. A section with no emails sent yet at either "
+                 f"gym is left off the Dashboard tab and comes back with its "
+                 f"first send. Each gym's page shows the same rows as four "
                  f"slides: surveys, come-back offers (blocker nudges "
                  f"included), membership and trial offers, and day-pass "
                  f"regulars. Membership, trial and day-pass-regular emails go "
