@@ -1598,7 +1598,12 @@ def _build_stats_tab(tab: str, merged: list[list], stamp: str,
         counts = defaultdict(int)
         for r in lvl_rows:
             counts[r[I_SECTION]] += 1
-        sections = DASH_SECTIONS
+        # A section with no rows at ANY gym is left off the tab (Luke
+        # 2026-11-20: the blocker emails are off at both gyms, so "Blocker
+        # nudges" read "no rows yet" for good). It comes back by itself on
+        # the first row. With no rows at all, every section still shows.
+        sections = ([s for s in DASH_SECTIONS if counts.get(s)]
+                    or DASH_SECTIONS)
 
     grid: list[list] = []
     meta = {"bands": [], "headers": [], "data_ranges": [], "notes": [],
