@@ -340,6 +340,7 @@ button, input, textarea, select { font-family: inherit; }
 .ib-off { margin-top: 10px; }
 .ib-more-row { display: flex; gap: 6px 18px; flex-wrap: wrap; align-items: center; margin: -4px 0 14px; }
 .ib-more-row .how-link { margin-top: 0; font-size: 12.5px; }
+.ib-more-row .how-link:disabled { opacity: .4; cursor: default; text-decoration: none; }
 .ib-more-box { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-subtle); }
 @media (max-width: 500px) { .ib-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; } .ib-field .period-select { padding: 7px 8px; font-size: 12.5px; } .ib-number-value { font-size: 28px; } }
 
@@ -2373,6 +2374,9 @@ let IB = null, IB_MORE = null;
 // Lines whose numbers are showing (by line name) and the lines of the chart on
 // screen. Clicking a line, a point or its legend name flips that one line.
 let IB_VALS = [], IB_LINES = [];
+// Undo (Chris, 2026-11-13): the views before each change, newest last. This
+// page load only; a reload starts with nothing to undo.
+let IB_UNDO = [];
 function ibData() { return DATA.insights || {}; }
 function ibAvailable() {
   const d = ibData();
@@ -2543,29 +2547,50 @@ function ibLoad() {
   return ibClean(d);
 }
 function ibSave() { try { localStorage.setItem(IB_KEY, JSON.stringify(IB)); } catch (e) {} }
+// The view as text, taken BEFORE a change; ibKeep() files it for Undo only if
+// the change really changed something (picking the same value again does not).
+function ibSnap() { return JSON.stringify({ s: IB, v: IB_VALS }); }
+function ibKeep(was) {
+  if (was === ibSnap()) return;
+  IB_UNDO.push(was);
+  if (IB_UNDO.length > 50) IB_UNDO.shift();
+}
+function ibUndo() {
+  const was = IB_UNDO.pop();
+  if (was == null) return;
+  try {
+    const o = JSON.parse(was);
+    IB = ibClean(Object.assign(ibDefault(), o.s)); IB_VALS = Array.isArray(o.v) ? o.v : [];
+  } catch (e) { return; }
+  ibSave(); renderBuilder();
+}
 function ibSet(key, value) {
+  const was = ibSnap();
   IB[key] = value; IB.preset = '';
-  ibClean(IB); ibSave(); renderBuilder();
+  ibClean(IB); ibKeep(was); ibSave(); renderBuilder();
 }
 function ibStartFrom(k) {
   const p = ibPresets().find(x => x[0] === k);
   if (!p) return;
+  const was = ibSnap();
   Object.assign(IB, ibDefault(), p[2]); IB.preset = k;
-  ibClean(IB); IB.preset = k; ibSave(); renderBuilder();
+  ibClean(IB); IB.preset = k; ibKeep(was); ibSave(); renderBuilder();
 }
 function ibAddFilter(v) {
   const p = String(v || '').split('|');
   if (p.length !== 2) return;
+  const was = ibSnap();
   const cur = (IB.filters[p[0]] || []).slice(), c = +p[1];
   if (!cur.includes(c)) cur.push(c);
   IB.filters[p[0]] = cur; IB.preset = '';
-  ibClean(IB); ibSave(); renderBuilder();
+  ibClean(IB); ibKeep(was); ibSave(); renderBuilder();
 }
 function ibDropFilter(k, c) {
+  const was = ibSnap();
   IB.filters[k] = (IB.filters[k] || []).filter(x => x !== c); IB.preset = '';
-  ibClean(IB); ibSave(); renderBuilder();
+  ibClean(IB); ibKeep(was); ibSave(); renderBuilder();
 }
-function ibReset() { IB = ibClean(ibDefault()); IB_VALS = []; ibSave(); renderBuilder(); }
+function ibReset() { const was = ibSnap(); IB = ibClean(ibDefault()); IB_VALS = []; ibKeep(was); ibSave(); renderBuilder(); }
 function ibToggleMore() { IB_MORE = !IB_MORE; renderBuilder(); }
 function ibToggleVals(i) {
   const nm = IB_LINES[i];
@@ -3286,6 +3311,7 @@ function renderBuilder() {
     groupSel + '</div>';
   h += '<div class="ib-more-row"><button class="how-link ib-more" aria-expanded="' + (IB_MORE ? 'true' : 'false') + '" onclick="ibToggleMore()">' +
     (IB_MORE ? 'Fewer options' : 'More options') + (nset ? ' (' + nset + ' set)' : '') + '</button>' +
+    '<button class="how-link ib-undo" onclick="ibUndo()"' + (IB_UNDO.length ? '' : ' disabled') + '>Undo</button>' +
     '<button class="how-link ib-reset" onclick="ibReset()">Reset</button></div>';
   const fopts = avail.map(d => '<optgroup label="' + escapeHtml(d.label) + '">' +
     d.values.map((v, c) => '<option value="' + d.key + '|' + c + '">' + escapeHtml(v) + '</option>').join('') + '</optgroup>').join('');
