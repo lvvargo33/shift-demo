@@ -2409,6 +2409,16 @@ function ibSeriesMetrics() {
   const mo = ibMonthly();
   if (!mo) return [];
   const M = mo.members, S = mo.sales, N = mo.notes || {}, E = mo.est || {};
+  // Average membership price (Chris 2026-11-13; Luke's rulings 2026-11-20):
+  // membership sales in a month over the member count at the end of that
+  // month, the same count "Member count (end of month)" shows. A second
+  // measure adds the frozen members to the count. Not a list price.
+  const withFrozen = (M.active || []).map((v, i) => v == null || (M.frozen || [])[i] == null ? null : v + M.frozen[i]);
+  const ampNote = 'Membership sales in a month divided by the member count at the end of that month. ' +
+    'Over more than one month it is the average per member per month. The month so far reads low until the month ends. ' +
+    'A membership paid for a year at once counts in the month it was paid. ' +
+    (mo.source === 'rgp' ? 'The member count is the gym system\'s own count; it includes members on free plans.'
+                         : 'Staff plans are not in the member count.');
   const mk = (k, label, family, unit, vals, agg, note, extra) =>
     Object.assign({ k: k, label: label, family: family, unit: unit, series: true, vals: vals, agg: agg, note: note || '' }, extra || {});
   return [
@@ -2422,6 +2432,8 @@ function ibSeriesMetrics() {
     mk('s_pass', 'Pass sales', 'Sales', 'money', S.pass, 'sum', '', { products: 'amount' }),
     mk('s_mem', 'Membership sales', 'Sales', 'money', S.membership, 'sum'),
     mk('s_asp', 'Average pass price', 'Sales', 'price', null, 'ratio', '', { num: S.pass, den: S.pass_qty, products: 'asp' }),
+    mk('s_amp', 'Average membership price (sales per member)', 'Sales', 'price', null, 'ratio', '', { num: S.membership, den: M.active, per: 'member', always: ampNote }),
+    mk('s_ampf', 'Average membership price (frozen members included)', 'Sales', 'price', null, 'ratio', '', { num: S.membership, den: withFrozen, per: 'member', always: ampNote + ' Frozen members are added to the count here.' }),
     mk('s_qty', 'Passes sold', 'Sales', 'count', S.pass_qty, 'sum', '', { products: 'qty', hide: true }),
   ];
 }
@@ -2694,6 +2706,8 @@ function ibFmt(c) {
 }
 function ibTip(c) {
   if (!c) return '';
+  if (c.unit === 'price' && c.per && c.of) return '$' + Math.round(c.num).toLocaleString() + ' in membership sales, ' +
+    (c.n > 1 ? 'an average of ' + Math.round(c.of / c.n).toLocaleString() + ' members a month (' + c.n + ' months)' : c.of.toLocaleString() + ' members');
   if (c.unit === 'price' && c.of) return '$' + Math.round(c.num).toLocaleString() + ' from ' + c.of.toLocaleString() + ' passes';
   if (c.unit === 'months' && c.of) return c.of.toLocaleString() + (c.of === 1 ? ' member' : ' members');
   return c.unit === 'pct' ? c.num.toLocaleString() + ' of ' + c.of.toLocaleString() + ' people' : '';
@@ -2723,8 +2737,12 @@ function ibSeriesCell(m, idx) {
   if (idx.some(i => i < 0)) return null;
   if (m.agg === 'ratio') {
     let a = 0, b = 0;
+    // a per-member price needs a member count for every month it covers
+    if (m.per && idx.some(i => m.den[i] == null || m.num[i] == null)) return { unit: m.unit, num: 0, of: 0, v: null };
     idx.forEach(i => { a += m.num[i] || 0; b += m.den[i] || 0; });
-    return { unit: m.unit, num: a, of: b, v: b > 0 ? a / b : null };
+    const cell = { unit: m.unit, num: a, of: b, v: b > 0 ? a / b : null };
+    if (m.per) { cell.per = m.per; cell.n = idx.length; }
+    return cell;
   }
   const xs = idx.map(i => m.vals[i]);
   if (m.agg === 'last') { const v = xs.length ? xs[xs.length - 1] : null; return { unit: m.unit, num: 0, of: 0, v: v == null ? null : v }; }
