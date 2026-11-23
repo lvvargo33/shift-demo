@@ -4,22 +4,19 @@ Hi {first_name},
 
 It's been great seeing you in the gym lately!
 
-Since you've been climbing with us regularly, we wanted to make sure you knew about a special membership offer we're running through the end of the year.
+Since you've been climbing with us regularly, we wanted to make sure you knew we just lowered our membership prices.
 
-30 Days for Just $30!
-
-Through December 31, you can get your first 30 days of membership for just $30.
+Membership is now $55/month. With day passes at $15, it pays for itself by your fourth visit of the month.
 
 Your membership includes:
 - Unlimited climbing and fitness
-- One free guest pass every month
-- Exclusive discounts on select classes, events, and retail
+- Free shoe and chalk rental
+- One free private lesson
+- A guest pass every month, plus free guest passes for friends who are new to Shift
+- Member-only classes, plus free or discounted classes and events
+- 15% off a pair of climbing shoes
 
-After your first 30 days, your membership automatically continues at $69/month with a three-month commitment.
-
-Interested? Just stop by the front desk to take advantage of the offer!
-
-If you have any questions about membership, just reply to this email. We'd be happy to help.
+Stop by the front desk or reply to this email to get started. We'd be happy to help.
 
 Hope to see you back soon!
 
