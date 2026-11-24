@@ -501,6 +501,14 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
         # index); tie-break oldest-in-window first.
         matches.sort(key=lambda m: (m[0], -m[2]))
         idx, t, days, ad = matches[0]
+        # staff never get a send (2026-11-24): a staffer who rings guests' day
+        # passes under their own profile matched the day pass regulars offer.
+        # ingest.load sets is_staff (email list, staff plan, address domain,
+        # name on the register).
+        if c.is_staff:
+            if suppressed_out is not None:
+                suppressed_out.append((c, t, "staff"))
+            continue
         # own-email guard: a shared inbox can't be tied to this climber -> withhold.
         if own_email_guard and (c.email or "").strip().lower() in shared_emails:
             if suppressed_out is not None:

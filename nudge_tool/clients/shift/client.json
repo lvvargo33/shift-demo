@@ -97,8 +97,16 @@
     "post_opening_date": "2025-03-01",
     "_post_opening_date_note": "SHIFT opened to the public ~this date; earlier first-visits are PRESALE founders. The dashboard's 'All-time' view starts here, so the headline FTV count + conversion rate match the workbook's post-opening cohort (~3,501 FTVs / ~8.1%), not the raw 3,558.",
     "staff_emails": [
-      "chase@shiftclimbing.com"
+      "chase@shiftclimbing.com",
+      "jack@dig.solutions",
+      "isa@chalk-technologies.com"
     ],
+    "_staff_emails_note": "2026-11-24 (Luke): Jack Ogilvie and Isa Carbonell added by hand. Each rang fewer than 3 sales, so the register rule does not catch them, and their addresses are not at the Shift domain.",
+    "staff_email_domains": [
+      "shiftclimbing.com"
+    ],
+    "staff_cashier_min_sales": 3,
+    "_staff_send_note": "2026-11-24 (Luke): staff get NO Send It email. Staff = an address at a staff_email_domains domain, OR a person whose name is on staff_cashier_min_sales or more sales in the Transactions staff column (front desk staff ring guests' day passes under their own profile; Jadee got the day pass regulars email at her personal address 11/24). Both also drop them from the FTV cohort, like staff_emails.",
     "staff_tier_keywords": [
       "staff",
       "staffshift"

@@ -265,6 +265,45 @@ def load(client: ClientConfig) -> Dataset:
     rep_qualifying = set(rep.get("ftv_qualifying_categories", []))
     staff_tier_kw = [k.lower() for k in rep.get("staff_tier_keywords", [])]
     staff_emails: set[str] = {e.strip().lower() for e in rep.get("staff_emails", []) if e}
+    # Staff by address domain and by the register (2026-11-24). A staffer who
+    # rings guests' day passes under their own profile read as a day pass
+    # regular and got a member offer. reporting.staff_email_domains = any
+    # address at these domains is staff; reporting.staff_cashier_min_sales = a
+    # person whose name is on at least that many sales in the Transactions
+    # `staff` column is staff. Neither key set = no change.
+    # A bad value never stops a send run: a domain that is not text is skipped,
+    # a minimum that is not a whole number of 1 or more turns the register rule
+    # off, and each prints a WARNING line into the run report.
+    _dom_raw = rep.get("staff_email_domains") or []
+    if isinstance(_dom_raw, str):
+        _dom_raw = [_dom_raw]
+    staff_domains: set[str] = set()
+    for _dm in (_dom_raw if isinstance(_dom_raw, (list, tuple, set)) else []):
+        _dm = _dm.strip().lower().lstrip("@*").strip(". ") if isinstance(_dm, str) else ""
+        if _dm and "@" not in _dm and "/" not in _dm and " " not in _dm and "." in _dm:
+            staff_domains.add(_dm)
+        else:
+            print("  WARNING: reporting.staff_email_domains entry ignored (not a plain domain)")
+    _min_raw = rep.get("staff_cashier_min_sales")
+    if isinstance(_min_raw, int) and not isinstance(_min_raw, bool) and _min_raw >= 0:
+        staff_cashier_min = _min_raw
+    else:
+        staff_cashier_min = 0
+        if _min_raw is not None:
+            print("  WARNING: reporting.staff_cashier_min_sales ignored (not a whole number)")
+    cashier_sales: dict[str, int] = {}
+    # Staff stamped by the data pull itself: a `climber_type` column holding
+    # STAFF on a Transactions or Sessions row (ABC: rgp_ingest writes it from
+    # RGP's own customer type). A file without the column changes nothing.
+    staff_ids: set[str] = set()
+
+    def _staff_domain(email: str) -> bool:
+        """True when the address sits at a staff domain or one of its subdomains."""
+        host = email.rsplit("@", 1)[-1].strip(" .>") if "@" in email else ""
+        return any(host == d or host.endswith("." + d) for d in staff_domains)
+
+    def _name_key(s) -> str:
+        return " ".join((s or "").lower().split())
     # Group visits (Block 16): no reporting.group_visit block = feature off
     grp = rep.get("group_visit") or {}
     grp_words = [w.lower() for w in grp.get("pass_words", []) if w]
@@ -298,6 +337,11 @@ def load(client: ClientConfig) -> Dataset:
             d = _d(row.get("time", ""))
             if d:
                 tx_dates.append(d)
+            if staff_cashier_min > 0:
+                # every rung sale counts, whatever its state
+                cashier = _name_key(row.get("staff"))
+                if cashier:
+                    cashier_sales[cashier] = cashier_sales.get(cashier, 0) + 1
             if row.get("state") != "SUCCEEDED":
                 continue
             items = row.get("items") or ""
@@ -317,6 +361,8 @@ def load(client: ClientConfig) -> Dataset:
             if not cid:
                 continue
             c = get(cid)
+            if (row.get("climber_type") or "").strip().upper() == "STAFF":
+                staff_ids.add(cid)
             c.name = c.name or (row.get("climber_name") or "").strip()
             c.email = c.email or (row.get("climber_email") or "").strip()
 
@@ -370,6 +416,8 @@ def load(client: ClientConfig) -> Dataset:
                 continue
             ses_dates.append(e)
             c = get(cid)
+            if (row.get("climber_type") or "").strip().upper() == "STAFF":
+                staff_ids.add(cid)
             c.visit_days.add(e)
             # the pass on the earliest check-in (Block 27: a youth guest pass)
             stamp = (row.get("entry") or "")[:19]
@@ -468,10 +516,17 @@ def load(client: ClientConfig) -> Dataset:
                 c.visit_days, c.group_visit_days = definitions.split_group_days(
                     c.visit_days, {d0}, own)
 
-    # reporting: flag staff/founder climbers (excluded from the FTV cohort)
-    if staff_emails:
+    # reporting: flag staff/founder climbers (excluded from the FTV cohort, and
+    # since 2026-11-24 from every send: engine.build_queue)
+    cashier_names = ({n for n, k in cashier_sales.items() if k >= staff_cashier_min}
+                     if staff_cashier_min > 0 else set())
+    if staff_emails or staff_domains or cashier_names or staff_ids:
         for c in climbers.values():
-            if (c.email or "").strip().lower() in staff_emails:
+            e = (c.email or "").strip().lower()
+            if (c.climber_id in staff_ids
+                    or e and e in staff_emails
+                    or e and staff_domains and _staff_domain(e)
+                    or cashier_names and _name_key(c.name) in cashier_names):
                 c.is_staff = True
 
     for c in climbers.values():
