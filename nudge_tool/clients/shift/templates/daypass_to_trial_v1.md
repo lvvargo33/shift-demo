@@ -16,6 +16,8 @@ Your membership includes:
 - Member-only classes, plus free or discounted classes and events
 - 15% off a pair of climbing shoes
 
+[Become a Shift member]({membership_page_link})
+
 Stop by the front desk or reply to this email to get started. We'd be happy to help.
 
 Hope to see you back soon!

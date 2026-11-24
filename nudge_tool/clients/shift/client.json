@@ -22,7 +22,7 @@
     "daypass_code": "SECONDVISIT",
     "trial_link": "https://widgets.sendmoregetbeta.com/13353/pass?sortDescending=false&showOnly=97170&hideHeader=false&showGymLogo=false&prohibitAuth=false&noWaiverPrompt=false",
     "membership_lite_signup_link": "https://widgets.sendmoregetbeta.com/13353/pass?sortDescending=false&showOnly=87395&hideHeader=false&showGymLogo=false&prohibitAuth=false&noWaiverPrompt=false",
-    "membership_page_link": "https://www.shiftclimbing.com/passes-membership"
+    "membership_page_link": "https://www.shiftclimbing.com/purchase-a-membership"
   },
   "_membership_page_link_note": "2026-10-30: the 'Become a Shift member' link in Chris's 10/28 rewrite of the day-pass regulars email (Mailchimp journey 'Send It - Day Pass Regulars (Membership Lite)', builder 5232; read in Chrome). That rewrite dropped Membership Lite for the Full Membership ($69/month), so daypass_to_trial_v1.md now uses this key. membership_lite_signup_link is no longer used by any template; kept so the history is recoverable.",
   "_daypass_code_note": "SHIFT's REAL 2nd-visit promo code (SECONDVISIT = 50% off), provided by SHIFT 2026-06-17, replacing the old SHIFT50 placeholder. Substituted into reengage_offer_v1.md as {daypass_code}. SIMPLEST path (code-only, no Beta wiring): staff recognize this one shared code at the desk and apply 50% off manually at checkout; tracking = staff tally or count of emails sent. BETA-TRACKED option (if SHIFT wants automatic redemption counts): SHIFT creates a real discount code / '50% Day Pass' product in Beta so redemptions are logged natively; then this value = that Beta code. A shared code can be re-shared publicly; acceptable for a pilot. Per-person unique codes would need a code-generation + mapping build (deferred).",
