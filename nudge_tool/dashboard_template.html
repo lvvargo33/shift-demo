@@ -108,6 +108,9 @@ button, input, textarea, select { font-family: inherit; }
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 13px; border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast); white-space: nowrap; }
 .btn-primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); box-shadow: 0 1px 2px rgba(190,69,40,0.2); }
 .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+/* the armed second click ("Confirm: send to ...", "Send anyway"): a clear red, never the browser's pale grey (2026-11-25) */
+.btn-destructive { background: var(--destructive); color: #fff; border-color: var(--destructive); box-shadow: 0 1px 2px rgba(220,38,38,0.25); }
+.btn-destructive:hover { background: #B91C1C; border-color: #B91C1C; }
 .btn-outline { background: var(--card); color: var(--fg); border-color: var(--border-strong); }
 .btn-outline:hover { background: var(--bg-subtle); border-color: var(--fg-hint); }
 .btn-ghost { background: transparent; color: var(--fg-muted); }
