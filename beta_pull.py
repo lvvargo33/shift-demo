@@ -200,6 +200,31 @@ def pull_memberships(token: str, *, all_states: bool = False) -> str:
                                "origin": ORIGIN, "referer": f"{ORIGIN}/"})
 
 
+def pull_notes(token: str, date_from: str, date_to: str) -> str:
+    """Staff notes on member profiles (Beta > Experiments > Comments Download),
+    as CSV: key, note, issue_time, archived, climber_name, climber_email,
+    climber_dob, climber_key, author. Same login as the other pulls (200 on
+    2026-11-25). Read-only."""
+    return _http(f"{API}/v2/stats/notes/{GYM}?dateRange={date_from},{date_to}",
+                 headers={"authorization": token, "accept": "*/*",
+                          "origin": ORIGIN, "referer": f"{ORIGIN}/"})
+
+
+NOTES_FROM = "2020-01-01"   # the whole history each run: it is tiny (50 notes
+                            # on 2026-11-25) and a full pull picks up edits
+
+
+def cancel_notes_step(token: str, write: bool) -> None:
+    """Pair staff notes with cancel dates and (cloud run) rewrite the two
+    cancel tabs on the All Gyms sheet. See nudge_tool/cancel_notes.py. Prints
+    counts only: no name, no note text. Raises; run_pull guards it."""
+    from nudge_tool import cancel_notes, gym_metrics
+    print("\n=== CANCEL NOTES (All Gyms sheet: Cancel Notes, Cancels by Month) ===")
+    date_to = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+    text = pull_notes(token, NOTES_FROM, date_to)
+    cancel_notes.shift_run(text, rbd.MEM_DST, gym_metrics.eastern_today(), write=write)
+
+
 def _save_temp(text: str, name: str) -> Path:
     p = Path(tempfile.gettempdir()) / f"beta_pull_{name}_{rbd.STAMP}.csv"
     p.write_text(text, encoding="utf-8")
@@ -439,8 +464,21 @@ def run_pull(a) -> None:
               f"  (the Beta refresh above is fine; today's member list is NOT saved)\n"
               + traceback.format_exc())
 
+    # Guarded the same way (project rule 5): never fails the refresh, prints a
+    # greppable FAILED line and marks the email subject.
+    global NOTES_FAILED
+    try:
+        cancel_notes_step(token, a.drive or a.cancel_tabs)
+    except Exception as e:  # noqa: BLE001
+        NOTES_FAILED = True
+        print(f"\n  cancel notes FAILED: {type(e).__name__}: {e}\n"
+              f"  (the Beta refresh above is fine; the cancel tabs on the All Gyms "
+              f"sheet were NOT updated today)\n"
+              + traceback.format_exc())
+
 
 SNAP_FAILED = False
+NOTES_FAILED = False
 
 
 def main() -> None:
@@ -462,6 +500,10 @@ def main() -> None:
                     help="pull + report only; do not write canonical files")
     ap.add_argument("--notify", action="store_true",
                     help="email a success/failure report (needs SMTP_* env)")
+    ap.add_argument("--cancel-tabs", action="store_true",
+                    help="local run: also rewrite the two cancel tabs on the All "
+                         "Gyms sheet (a --drive run always does; a plain local "
+                         "run only prints the counts)")
     a = ap.parse_args()
 
     buf = io.StringIO()
@@ -493,6 +535,13 @@ def main() -> None:
                           "  active list was not saved. See 'member snapshot\n"
                           "  FAILED' below.\n"
                           "==================================================\n\n")
+            if NOTES_FAILED:
+                subject = (subject.replace(f" ({when})", "")
+                           + (" and" if SNAP_FAILED else ", but")
+                           + f" cancel notes FAILED ({when})")
+                banner += ("  NOTE: the cancel notes step FAILED. The cancel tabs on\n"
+                           "  the All Gyms sheet were not updated today. See\n"
+                           "  'cancel notes FAILED' below.\n\n")
         else:
             subject = f"FAILURE - Beta refresh FAILED, pull manually ({when})"
             banner = ("==================================================\n"
