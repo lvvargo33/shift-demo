@@ -42,15 +42,17 @@ DUE_DAYS = {"high": 2, "medium": 5, "low": 10}
 
 # Display labels for the Q5/Q6 diagnostic rows (staff-only context on the
 # response page and the Insights diagnostics slide). Selection labels come
-# from member_responses.METRIC_LABEL.
+# from member_responses.METRIC_LABEL. Reworded 2026-11-17 (Luke) to follow
+# Chris's member questions (survey_page/member_instrument.py), which both gyms
+# now ask; the SurveyMonkey wording they replaced is in member_responses.py.
 DIAGNOSTIC_LABEL = {
-    "grade_range": "Range of climbs at their level",
+    "grade_range": "Number of climbs at their level",
     "reset_frequency": "How often climbs get reset",
-    "crowding": "Getting on climbs without waiting",
+    "crowding": "Crowding when they usually climb",
     "training_area": "Training and fitness area",
     "staff_help": "Getting help from staff",
-    "info_access": "Finding out what's happening",
-    "safety": "Feeling safe on the wall",
+    "info_access": "Communication from the gym",
+    "safety": "Safety in the gym",
 }
 
 # The five Q4 dimensions, in selection order, minus `remain` (Q3 is shown as
@@ -274,6 +276,11 @@ def member_timelines(client: ClientConfig, outreach_rows, responses: list,
         elif trig == member_reply.AUTO_TRIGGER:
             item.update(kind="auto_reply", label="Automatic thank-you", who="Automatic",
                         template_key=tag)
+        elif trig == "survey_reply":
+            # a staff reply to their FIRST-TIMER survey (survey_reply.py,
+            # 2026-11-18); its words live on the first-timer answer page
+            item.update(kind="visitor_reply", label="Reply from staff (first-visit survey)",
+                        who="Staff", template_key=tag)
         elif trig == member_reply.REPLY_TRIGGER:
             item.update(kind="reply", label="Reply from staff", who="Staff",
                         template_key=tag, title=member_reply.title_of(tag))
@@ -582,7 +589,8 @@ def build(client: ClientConfig, asof: date, *, read_result, members: dict,
         # /member-survey on Firestore, else ABC's SurveyMonkey sheet) and,
         # for native, the daily share instead of a daily cap
         "source": str(ms.get("source", "") or "surveymonkey"),
-        "per_day_text": (_per_day_text(ms) if str(ms.get("source", "") or "") == "native" else None),
+        "per_day_text": (_per_day_text(ms) if str(ms.get("source", "") or "") == "native"
+                         and "daily_cap" not in ms else None),
     }
 
     aud = None
@@ -645,12 +653,23 @@ def build(client: ClientConfig, asof: date, *, read_result, members: dict,
     }
 
 
+def _rgp_audience(client) -> bool:
+    """True for a gym whose member survey audience is RGP's member_status.csv
+    and whose picker is member_survey.build_queue (ABC): it has a daily_cap.
+    SHIFT's native picker (member_survey_native) has spread_days instead."""
+    return "daily_cap" in (getattr(client, "member_survey", None) or {})
+
+
 def build_live(client: ClientConfig, asof: date, outreach_rows=None) -> dict:
     """Read everything and build. Only the sheet read is allowed to fail; it
     is reported in the block. Member file missing = no names, counts None
     (the UI then says the audience file has not arrived)."""
     path = getattr(client, "member_status_csv", None)
     native = str((client.member_survey or {}).get("source", "") or "").strip() == "native"
+    # ABC on the native page (2026-11-17) keeps its RGP audience file, its own
+    # picker (daily_cap) and its own Brevo settings: only WHERE the answers are
+    # read from changes there. `native` below = SHIFT's Beta-based shape only.
+    native = native and not _rgp_audience(client)
     if native:
         # SHIFT (A2): names + status from Beta's Memberships.csv, no RGP audience
         from . import member_responses_native
@@ -693,7 +712,10 @@ def build_live(client: ClientConfig, asof: date, outreach_rows=None) -> dict:
     # never a 500 (unreadable = every staff reply shows its template copy).
     reply_edits_ok, edit_rows = True, []
     try:
-        edit_rows = member_reply_edits.load_rows(client)
+        # first-timer reply pairs share the file (survey_reply.py); they are
+        # not member replies and stay out of the Members count and timelines
+        edit_rows = [e for e in member_reply_edits.load_rows(client)
+                     if not str(e.get("template_key") or "").startswith("ftv_reply_")]
     except Exception:               # noqa: BLE001
         reply_edits_ok = False
 

@@ -333,6 +333,11 @@
   },
   "survey": {
     "enabled": true,
+    "responses_page": {
+      "enabled": true,
+      "needs_reply_from": "2026-11-11"
+    },
+    "_responses_page_note": "First-timer answer pages (ported from ABC 2026-11-25, ABC SPEC.md 'Addition 2026-11-25: First-timer survey reply pages at SHIFT'): a page per answer, a suggested reply staff edit and send (templates/ftv_reply_*.md, POST /survey-reply, sent through Brevo like the member replies), Needs a reply, history. needs_reply_from = the first answer date that is flagged and can be replied to (release day 2026-11-25 minus 14; older answers are read-only). Back out: remove the responses_page block, rebuild, push. The page is the plain table again.",
     "_enabled_note": "FALSE until the real Google Form + response Sheet exist (see SURVEY_SETUP.md). While false the tool ignores survey data and behaves exactly like S1 (honest, no fake answers in the dashboard). Flip to true and set source=gsheet + gsheet_id once the form is live. TRUE as of 2026-06-01: live Google Form + response sheet wired (gsheet_id below).",
     "source": "gsheet",
     "_source_note": "'csv' reads a local response file (csv_path) for dev/testing; 'gsheet' reads the live Form responses via the gsheets bridge (gsheet_id + gsheet_range).",

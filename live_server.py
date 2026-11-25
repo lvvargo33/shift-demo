@@ -41,7 +41,7 @@ from nudge_tool import config, email_results, engine, gym_metrics, ingest, lives
 # A2 step 4 (2026-11-02): ABC's Members views, fed by the native member survey
 from nudge_tool import (member_followups, member_reply, member_reply_edits,  # noqa: E402
                         member_responses_native, member_survey, member_views)
-from nudge_tool import survey_views  # by-month survey charts on Insights (2026-11-18)  # noqa: E402
+from nudge_tool import survey_reply, survey_views  # first-timer answer pages + replies (ported 2026-11-25); by-month survey charts  # noqa: E402
 from nudge_tool.config import DASHBOARD_TEMPLATE, load_client, load_settings
 
 DEFAULT_CLIENT = "shift_demo_live"
@@ -415,6 +415,20 @@ def render(client_slug: str, asof: date) -> str:
                                   "responses": [], "waves": [], "dims": [],
                                   "sheet_ok": False, "sheet_error": tb.strip().splitlines()[-1]}
 
+    # First-timer answer pages (ABC 2026-11-18, ported 2026-11-25): only with
+    # survey.responses_page on. A surprise here must leave today's Surveys
+    # table standing, so on an error the block is simply absent and the log
+    # says FAILED. Brevo is the reply path here, so the page's Send button
+    # follows reply_send_enabled, not the Mailchimp creds behind send_enabled.
+    if survey_views.enabled(client):
+        try:
+            payload["ftv_replies"] = _ftv_replies_block(client, asof, ds, payload.get("survey"))
+            payload["ftv_replies"]["reply_send_enabled"] = _reply_send_ready(client)
+        except Exception:  # noqa: BLE001
+            payload.pop("ftv_replies", None)
+            print("  ftv_replies block FAILED (the page shows the plain table):\n"
+                  + traceback.format_exc())
+
     # First-timer survey charts by month, for Insights (both gyms, 2026-11-18).
     # Never fails the page: on an error the two charts are simply absent.
     try:
@@ -672,6 +686,213 @@ def reply_now(client_slug: str, req: dict) -> dict:
                  "edited": edit_changed}
         return {"ok": True, "mid": mid, "email": email, "reply": reply,
                 "title": member_reply.title_of(template_key), "state": state,
+                "pushed": pushed, "warning": warning,
+                "edit_saved": edit_saved, "edit_changed": edit_changed}
+
+
+# --- First-timer answer pages + staff replies (ABC 2026-11-18, ported 2026-11-25) ---
+# ABC's survey_reply_now with SHIFT's pieces swapped in, the same swaps
+# reply_now above makes: Brevo settings from survey_dispatch, the Shift shell,
+# and Shift's own "must not email" lists. The three small functions below are
+# the seams the offline suite (_verify_survey_responses.py) replaces.
+_ensure_live_data = _ensure_beta_data      # ABC's name for the same Drive pull
+
+
+def _survey_reply_settings(client):
+    """Shift's Brevo identity (raises when the key or send-from is missing)."""
+    from nudge_tool import survey_dispatch
+    return survey_dispatch.brevo_settings(client)
+
+
+def _survey_reply_esp(client, settings):
+    from nudge_tool.brevo_client import BrevoClient
+    return BrevoClient(settings, client)
+
+
+def _ftv_replies_block(client, asof: date, ds, survey_block: dict, outreach_rows=None) -> dict:
+    """The first-timer answer pages' block (survey_views.build) from data the
+    caller already loaded. The edit-pair log and the sender identity are
+    nice-to-haves: unreadable = replies show their template copy / no From."""
+    rows = (survey_block or {}).get("all_responses") or []
+    first_names = {}
+    for r in rows:
+        cid = (r.get("climber_id") or "").strip()
+        c = ds.climbers.get(cid) if cid else None
+        if c is not None:
+            first_names[cid] = ingest.first_name(c.name)
+    try:
+        edit_rows = member_reply_edits.load_rows(client)
+    except Exception:                                   # noqa: BLE001
+        edit_rows = []
+    try:
+        settings = _survey_reply_settings(client)
+    except Exception:                                   # noqa: BLE001
+        settings = None
+    if outreach_rows is None:
+        outreach_rows = outreach.load_rows(client)
+    return survey_views.build(client, asof, survey_rows=rows, outreach_rows=outreach_rows,
+                              first_names=first_names, edit_rows=edit_rows, settings=settings,
+                              blocker_options=(survey_block or {}).get("blocker_options"))
+
+
+def survey_reply_now(client_slug: str, req: dict) -> dict:
+    """POST /survey-reply: email ONE reply to the person behind a FIRST-TIMER
+    survey answer, from the answer's page. ABC's route of the same name, sent
+    through Brevo the way reply_now sends a member reply.
+
+    Body: {id, template_key, subject?, body?, by?, force?}. Gated like /reply
+    (the page switch, the live flag, Brevo creds on THIS service, readable
+    "must not email" lists). Refuses: an answer that is gone, a safety answer
+    (handled in person), an answer from before replies were switched on, no
+    email, a suppressed address, a template outside the reply set, and (unless
+    force) an answer that already has a reply, or a person who already got ANY
+    email today (Luke 2026-11-17: never two emails to one person on the same
+    day). On success: one outreach row (trigger survey_reply, tag = template
+    id) pushed to Drive and one edit pair (template text vs sent text)."""
+    with _reply_lock:
+        client = load_client(client_slug)
+        if not survey_views.enabled(client):
+            return {"ok": False, "reason": "not_set_up",
+                    "message": "Replies to first-timer surveys aren’t set up for this account."}
+        if not (_truthy(os.getenv("NUDGE_LIVE_ENABLED")) or getattr(client, "live_enabled", False)):
+            return {"ok": False, "reason": "not_enabled",
+                    "message": "Sending isn’t switched on for this account yet. Use Copy email for now."}
+        try:
+            settings = _survey_reply_settings(client)
+        except Exception:  # noqa: BLE001
+            return {"ok": False, "reason": "no_creds",
+                    "message": "Email sending isn’t set up on this server yet. "
+                               "Add the Brevo key on the host, then try again."}
+
+        aid = str(req.get("id", "") or "").strip()
+        template_key = str(req.get("template_key", "") or "").strip()
+        by = str(req.get("by", "") or "").strip()
+        force = bool(req.get("force"))
+        subject = req.get("subject")
+        body = req.get("body")
+        subject = None if subject is None else str(subject)
+        body = None if body is None else str(body)
+        if (subject is not None or body is not None) and \
+                not ((subject or "").strip() and (body or "").strip()):
+            return {"ok": False, "reason": "bad_request",
+                    "message": "The subject and the email text cannot be blank."}
+        if not aid:
+            return {"ok": False, "reason": "bad_request", "message": "id is required."}
+        if not survey_reply.is_reply_template(template_key):
+            return {"ok": False, "reason": "bad_request",
+                    "message": f"{template_key or '(blank)'} is not a first-timer reply template."}
+
+        from requests.exceptions import RequestException
+
+        from nudge_tool.config import ESPError
+        from nudge_tool.mailchimp_client import MailchimpError
+
+        _ensure_live_data(client)
+        today_d = gym_metrics.eastern_today()
+        today = today_d.isoformat()
+        try:
+            ds = ingest.load(client)
+            survey_result = survey.apply(ds, client)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "reason": "sheet",
+                    "message": f"Couldn’t read the survey answers ({type(e).__name__}), so nothing was sent. Try again in a moment."}
+        log_rows = outreach.load_rows(client)
+        block = _ftv_replies_block(client, today_d, ds,
+                                   engine._survey_block(client, survey_result, ds),
+                                   outreach_rows=log_rows)
+        row = next((r for r in block["rows"] if r["id"] == aid), None)
+        if row is None:
+            return {"ok": False, "reason": "no_response",
+                    "message": "That answer is no longer on file. Refresh the page."}
+        if row.get("safety"):
+            return {"ok": False, "reason": "safety",
+                    "message": "This answer raises a safety concern. Handle it in person; nothing was sent."}
+        if not row.get("in_window"):
+            return {"ok": False, "reason": "too_old",
+                    "message": "This answer came in before replies were switched on, so it is read-only."}
+        email = (row.get("email") or "").strip().lower()
+        if not email:
+            return {"ok": False, "reason": "no_email",
+                    "message": "This answer has no email address."}
+
+        esp_client = _survey_reply_esp(client, settings)
+        try:
+            unsub = _reply_suppressed(client, esp_client)
+        except (RuntimeError, ESPError, MailchimpError, RequestException):
+            return {"ok": False, "reason": "no_unsub",
+                    "message": "Couldn’t reach the email service to check unsubscribes, "
+                               "so nothing was sent. Try again in a moment."}
+        if email in unsub:
+            return {"ok": False, "reason": "suppressed",
+                    "message": "This person opted out of these emails or their address bounced, so the email service won’t deliver to them."}
+        # a typo'd address is emailed at its corrected address (email_fix,
+        # 2026-11-09): check THAT against Shift's own lists, as reply_now does
+        esp_client.fix_blocklist = {e.strip().lower() for e in unsub}
+
+        prior = row.get("replies") or []
+        if prior and not force:
+            last = prior[-1]
+            return {"ok": False, "reason": "already_replied", "replies": prior,
+                    "message": f"A reply already went out on {last['date']} "
+                               f"({survey_reply.title_of(last['template_key'])}). "
+                               f"Click Send anyway to send another."}
+        if survey_reply.emailed_on(log_rows, email, today) and not force:
+            return {"ok": False, "reason": "emailed_today",
+                    "message": "This person already got an email from the gym today. "
+                               "Wait until tomorrow, or click Send anyway."}
+
+        first_name = row.get("first_name") or ""
+        climber_id = (row.get("climber_id") or "").strip()
+        try:
+            orig_subject, orig_body = survey_reply.rendered_for(client, template_key, first_name)
+            out_row = survey_reply.send(esp_client, client, climber_id=climber_id, email=email,
+                                        first_name=first_name, template_key=template_key,
+                                        today=today, subject=subject, body=body)
+        except survey_reply.ReplyError as e:
+            return {"ok": False, "reason": "bad_request", "message": str(e)}
+        except (ESPError, RequestException) as e:
+            return {"ok": False, "reason": "send_failed",
+                    "message": f"The email service refused the send ({e}). Nothing was logged."}
+        sent_subject = survey_reply.fill_name(subject, first_name).strip() if subject is not None else orig_subject
+        sent_body = survey_reply.fill_name(body, first_name).strip() if body is not None else orig_body
+        outreach.append(client, [out_row])
+        pushed, warning = False, ""
+        try:
+            _push_outreach_log(client)
+            pushed = bool(os.getenv("OUTREACH_DRIVE_ID"))
+        except Exception as e:  # noqa: BLE001
+            warning = f"Sent, but the Drive copy of the log didn’t update ({type(e).__name__})."
+            print(f"  (survey-reply: outreach push FAILED: {e})")
+
+        edit_saved, edit_changed = False, False
+        try:
+            try:
+                member_reply_edits.pull(client)
+            except Exception as e:  # noqa: BLE001
+                print(f"  (survey-reply: edits pull failed, appending to local copy: {e})")
+            erow = member_reply_edits.record(
+                client, mid=survey_views.edit_key(email), template_key=template_key,
+                by=by or "dashboard",
+                original_subject=orig_subject, edited_subject=sent_subject,
+                original_body=orig_body, edited_body=sent_body)
+            edit_saved, edit_changed = True, erow["changed"] == "1"
+            try:
+                member_reply_edits.push(client)
+            except Exception as e:  # noqa: BLE001
+                print(f"  (survey-reply: edits push FAILED: {e})")
+                warning = warning or "Sent, but the Drive copy of the edit record didn’t update."
+        except Exception as e:  # noqa: BLE001
+            print(f"  (survey-reply: edit pair NOT saved, FAILED: {e})")
+            warning = warning or "Sent, but the edit record could not be saved."
+
+        reply = {"date": today, "template_key": template_key,
+                 "trigger": survey_reply.REPLY_TRIGGER, "auto": False, "edited": edit_changed}
+        history = {"date": today, "trigger": survey_reply.REPLY_TRIGGER, "kind": "reply",
+                   "label": "Reply from staff", "template_key": template_key,
+                   "title": survey_reply.title_of(template_key), "variant": "",
+                   "subject": sent_subject, "body": sent_body, "source": "sent"}
+        return {"ok": True, "id": aid, "email": email, "reply": reply, "history": history,
+                "title": survey_reply.title_of(template_key),
                 "pushed": pushed, "warning": warning,
                 "edit_saved": edit_saved, "edit_changed": edit_changed}
 
@@ -1105,7 +1326,7 @@ class Handler(survey_page.handler_base()):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        if parsed.path not in ("/send", "/followup", "/reply"):  # A2: + member reply routes
+        if parsed.path not in ("/send", "/followup", "/reply", "/survey-reply"):  # A2: + member reply routes; + first-timer replies (2026-11-25)
             self._send(404, "application/json", b'{"ok":false,"message":"Not found."}')
             return
         try:
@@ -1117,6 +1338,18 @@ class Handler(survey_page.handler_base()):
         except Exception:
             req = {}
         slug = self.server.default_client
+        if parsed.path == "/survey-reply":  # first-timer answer pages (ported 2026-11-25)
+            try:
+                result = survey_reply_now(slug, req)
+            except Exception:
+                tb = traceback.format_exc()
+                print("  ERROR in /survey-reply:\n" + tb)
+                result = {"ok": False,
+                          "message": "Something went wrong while sending the reply; it may not have gone out. "
+                                     "Refresh the page: a sent reply shows under History."}
+            body = json.dumps(result, ensure_ascii=False).encode("utf-8")
+            self._send(200, "application/json; charset=utf-8", body)
+            return
         if parsed.path in ("/followup", "/reply"):  # A2 step 4 (ABC's handlers, ported)
             fn = followup_now if parsed.path == "/followup" else reply_now
             try:

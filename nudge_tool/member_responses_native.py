@@ -28,6 +28,16 @@ ABC shows it). Test customers (native_survey.TEST_CUSTOMER_PREFIX) never
 show. Times are converted to the gym's local time BEFORE answered_at slices
 the date (a 9 PM answer stays on its own day).
 
+Imported answers (ABC, 2026-11-17): ABC's SurveyMonkey answers were copied
+ONCE into gyms/<gym>/member_imports (import_member_surveymonkey.py, one doc
+per SurveyMonkey row, id = its Respondent ID, the parsed MemberResponse
+fields as written). When client.json member_survey.imports is true they are
+read here next to the sessions and go through the same rounds + dedupe pass,
+so the Members pages show old and new answers as one history and the Sheet is
+no longer read. respondent_id is kept, so every reply and follow-up logged
+against an old answer still finds it. A gym without the key (SHIFT) never
+reads the collection.
+
 Reads are cached for CACHE_SECONDS per gym (the dashboard renders on every
 page load; a full scan each time would be slow), and the reply route asks
 for fresh=True so it never answers from a stale read.
@@ -44,6 +54,9 @@ from . import native_survey as ns
 
 CACHE_SECONDS = 60
 _cache: dict = {}
+IMPORT_COLLECTION = "member_imports"
+IMPORT_SCHEMA = 1
+IMPORT_SOURCE = "surveymonkey"
 
 SCALARS = {"core_nps": "nps", "core_remain_6m": "remain"}
 TEXTS = {"core_nps_why": "open_comment", "experience_improve": "improve_comment",
@@ -91,8 +104,54 @@ def _docs(client, db, fresh: bool):
     messages = [m.to_dict() or {} for m in ns._retry(
         lambda: list(root.collection("messages").stream()), ns._RETRY_DELAYS_PULL)]
     sessions = [s for s in sessions if s.get("gym_id") == gid and s.get("survey_type") == "member"]
+    imports = []
+    if wants_imports(client):
+        imports = [d.to_dict() or {} for d in ns._retry(
+            lambda: list(root.collection(IMPORT_COLLECTION).stream()), ns._RETRY_DELAYS_PULL)]
+        imports = [d for d in imports if d.get("gym_id") == gid
+                   and d.get("schema_version") == IMPORT_SCHEMA]
+    messages = _Messages(messages)
+    messages.imports = imports
     _cache[gid] = (time.monotonic(), sessions, messages)
     return sessions, messages
+
+
+class _Messages(list):
+    """The messages list, carrying the imported answers alongside (so _docs
+    keeps its two-value shape for every caller and test)."""
+    imports: list = []
+
+
+def wants_imports(client) -> bool:
+    return (getattr(client, "member_survey", None) or {}).get("imports") is True
+
+
+def import_doc(r, gid: str, imported_at: str) -> dict:
+    """One parsed SurveyMonkey MemberResponse -> the member_imports document
+    (import_member_surveymonkey.py writes it; _imported reads it back)."""
+    return {"schema_version": IMPORT_SCHEMA, "gym_id": gid, "source": IMPORT_SOURCE,
+            "mid": r.mid, "respondent_id": r.respondent_id,
+            "started_at": r.started_at, "ended_at": r.ended_at,
+            "nps": r.nps, "remain": r.remain,
+            "open_comment": r.open_comment, "improve_comment": r.improve_comment,
+            "staff_shout_out": r.staff_shout_out,
+            "metrics": dict(r.metrics), "imported_at": imported_at}
+
+
+def _int(v):
+    return v if type(v) is int else None
+
+
+def _imported(d: dict):
+    """A member_imports document -> MemberResponse (extra stays {}: these are
+    ABC's SurveyMonkey rows, shown exactly as the Sheet parser showed them)."""
+    return mr.MemberResponse(
+        mid=ns._s(d.get("mid")).strip(), respondent_id=ns._s(d.get("respondent_id")).strip(),
+        started_at=ns._s(d.get("started_at")), ended_at=ns._s(d.get("ended_at")),
+        nps=_int(d.get("nps")), remain=_int(d.get("remain")),
+        open_comment=ns._s(d.get("open_comment")), improve_comment=ns._s(d.get("improve_comment")),
+        staff_shout_out=ns._s(d.get("staff_shout_out")),
+        metrics={k: v for k, v in (d.get("metrics") or {}).items() if type(v) is int})
 
 
 def _labels(session: dict, wording=None) -> tuple[dict, dict]:
@@ -173,10 +232,12 @@ def _response(session: dict, message: dict, tz: str, wording=None):
     return r, unknown
 
 
-def read(client, outreach_rows=None, *, db=None, fresh: bool = False) -> mr.ReadResult:
+def read(client, outreach_rows=None, *, db=None, fresh: bool = False,
+         include_tests: bool = False) -> mr.ReadResult:
     """Every answered member session -> a ReadResult (see module doc). Raises
     on a Firestore failure (member_views.build_live reports it as sheet_ok
-    false, the page says the answers could not be read)."""
+    false, the page says the answers could not be read). include_tests = also
+    return test customers' answers (member_send's --member-survey-check only)."""
     if outreach_rows is None:
         from . import outreach
         try:
@@ -201,7 +262,8 @@ def read(client, outreach_rows=None, *, db=None, fresh: bool = False) -> mr.Read
     parsed = []
     for s in sessions:
         m = msg_by_session.get(s.get("id")) or {}
-        if str(m.get("customer_id") or "").startswith(ns.TEST_CUSTOMER_PREFIX):
+        if (not include_tests
+                and str(m.get("customer_id") or "").startswith(ns.TEST_CUSTOMER_PREFIX)):
             continue
         try:
             r, unknown = _response(s, m, tz, wording)
@@ -211,6 +273,16 @@ def read(client, outreach_rows=None, *, db=None, fresh: bool = False) -> mr.Read
             continue
         res.total_rows += 1
         res.unknown_row_labels |= unknown
+        if not r.mid:
+            res.blank_mid += 1
+            continue
+        parsed.append(r)
+    for d in getattr(messages, "imports", None) or []:
+        try:
+            r = _imported(d)
+        except Exception:  # noqa: BLE001 (one odd document never hides the rest)
+            continue
+        res.total_rows += 1
         if not r.mid:
             res.blank_mid += 1
             continue

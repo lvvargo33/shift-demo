@@ -290,6 +290,16 @@ def enabled(client: ClientConfig) -> bool:
     return _truthy(sv.get("enabled")) and _truthy(native_cfg(client).get("enabled"))
 
 
+def ftv_enabled(client: ClientConfig) -> bool:
+    """The FIRST-TIMER half of the island (2026-11-17, ABC native member
+    survey): the island is on AND client.json survey.native.ftv is not false.
+    ABC switches the island on for the MEMBER survey only ("ftv": false), so
+    its first-timer survey keeps the Google Form: /s never mints a page link
+    (mint) and the Form reader never merges native rows (survey._merge_native).
+    A gym with no "ftv" key (SHIFT) is unchanged."""
+    return enabled(client) and native_cfg(client).get("ftv", True) is not False
+
+
 def _key_path() -> str:
     return (os.getenv("NATIVE_SURVEY_SA_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
 
@@ -405,6 +415,8 @@ def mint(client: ClientConfig, email: str, climber_id: str, q1: int | None = Non
     returns ALREADY_STARTED and writes nothing. /s is unauthenticated, so
     otherwise an email alone would open someone's saved answers."""
     try:
+        if not ftv_enabled(client):
+            return ""      # members-only island (ABC, 2026-11-17): the Form stays
         if db is None:
             if not mint_enabled(client):
                 return ""

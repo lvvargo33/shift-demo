@@ -76,11 +76,12 @@ def public_state(repository, token: str, config: MemberExperienceConfig) -> tupl
         if hasattr(q, "max_selections"):
             row["max_selections"] = q.max_selections
         questions.append(row)
-    # His display rule: Shift pages show no "Core Metrics" / "Member Experience" /
-    # "Staff recognition" headings (pins unchanged).
-    shift = definition.id.startswith("shift_member_modules_")
+    # His display rule: pages show no "Core Metrics" / "Member Experience" /
+    # "Staff recognition" headings (pins unchanged). Written for Shift; since
+    # 2026-11-17 (Luke) it holds for every gym: ABC members should not see our
+    # internal section labels either. Module pages (Bouldering, ...) keep theirs.
     pages = [{"id": p.id,
-              "title": "" if shift and p.title.casefold() in {
+              "title": "" if p.title.casefold() in {
                   "core metrics", "member experience", "staff recognition"} else p.title,
               "module": p.module, "finish": p.finish,
               "groups": [{"id": g.id, "heading": g.heading, "questions": list(g.questions),

@@ -587,6 +587,7 @@ details.held[open] > summary { border-bottom: 1px solid var(--border-soft); }
     <div id="view-activity" class="view"></div>
     <div id="view-detail" class="view"></div>
     <div id="view-surveys" class="view"></div>
+    <div id="view-f-respdetail" class="view"></div>
     <div id="view-insights" class="view"></div>
     <div id="view-m-responses" class="view"></div>
     <div id="view-m-respdetail" class="view"></div>
@@ -659,7 +660,7 @@ function triggerLabel(name) {
 // Outreach-log rows that are not first-time-visitor emails (the member survey
 // program and its replies, the front-desk alert): they live on the Members
 // pages, not in Email activity (engine.NON_FTV_TRIGGERS).
-const NON_FTV_TRIGGERS = ['member_survey', 'member_check_in', 'member_reply', 'member_auto_reply', 'member_checkin_alert'];
+const NON_FTV_TRIGGERS = ['member_survey', 'member_check_in', 'member_reply', 'member_auto_reply', 'member_checkin_alert', 'survey_reply'];
 function isFtvTrigger(name) { return NON_FTV_TRIGGERS.indexOf(name) < 0; }
 function blockerLabel(b) {
   if (!b) return '';
@@ -723,7 +724,7 @@ function showView(viewId) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   $('view-' + viewId).classList.add('active');
   // Email activity and a climber's history open from Home (no sidebar entry)
-  const navId = (viewId === 'detail' || viewId === 'activity') ? 'home' : viewId;
+  const navId = (viewId === 'detail' || viewId === 'activity') ? 'home' : viewId === 'f-respdetail' ? 'surveys' : viewId;
   const btn = document.querySelector('.nav-btn[data-view="' + navId + '"]');
   if (btn) btn.classList.add('active');
   // Remember the tab so an auto-refresh reload restores it instead of snapping
@@ -1190,9 +1191,21 @@ function renderHome() {
         '<button class="btn btn-primary" onclick="setMemberRespTab(\'needs\');showView(\'m-responses\')">Reply to members</button></div>';
     }
   }
+  // Needs you: first-timers waiting on a reply (the answer pages, 2026-11-18)
+  if (frOn()) {
+    const fn = frNeeds();
+    if (fn.length) {
+      jobs++;
+      const names = fn.slice(0, 3).map(r => escapeHtml(frName(r))).join(', ');
+      rows += '<div class="todo-row"><div class="todo-count">' + fn.length + '</div><div class="todo-main">' +
+        '<div class="todo-title">' + plural(fn.length, 'first-timer is', 'first-timers are') + ' waiting on a reply to their survey</div>' +
+        '<div class="todo-sub">Lowest scores first: ' + names + (fn.length > 3 ? ' and ' + (fn.length - 3) + ' more' : '') + '</div></div>' +
+        '<button class="btn btn-primary" onclick="frSetTab(\'needs\');showView(\'surveys\')">Reply to first-timers</button></div>';
+    }
+  }
   // Needs you: new first-timer survey answers to read
   if (surveyOn()) {
-    const ns = newSurveyRows();
+    const ns = newSurveyRows().filter(r => !frHandledKey(r));
     if (ns.length) {
       jobs++;
       const low = ns.filter(lowOverall).length, safe = ns.filter(r => r.safety).length;
@@ -1200,7 +1213,7 @@ function renderHome() {
         '<div class="todo-title">new first-timer survey ' + plural(ns.length, 'answer', 'answers') + ' to read</div>' +
         '<div class="todo-sub">' + (safe ? safe + ' raised a safety concern: handle in person. ' : '') + (low ? low + ' gave a low score. ' : '') +
         'Reading is all that is needed, unless one raises a safety concern.</div></div>' +
-        '<button class="btn btn-primary" onclick="showView(\'surveys\')">Read answers</button></div>';
+        '<button class="btn btn-primary" onclick="' + (frOn() ? 'frSetTab(\'all\');' : '') + 'showView(\'surveys\')">Read answers</button></div>';
     }
   }
   const todo = jobs ? '<div class="card todo">' + rows + '</div>' :
@@ -1554,7 +1567,8 @@ function markSurveyRead(key) { const s = lsGet(INBOX_READ_KEY); s.add(key); lsSe
 function markAllSurveysRead() { const s = lsGet(INBOX_READ_KEY); recentResponses().forEach(r => s.add(respKey(r))); lsSet(INBOX_READ_KEY, s); afterReadChange(); }
 function refreshInboxBadge() {
   const badge = $('inbox-badge'); if (!badge) return;
-  const n = newSurveyRows().length;
+  const n = frOn() ? frBadgeCount() : newSurveyRows().length;
+  if (frOn()) badge.title = 'First-timer answers waiting on a reply';
   if (n) { badge.textContent = n; badge.style.display = ''; } else { badge.style.display = 'none'; }
 }
 function cellAns(v) {
@@ -1577,6 +1591,7 @@ function inboxQ(label, ans) {
 }
 const CAME_BACK_TEXT = 'From check-in data. Yes = checked in again within 30 days of answering. MEMBER = joined a paid membership (not a youth plan; a trial does not count) within 90 days of answering. Too early = answered less than 30 days ago and not back yet. Unknown = the email did not match a climber in your data.';
 function renderSurveys() {
+  if (frOn()) { frRenderSurveys(); return; }
   const rows = surveyAllRows(), fresh = newSurveyKeys(), n = fresh.size;
   let h = pageHeader(SURVEY_PAGE_TITLE,
     'What first-timers wrote about their visit, newest first. Read the new ones and mark them read. If one raises a safety concern, handle it in person.');
@@ -1613,6 +1628,340 @@ function renderSurveys() {
   });
   h += '</tbody></table></div></div>';
   $('view-surveys').innerHTML = h;
+}
+
+/* ============ FIRST-TIMER ANSWER PAGES + REPLIES (2026-11-18) ============
+   ROADMAP "First-timer survey responses in the app: match the Members pages".
+   On only when the payload carries DATA.ftv_replies (client.json
+   survey.responses_page); without it renderSurveys draws the plain table
+   exactly as before. The Members pages are the model (mReplyCard,
+   mHistoryCard): tabs, a page per answer, a suggested reply staff can edit
+   and send, and each person's email history. Its by-month charts are on Insights. */
+const FR = (DATA.ftv_replies && DATA.ftv_replies.enabled) ? DATA.ftv_replies : null;
+let FR_TAB = 'needs';          // needs | replied | all (the charts live on Insights since 2026-11-18)
+const FR_PICK = {}, FR_ARMED = {}, FR_BUSY = {}, FR_EDIT = {}, FR_ARMED_AT = {};
+function frOn() { return !!FR && surveyOn(); }
+/* SHIFT: replies go out through Brevo, so the server sends its own flag
+   (ftv_replies.reply_send_enabled), like the member reply (mSendEnabled). */
+function frSendEnabled() { return FR && FR.reply_send_enabled !== undefined ? !!FR.reply_send_enabled : !!DATA.send_enabled; }
+function frRows() { return FR ? (FR.rows || []) : []; }
+function frFind(id) { return frRows().find(r => r.id === id); }
+function frName(r) { return r.name || r.email || '(no email)'; }
+function frLow(r) { return r.overall == null ? 99 : r.overall; }
+function frNeeds() {
+  return frRows().filter(r => r.needs_reply).sort((a, b) =>
+    (frLow(a) - frLow(b)) || String(b.answered_at || '').localeCompare(String(a.answered_at || '')));
+}
+function frRepliedList() {
+  return frRows().filter(r => r.replied).sort((a, b) =>
+    String(b.reply_date || '').localeCompare(String(a.reply_date || '')) || String(b.answered_at || '').localeCompare(String(a.answered_at || '')));
+}
+// is this plain survey row waiting on a reply or already replied to? (Home's "to read" row leaves those out)
+function frHandledKey(row) {
+  if (!frOn()) return false;
+  const k = respKey(row);
+  return frRows().some(r => (r.needs_reply || r.replied) && respKey(r) === k);
+}
+// "New" = not read in this browser AND not replied to yet (a reply by anyone settles it)
+function frIsNew(r, fresh) { return !r.replied && (fresh || newSurveyKeys()).has(respKey(r)); }
+// the nav badge: answers waiting on a reply, plus any unread safety answer
+// (no reply is suggested for those, so they would otherwise never badge)
+function frBadgeCount() {
+  const fresh = newSurveyKeys();
+  return frRows().filter(r => r.needs_reply || (r.safety && frIsNew(r, fresh))).length;
+}
+function frSetTab(t) { FR_TAB = (['replied', 'all'].indexOf(t) >= 0) ? t : 'needs'; renderSurveys(); }
+function frStatusText(r) {
+  if (r.safety) return 'Safety: handle in person';
+  if (r.replied) return 'Replied ' + (r.reply_date || '');
+  if (r.needs_reply) return 'Needs a reply';
+  if (!r.in_window) return 'Before replies began';
+  if (!r.email) return 'No email';
+  return '';
+}
+function frStatusBadge(r) {
+  const t = escapeHtml(frStatusText(r));
+  if (r.safety) return '<span class="badge badge-destructive">' + t + '</span>';
+  if (r.replied) return '<span class="badge badge-success">' + t + '</span>';
+  if (r.needs_reply) return '<span class="badge badge-warning">' + t + '</span>';
+  return t ? '<span style="color:var(--fg-hint);">' + t + '</span>' : '';
+}
+function frOpen(id) {
+  const r = frFind(id);
+  if (r && newSurveyKeys().has(respKey(r))) markSurveyRead(respKey(r));   // opening it reads it
+  frRenderDetail(id); showView('f-respdetail');
+}
+function frRenderSurveys() {
+  const all = frRows().slice().sort((a, b) => String(b.answered_at || '').localeCompare(String(a.answered_at || '')));
+  const needs = frNeeds(), replied = frRepliedList();
+  const fresh = newSurveyKeys(), n = all.filter(r => frIsNew(r, fresh)).length;
+  let h = pageHeader(SURVEY_PAGE_TITLE,
+    'What first-timers wrote about their visit. Click a row to see the answer and reply. Needs a reply puts the lowest scores on top. If one raises a safety concern, handle it in person.');
+  const tab = (id, label, count) => '<button class="tab' + (FR_TAB === id ? ' active' : '') + '" onclick="frSetTab(\'' + id + '\')">' + label +
+    (count == null ? '' : ' <span class="count">' + count + '</span>') + '</button>';
+  h += '<div class="tabs">' + tab('needs', 'Needs a reply', needs.length) + tab('replied', 'Replied', replied.length) +
+    tab('all', 'All', all.length) + '</div>';
+  const rows = FR_TAB === 'needs' ? needs : FR_TAB === 'replied' ? replied : all;
+  if (!rows.length) {
+    const none = !all.length;
+    h += '<div class="card"><div class="empty-state"><div class="empty-state-icon">' + (FR_TAB === 'needs' && !none ? '✓' : '📭') + '</div>' +
+      '<div class="empty-state-title">' + (none ? 'No responses yet' : FR_TAB === 'needs' ? 'All caught up' : 'Nothing here yet') + '</div>' +
+      '<div class="empty-state-msg">' + (none ? 'Every survey a first-timer completes will appear here, newest first.'
+        : FR_TAB === 'needs' ? 'No first-timer is waiting on a reply.' + (FR.needs_reply_from ? ' Answers from before ' + escapeHtml(shortDate(FR.needs_reply_from)) + ' are under All.' : '')
+        : 'No reply has gone out yet.') + '</div></div></div>';
+    $('view-surveys').innerHTML = h; return;
+  }
+  h += '<div class="card"><div class="card-header" style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div style="flex:1;">' +
+    '<div class="card-title">' + icon('mail') + rows.length + plural(rows.length, ' response', ' responses') + (FR_TAB === 'all' && n ? ', ' + n + ' new' : '') + '</div>' +
+    howLink('how-cameback', CAME_BACK_TEXT, 'What "Came back?" means') + '</div>' +
+    (FR_TAB === 'all' && n ? '<button class="btn btn-outline btn-sm" onclick="markAllSurveysRead()">Mark all read</button>' : '') + '</div>' +
+    '<div class="card-content" style="overflow-x:auto;">' +
+    '<table class="tbl"><thead><tr><th>Date</th><th>Who</th><th>Overall</th><th>Regular?</th><th>Main issue</th><th>In their own words</th><th>Came back?</th><th>Reply</th></tr></thead><tbody>';
+  rows.forEach(r => {
+    const isNew = frIsNew(r, fresh);
+    h += '<tr' + (isNew ? ' class="is-new"' : '') + ' style="cursor:pointer;" onclick="frOpen(\'' + r.id + '\')">' +
+      '<td style="white-space:nowrap;">' + escapeHtml(r.answered_at || '?') +
+        (isNew ? ' <span class="badge badge-primary">New</span>' : '') +
+        (r.source === 'native' ? '<div class="sub">survey page</div>' : '') + '</td>' +
+      '<td><button class="link-btn" style="text-align:left;" onclick="event.stopPropagation();frOpen(\'' + r.id + '\')">' + escapeHtml(frName(r)) + '</button>' +
+        (r.name && r.email ? '<div class="sub">' + escapeHtml(r.email) + '</div>' : '') +
+        (r.matched ? '' : '<div class="sub">no climber match</div>') + '</td>' +
+      '<td>' + cellAns(r.q1_overall) + '</td>' +
+      '<td>' + cellAns(r.q2_intent) + '</td>' +
+      '<td>' + cellAns(r.q3_blocker_raw) + '</td>' +
+      '<td style="min-width:150px;">' + cellAns(r.q4_text) + '</td>' +
+      '<td>' + cameBackBadge(r.came_back) + '</td>' +
+      '<td style="white-space:nowrap;">' + frStatusBadge(r) + '</td></tr>';
+  });
+  h += '</tbody></table></div></div>';
+  $('view-surveys').innerHTML = h;
+}
+
+/* --- one answer: the 4 answers, the reply, the history --- */
+function frRenderDetail(id) {
+  const r = frFind(id), box = $('view-f-respdetail');
+  if (!r) { box.innerHTML = '<button class="btn btn-ghost btn-sm" onclick="showView(\'surveys\')">‹ Back to responses</button><div class="card"><div class="empty-state"><div class="empty-state-title">Not found</div></div></div>'; return; }
+  let h = '<button class="btn btn-ghost btn-sm" onclick="showView(\'surveys\')">‹ Back to responses</button>';
+  h += '<div class="page-header" style="margin-top:10px;margin-bottom:14px;">' +
+    '<div class="page-title">' + escapeHtml(frName(r)) + '</div>' +
+    '<div class="page-subtitle">' + escapeHtml(r.name && r.email ? r.email : (r.matched ? '' : 'No climber match')) + '</div></div>';
+  h += '<div class="inline-badges" style="margin-bottom:18px;">' +
+    '<span class="badge">first-time visitor</span>' +
+    frStatusBadge(r) +
+    (r.matched ? '' : '<span class="badge">no climber match</span>') +
+    '<button class="link-btn" style="margin-left:6px;" onclick="document.getElementById(\'f-history\').scrollIntoView({behavior:\'smooth\'})">See history (' + ((r.history || []).length) + ')</button>' +
+    '</div>';
+  h += '<div class="card"><div class="card-header"><div class="card-title">' + icon('mail') + 'Their answers</div></div>' +
+    '<div class="card-content with-top"><div class="detail-grid" style="margin-bottom:14px;">' +
+    field('Answered', r.answered_at || 'n/a') +
+    field('First visit overall (1 to 5)', r.q1_overall || '(no answer)') +
+    field('Could climbing become regular?', r.q2_intent || '(no answer)') +
+    field('Main issue', r.q3_blocker_raw || '(no answer)') +
+    '<div class="field-cell"><div class="field-label">Came back?</div><div class="field-value">' + cameBackBadge(r.came_back) + '</div></div>' +
+    '</div>' + inboxQ('In their own words', r.q4_text) +
+    howLink('how-cameback-d', CAME_BACK_TEXT, 'What "Came back?" means') + '</div></div>';
+  h += frReplyCard(r);
+  h += frHistoryCard(r);
+  box.innerHTML = h;
+}
+function frTemplates() { return FR.templates || []; }
+function frTitle(key) { const t = frTemplates().find(x => x.key === key); return t ? t.title : key; }
+function frPick(r) { return FR_PICK[r.id] || (r.suggestion || {}).template_key || (frTemplates()[0] || {}).key || ''; }
+function frDraft(r, key) {
+  const t = frTemplates().find(x => x.key === key);
+  if (!t || !t.installed) return null;
+  const sentinel = FR.first_name_sentinel || '%%FIRST_NAME%%', name = r.first_name || 'there';
+  return { subject: t.subject.split(sentinel).join(name), body: t.body.split(sentinel).join(name) };
+}
+function frText(r, key) {
+  const e = FR_EDIT[r.id], d = frDraft(r, key) || { subject: '', body: '' };
+  if (e && e.template_key === key) return { subject: e.subject, body: e.body, edited: (e.subject !== d.subject || e.body !== d.body) };
+  return { subject: d.subject, body: d.body, edited: false };
+}
+function frResetHtml(id, edited) {
+  return edited ? '<a href="#" onclick="frReset(\'' + id + '\');return false;">Reset to template</a>' : 'template text';
+}
+function frSetPick(id, key) { FR_PICK[id] = key; FR_ARMED[id] = false; frRenderDetail(id); }
+function frReset(id) { delete FR_EDIT[id]; FR_ARMED[id] = false; frRenderDetail(id); }
+function frDisarm(id) { FR_ARMED[id] = false; frRenderDetail(id); }
+function frSendLabel(r) { return r.replied ? 'Send another reply' : 'Send this email'; }
+function frInput(id) {
+  const r = frFind(id); if (!r) return;
+  const key = frPick(r), s = $('fr-subject-' + id), b = $('fr-body-' + id);
+  if (!s || !b) return;
+  FR_EDIT[id] = { template_key: key, subject: s.value, body: b.value };
+  const c = $('fr-count-' + id); if (c) c.textContent = mReplyCount(b.value);
+  const rs = $('fr-reset-' + id); if (rs) rs.innerHTML = frResetHtml(id, frText(r, key).edited);
+  FR_ARMED[id] = false;   // a change after arming needs a fresh confirm
+  const cancel = $('fr-cancel-' + id); if (cancel) cancel.remove();
+  const btn = $('fr-send-' + id);
+  if (btn && !FR_BUSY[id]) { btn.className = 'btn btn-primary btn-sm'; btn.innerHTML = icon('mail') + ' ' + escapeHtml(frSendLabel(r)); btn.onclick = function () { frSend(id); }; }
+}
+function frRepliesList(r) {
+  const all = r.replies || [];
+  if (!all.length) return '';
+  let h = '<div class="fu-label">Replies sent</div>';
+  all.slice().reverse().forEach(x => {
+    h += '<div class="fu-note">' + escapeHtml(frTitle(x.template_key)) +
+      '<div class="fu-note-at">' + escapeHtml(x.date) + ' · sent from this page</div></div>';
+  });
+  return h;
+}
+function frReplyCard(r) {
+  const canSend = frSendEnabled(), sug = r.suggestion || {};
+  let h = '<div class="card"><div class="card-header"><div class="card-title">' + icon('mail') + 'Reply</div>' +
+    '<div class="card-description">The suggestion comes from a fixed rule, not guesswork: a named main issue picks that issue’s reply, a low score with no issue asks what happened, anything else is a thank-you. Pick a different one if you know better, and change the words before it goes. The automatic emails keep going as usual.</div></div>' +
+    '<div class="card-content with-top">';
+  if (r.safety) {
+    h += '<div class="fu-note" style="border-color:var(--destructive);">This answer raises a safety concern. Handle it in person. No reply is suggested, and none can be sent from this page.</div>';
+    return h + '</div></div>';
+  }
+  if (!r.email) { return h + noData('This answer has no email address, so there is nobody to reply to.') + '</div></div>'; }
+  if (!r.in_window) {
+    h += '<div style="font-size:12.5px;color:var(--fg-subtle);">This answer came in before replies were switched on' + (FR.needs_reply_from ? ' (' + escapeHtml(shortDate(FR.needs_reply_from)) + ')' : '') + ', so it is here to read only.</div>';
+    return h + frRepliesList(r) + '</div></div>';
+  }
+  h += '<div class="inline-badges" style="margin-bottom:10px;">' +
+    (sug.template_key ? '<span class="badge badge-primary">Suggested: ' + escapeHtml(sug.title || frTitle(sug.template_key)) + '</span>' : '') +
+    (r.replied ? '<span class="badge badge-success">replied ' + escapeHtml(r.reply_date || '') + '</span>' : '') + '</div>';
+  if (sug.reason) h += '<div style="font-size:12.5px;color:var(--fg-subtle);margin-bottom:10px;">' + escapeHtml(sug.reason) + '</div>';
+  const pick = frPick(r), tpls = frTemplates();
+  if (tpls.length) {
+    h += '<div class="fu-label">Template</div>' +
+      '<select class="period-select" style="width:100%;max-width:420px;margin-bottom:10px;" onchange="frSetPick(\'' + r.id + '\',this.value)">' +
+      tpls.map(t => '<option value="' + escapeHtml(t.key) + '"' + (t.key === pick ? ' selected' : '') + (t.installed ? '' : ' disabled') + '>' +
+        escapeHtml(t.title) + (sug.template_key === t.key ? ' (suggested)' : '') + (t.installed ? '' : ' (not installed)') + '</option>').join('') +
+      '</select>';
+  }
+  const d = frDraft(r, pick);
+  if (d) {
+    const force = FR_ARMED[r.id] === 'force', armed = !!FR_ARMED[r.id], busy = !!FR_BUSY[r.id];
+    const label = busy ? 'Sending…' : force ? 'Send anyway' : armed ? 'Confirm: send to ' + r.email : frSendLabel(r);
+    const txt = frText(r, pick), id = r.id;
+    h += '<div class="fu-label" style="display:flex;justify-content:space-between;align-items:baseline;"><span>Subject</span>' +
+      '<span id="fr-reset-' + id + '" style="text-transform:none;letter-spacing:0;font-weight:500;">' + frResetHtml(id, txt.edited) + '</span></div>' +
+      '<input class="fu-textarea" style="min-height:0;margin-bottom:8px;" id="fr-subject-' + id + '" value="' + escapeHtml(txt.subject) + '" oninput="frInput(\'' + id + '\')"' + (busy ? ' disabled' : '') + '>' +
+      '<div class="fu-label" style="display:flex;justify-content:space-between;align-items:baseline;"><span>Email</span><span id="fr-count-' + id + '" style="text-transform:none;letter-spacing:0;font-weight:500;">' + mReplyCount(txt.body) + '</span></div>' +
+      '<textarea class="fu-textarea" style="min-height:220px;margin-bottom:6px;white-space:pre-wrap;" id="fr-body-' + id + '" oninput="frInput(\'' + id + '\')"' + (busy ? ' disabled' : '') + '>' + escapeHtml(txt.body) + '</textarea>' +
+      '<div style="font-size:11px;color:var(--fg-hint);margin-bottom:10px;">' + escapeHtml(r.first_name ? 'The first name (' + r.first_name + ') is already filled in.' : 'No first name on file, so the greeting says “there”.') + ' Links written as [text](https://...) become clickable. What you send here is what they get.</div>' +
+      '<div class="queue-actions" style="border-top:none;padding-top:0;margin-bottom:12px;align-items:center;gap:10px;">' +
+      '<button class="btn ' + (armed ? 'btn-destructive' : 'btn-primary') + ' btn-sm" id="fr-send-' + id + '"' + ((!canSend || busy) ? ' disabled' : '') + ' onclick="frSend(\'' + id + '\'' + (force ? ',true' : '') + ')">' + icon('mail') + ' ' + escapeHtml(label) + '</button>' +
+      (armed ? '<button class="btn btn-ghost btn-sm" id="fr-cancel-' + id + '" onclick="frDisarm(\'' + id + '\')">Cancel</button>' : '') +
+      '<button class="btn btn-outline btn-sm" onclick="frCopy(\'' + id + '\')">' + icon('copy') + ' Copy email</button>' +
+      '<span style="font-size:11px;color:var(--fg-hint);">' +
+      (canSend ? 'Goes from ' + escapeHtml(FR.from_email || 'the gym address') + ' right away. Logged for the whole team.'
+               : 'Sending isn’t switched on for this server yet. Copy the email and send it from your own mail app.') +
+      '</span></div>';
+  } else {
+    h += noData('The template for this pick (' + escapeHtml(pick) + ') is not installed on this server.');
+  }
+  h += frRepliesList(r);
+  return h + '</div></div>';
+}
+function frCopy(id) {
+  const r = frFind(id); if (!r) return;
+  const d = frText(r, frPick(r)); if (!d || !d.subject) return;
+  const text = 'To: ' + r.email + '\nSubject: ' + d.subject + '\n\n' + mdToPlain(d.body);
+  try {
+    navigator.clipboard.writeText(text).then(
+      function () { toast('Email copied. Paste it into your mail app.'); },
+      function () { toast('Could not copy automatically. Select the text and copy it.'); });
+  } catch (e) { toast('Could not copy automatically. Select the text and copy it.'); }
+}
+/* two-step send, like the member reply: the first click arms ("Confirm: send
+   to x@y"), the second sends; an armed button disarms itself after 8 s. */
+function frSend(id, force) {
+  const r = frFind(id); if (!r) return;
+  if (!frSendEnabled()) { toast('Sending isn’t switched on for this server yet.'); return; }
+  if (FR_BUSY[id]) return;
+  if (!FR_ARMED[id]) {
+    FR_ARMED[id] = true; FR_ARMED_AT[id] = Date.now(); frRenderDetail(id);
+    setTimeout(function () { if (FR_ARMED[id] === true && !FR_BUSY[id]) { FR_ARMED[id] = false; const cur = $('view-f-respdetail'); if (cur && cur.classList.contains('active')) frRenderDetail(id); } }, 8000);
+    return;
+  }
+  // a fast double-click is ONE click: it arms, it does not send (tester 2026-11-25)
+  if (FR_ARMED[id] === true && Date.now() - (FR_ARMED_AT[id] || 0) < 700) return;
+  const key = frPick(r), txt = frText(r, key);
+  if (!txt.subject.trim() || !txt.body.trim()) { toast('The subject and the email text cannot be blank.'); return; }
+  FR_BUSY[id] = true; frRenderDetail(id);
+  const body = { id: r.id, template_key: key, by: (typeof mBy === 'function' ? mBy() : ''), subject: txt.subject, body: txt.body };
+  if (force) body.force = true;
+  fetch('/survey-reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(res => res.json())
+    .then(res => {
+      FR_BUSY[id] = false; FR_ARMED[id] = false;
+      if (!res || !res.ok) {
+        if (res && (res.reason === 'already_replied' || res.reason === 'emailed_today') && !force) {
+          FR_ARMED[id] = 'force';      // the server's guard; one more explicit step
+          frRenderDetail(id);
+          toast(res.message || 'Click Send anyway to send it.');
+          return;
+        }
+        frRenderDetail(id);
+        toast((res && res.message) || 'Not sent. Try again.');
+        return;
+      }
+      r.replies = (r.replies || []).concat([res.reply]);
+      r.replied = true; r.reply_date = res.reply.date; r.needs_reply = false;
+      if (res.history) r.history = [res.history].concat(r.history || []);
+      delete FR_EDIT[id];
+      frRenderDetail(id);
+      markSurveyRead(respKey(r));     // redraws the list, the badge and Home
+      toast(res.warning ? res.warning : 'Sent to ' + r.email + (res.edit_changed ? ' (your edits were saved)' : ''));
+    })
+    .catch(() => { FR_BUSY[id] = false; FR_ARMED[id] = false; frRenderDetail(id); toast('Could not reach the server. Refresh to see whether it went out.'); });
+}
+/* History: every email on record for this person, newest first. A staff
+   reply opens to the exact words sent; an automatic email opens to its
+   template as it reads today (the log records which email went, not its words). */
+function frTlLabel(x) {
+  if (x.kind === 'reply') return 'Reply from staff' + (x.title ? ': ' + x.title : '');
+  if (x.label) return x.label;
+  return triggerLabel(x.trigger) + ' (automatic)';
+}
+function frTlEmail(x, r) {
+  const sentinel = FR.first_name_sentinel || '%%FIRST_NAME%%', name = r.first_name || 'there';
+  let subject = '', body = '', note = '';
+  if (x.source === 'sent') {
+    subject = x.subject; body = x.body; note = 'The exact words sent.';
+  } else if (x.source === 'template') {
+    const t = (FR.timeline_templates || {})[x.template_key];
+    if (!t) return '<div class="fu-note-at">The words of this email are not on file.</div>';
+    subject = (x.variant === 'B' && t.subject_b) ? t.subject_b : t.subject;
+    body = t.body;
+    subject = subject.split(sentinel).join(name); body = body.split(sentinel).join(name);
+    note = 'As written in the template. The log records which email went out, not its words, so this is the template as it reads today.';
+  } else {
+    return '<div class="fu-note-at">The words of this email are not on file.</div>';
+  }
+  return '<div class="fu-note-at" style="margin-bottom:6px;">' + escapeHtml(note) + '</div>' +
+    '<div class="fu-label">Subject</div><div style="font-size:12.5px;margin-bottom:8px;">' + escapeHtml(subject) + '</div>' +
+    '<div class="fu-label">Email</div><div style="font-size:12.5px;white-space:pre-wrap;line-height:1.5;overflow-wrap:anywhere;">' + formatEmailBody(body) + '</div>';
+}
+function frTlToggle(btn) {
+  const box = btn.nextElementSibling, open = box.style.display === 'none';
+  box.style.display = open ? 'block' : 'none';
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.querySelector('.tl-caret').textContent = open ? '▾' : '▸';
+}
+function frHistoryCard(r) {
+  const items = r.history || [];
+  let h = '<div class="card" id="f-history"><div class="card-header"><div class="card-title">' + icon('mail') + 'History</div>' +
+    '<div class="card-description">Every email sent to ' + escapeHtml(r.first_name || 'this person') + ', newest first. Click one to read it.</div></div>' +
+    '<div class="card-content with-top">';
+  if (!items.length) {
+    h += '<div style="color:var(--fg-subtle);font-size:12.5px;">Nothing on record yet.</div>';
+  } else {
+    h += '<div class="tl-list">';
+    items.forEach(x => {
+      h += '<div class="tl-item"><button class="tl-row" aria-expanded="false" onclick="frTlToggle(this)"><span class="tl-caret">▸</span>' +
+        '<span class="tl-date">' + escapeHtml(shortDate(x.date)) + '</span>' +
+        '<span class="tl-label">' + escapeHtml(frTlLabel(x)) + '</span></button>' +
+        '<div class="tl-body" style="display:none;">' + frTlEmail(x, r) + '</div></div>';
+    });
+    h += '</div>';
+  }
+  return h + '</div></div>';
 }
 
 /* ============================ INSIGHTS (reporting + survey) ============================ */
@@ -3854,7 +4203,7 @@ function renderMemberRespDetail(id) {
   const diagBits = [];
   M_DIAG.forEach(d => { const v = r.diagnostics ? r.diagnostics[d[0]] : null; if (v != null) diagBits.push(mScoreField(d[1], v)); });
   if (diagBits.length) {
-    h += '<div class="fu-label" style="margin:14px 0 6px;">Page 2 detail (context for staff, never used to pick the reply)</div>' +
+    h += '<div class="fu-label" style="margin:14px 0 6px;">More ratings (context for staff, never used to pick the reply)</div>' +
       '<div class="detail-grid">' + diagBits.join('') + '</div>';
   }
   h += '</div></div>';
@@ -4462,8 +4811,8 @@ function renderMemberSettings() {
     cfgRow('How many per day', c.daily_cap + ' (so a first wave of ' + (a ? a.sendable : '?') + ' takes about ' + (a && c.daily_cap ? Math.ceil(a.sendable / c.daily_cap) : '?') + ' days)') +
     cfgRow('How often', 'Every ' + c.cooldown_days + ' days per member. One send per wave, no reminders.') +
     cfgRow('Shared inboxes', 'One survey per email address (families share), answered by whoever opens it.') +
-    cfgRow('The survey', c.survey_url ? 'SurveyMonkey, 8 questions, about 3 minutes. ' + c.survey_url : 'not configured') +
-    mCfgNote('Change in client.json: member_survey.daily_cap, cooldown_days, survey_url') +
+    cfgRow('The survey', c.source === 'native' ? 'Our own survey page, about 3 minutes. Each member gets a personal link in the email.' : (c.survey_url ? 'SurveyMonkey, 8 questions, about 3 minutes. ' + c.survey_url : 'not configured')) +
+    mCfgNote('Change in client.json: member_survey.daily_cap, cooldown_days' + (c.source === 'native' ? '' : ', survey_url')) +
     '</div></div>';
 
   if (a) {
@@ -4594,7 +4943,7 @@ if (typeof setupMembersNav === 'function') setupMembersNav();   // ABC's Members
   let id = '';
   try { id = sessionStorage.getItem('shiftActiveView') || ''; } catch (e) {}
   if (!id) id = (location.hash || '').replace('#', '');
-  id = ({ dashboard: 'home', queue: 'activity', inbox: 'surveys', 'm-overview': 'home' })[id] || id;
+  id = ({ dashboard: 'home', queue: 'activity', inbox: 'surveys', 'm-overview': 'home', 'f-respdetail': 'surveys' })[id] || id;
   const hasMembers = typeof membersOn === 'function' && membersOn();
   const mvalid = ['m-responses', 'm-recognition', 'm-insights', 'm-settings'];   // m-settings: no sidebar entry, hash only (decision 7b)
   if (mvalid.includes(id)) { if (hasMembers) showView(id); return; }

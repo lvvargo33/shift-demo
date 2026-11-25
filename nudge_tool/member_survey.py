@@ -55,12 +55,22 @@ class Config:
     # reply goes out only when EVERY selection metric is >= this; otherwise the
     # lowest metric picks the follow-up draft. Luke chose this rule 2026-08-21.
     positive_threshold: int = 9
+    # "native" (ABC, 2026-11-17) = the survey is OUR page: member_send mints a
+    # personal /member-survey link per member at send time, so there is no
+    # survey_url and QueueEntry.link stays blank until then. Anything else =
+    # the SurveyMonkey collector link + ?mid= (ABC until its go-live).
+    source: str = ""
+
+    @property
+    def native(self) -> bool:
+        return self.source == "native"
 
     @property
     def configured(self) -> bool:
         """Enough config present to send at all. A blank survey_url would mail a
-        link to nowhere, so it counts as unconfigured rather than defaulting."""
-        return bool(self.survey_url and self.template_id and self.tag)
+        link to nowhere, so it counts as unconfigured rather than defaulting
+        (a native survey has no survey_url: its link is minted per send)."""
+        return bool((self.native or self.survey_url) and self.template_id and self.tag)
 
 
 @dataclass
@@ -76,7 +86,8 @@ class Skips:
 @dataclass(frozen=True)
 class QueueEntry:
     member: audience.Member
-    link: str                   # the member's personal ?mid= survey link
+    link: str                   # the member's personal ?mid= survey link ("" for a
+                                # native survey: minted at send time)
     last_sent: str = ""         # previous member_survey send, "" if never
 
     @property
@@ -100,6 +111,7 @@ def load_config(client) -> Config:
         template_id=str(raw.get("template_id", DEFAULT_TEMPLATE) or "").strip(),
         tag=str(raw.get("tag", DEFAULT_TAG) or "").strip(),
         positive_threshold=int(raw.get("positive_threshold", 9) or 9),
+        source=str(raw.get("source", "") or "").strip(),
     )
 
 
@@ -148,7 +160,7 @@ def build_queue(members, log, cfg: Config, today: str,
 
     if not cfg.configured:
         skips.not_enabled = len(members)
-        missing = [n for n, v in (("survey_url", cfg.survey_url),
+        missing = [n for n, v in (("survey_url", cfg.native or cfg.survey_url),
                                   ("template_id", cfg.template_id),
                                   ("tag", cfg.tag)) if not v]
         skips.reasons.append(f"member_survey config incomplete: missing "
@@ -175,7 +187,8 @@ def build_queue(members, log, cfg: Config, today: str,
 
         eligible.append(QueueEntry(
             member=m,
-            link=audience.survey_link(cfg.survey_url, m.member_id),
+            link=("" if cfg.native
+                  else audience.survey_link(cfg.survey_url, m.member_id)),
             last_sent=last,
         ))
 

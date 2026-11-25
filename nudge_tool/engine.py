@@ -523,8 +523,18 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
         # return -> membership-offer chain from stacking emails.
         mds = int(getattr(client, "min_days_between_sends", 0) or 0)
         if mds > 0 and log is not None:
-            last = log.last_sent_any(c.email)
+            last = log.last_sent_any(c.email, exclude=SAME_DAY_ONLY_TRIGGERS)
             if last and ingest.days_between(last, asof) < mds:
+                if suppressed_out is not None:
+                    suppressed_out.append((c, t, "min_spacing"))
+                continue
+        # A staff reply to a first-timer survey (survey_reply, 2026-11-18) does
+        # NOT pause the series (Luke 2026-11-17): it only stops a second email
+        # on the SAME day, whatever the gym's spacing is. The full spacing
+        # would push a day 5-7 offer past its window.
+        if log is not None:
+            same_day = [log.last_sent(c.email, n) for n in SAME_DAY_ONLY_TRIGGERS]
+            if any(d and ingest.days_between(d, asof) < 1 for d in same_day):
                 if suppressed_out is not None:
                     suppressed_out.append((c, t, "min_spacing"))
                 continue
@@ -1244,8 +1254,13 @@ _SURVEY_LINK_MARKERS = definitions.SURVEY_LINK_MARKERS  # incl. /s links (Block 
 # them belongs in an FTV funnel. String literals on purpose.
 # + SHIFT's day-14 new-member check-in (member_checkin.TRIGGER_NAME, 2026-10-26)
 MEMBER_PROGRAM_TRIGGERS = frozenset({"member_survey", "member_check_in"})
+# + a staff reply to a first-timer survey answer (survey_reply.REPLY_TRIGGER,
+# 2026-11-18): a personal email, not an automation
 INTERNAL_TRIGGERS = frozenset({"member_checkin_alert", "member_reply",
-                               "member_auto_reply"})
+                               "member_auto_reply", "survey_reply"})
+# Sends that hold the automatic series back on the day they went out and no
+# longer (build_queue), instead of the gym's min_days_between_sends.
+SAME_DAY_ONLY_TRIGGERS = ("survey_reply",)
 NON_FTV_TRIGGERS = MEMBER_PROGRAM_TRIGGERS | INTERNAL_TRIGGERS
 # A journey email sends minutes after the tag lands, so the email actually
 # sent to a person is the activity-feed "sent" event on (or within a day or

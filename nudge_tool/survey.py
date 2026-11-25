@@ -320,7 +320,7 @@ def _merge_native(form_rows: list[SurveyResponse], client: ClientConfig,
     same person). Only completed sessions are in the cache, so a partial never
     marks anyone answered. No-op when survey.native.enabled is false."""
     from . import native_survey
-    if not native_survey.enabled(client):
+    if not native_survey.ftv_enabled(client):   # members-only island = Form only
         return form_rows
     native: list[SurveyResponse] = []
     for row in native_survey.responses(client):
