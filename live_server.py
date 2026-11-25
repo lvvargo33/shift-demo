@@ -704,9 +704,25 @@ def _survey_reply_settings(client):
     return survey_dispatch.brevo_settings(client)
 
 
+_MEMBER_FOOTER = "You got this email because you are a Shift Climbing member."
+_VISITOR_FOOTER = "You got this email because you visited Shift Climbing."
+
+
+def _ftv_reply_shell(html: str) -> str:
+    """The Shift shell (clients/shift/brevo_shell.html) was written for member
+    replies, so its footer says "because you are a Shift Climbing member". A
+    first-timer is not one: use the first-visit survey email's line instead."""
+    return html.replace(_MEMBER_FOOTER, _VISITOR_FOOTER)
+
+
 def _survey_reply_esp(client, settings):
     from nudge_tool.brevo_client import BrevoClient
-    return BrevoClient(settings, client)
+
+    class _FtvReplyBrevo(BrevoClient):
+        def _shell(self) -> str:
+            return _ftv_reply_shell(super()._shell())
+
+    return _FtvReplyBrevo(settings, client)
 
 
 def _ftv_replies_block(client, asof: date, ds, survey_block: dict, outreach_rows=None) -> dict:
