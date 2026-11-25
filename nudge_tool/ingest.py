@@ -21,6 +21,7 @@ so it stays trivially testable and the trigger rules live in one place.
 from __future__ import annotations
 
 import csv
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -48,6 +49,29 @@ def _d(s: str) -> str:
 # One line item inside the transactions `items` column, e.g.
 #   "1 2 Week Trial ($45.00) $45.00; 1 Chalk Bag ($12.00) $12.00"
 _LINE_RE = re.compile(r"^\s*(\d+)\s+(.+?)\s*\(\$([0-9.]+)\)")
+
+
+def _allocated_ids(meta: str) -> set[str]:
+    """Climber ids holding a pass on one Memberships row. Beta writes them in
+    the metadata column as {"item_allocation": {"0": [id, ...], ...}} (one
+    list per plan item). Anything unreadable = nobody, never a crash."""
+    if "item_allocation" not in (meta or ""):
+        return set()
+    try:
+        alloc = json.loads(meta).get("item_allocation")
+    except (ValueError, AttributeError, RecursionError):
+        return set()
+    out: set[str] = set()
+    for grp in (alloc.values() if isinstance(alloc, dict) else [alloc]):
+        for x in (grp if isinstance(grp, (list, tuple)) else [grp]):
+            if isinstance(x, float) and x.is_integer():
+                x = int(x)
+            if isinstance(x, bool) or not isinstance(x, (int, str)):
+                continue
+            s = str(x).strip()
+            if s:
+                out.add(s)
+    return out
 
 
 def _norm_date(s: str) -> str | None:
@@ -137,6 +161,14 @@ class Climber:
     # have no Memberships row of their own. None = no list loaded (SHIFT, or
     # a failed pull): rules that need it fail closed. Block 17 fresh-eyes.
     on_member_list: bool | None = None
+    # Holds a pass on someone ELSE's membership (Beta Dual / Family / group
+    # plans: the Memberships.csv metadata `item_allocation` lists the climber
+    # ids the plan's passes went to). They have no Memberships row of their
+    # own, so is_converted misses them; engine.build_queue stops every
+    # follow-up email for them, on a running or an ended plan alike (the same
+    # as the payer). Deliberately NOT folded into is_member / is_converted,
+    # which feed reported numbers. Built 2026-11-24.
+    on_shared_plan: bool = False
     daypass_dates: list[str] = field(default_factory=list)  # day-pass/punch buy dates
     # Day-pass buys discounted by >= half the day-pass line price. Beta's export
     # never names the coupon used, so this is the footprint of the 50%-off
@@ -454,6 +486,8 @@ def load(client: ClientConfig) -> Dataset:
 
     # --- Memberships: a second conversion signal ---
     plans: dict[str, list] = {}  # climber_id -> [(created, plan text)], priced rows
+    shared_ids: set[str] = set()  # on someone else's plan (item_allocation)
+    shared_unread = 0             # rows naming item_allocation that gave no id
     with open(client.memberships_csv, encoding="utf-8") as f:
         for row in csv.DictReader(f):
             cid = (row.get("climber_key") or "").strip()
@@ -464,6 +498,11 @@ def load(client: ClientConfig) -> Dataset:
             blob = (prices + " " + meta).lower()
             if staff_tier_kw and mem_email and any(k in blob for k in staff_tier_kw):
                 staff_emails.add(mem_email)
+            # people holding a pass on this plan who are not its payer
+            alloc_ids = _allocated_ids(meta)
+            if not alloc_ids and "item_allocation" in meta:
+                shared_unread += 1
+            shared_ids |= alloc_ids - {cid}
             if cid:
                 c = get(cid)
                 c.is_member = True
@@ -478,6 +517,15 @@ def load(client: ClientConfig) -> Dataset:
                     plans.setdefault(cid, []).append((created, prices))
     for cid, rows in plans.items():
         climbers[cid].join_date = definitions.first_join(rows)
+
+    # never creates a record: an id with no purchase and no check-in has no
+    # email to send to
+    for rid in shared_ids:
+        if rid in climbers:
+            climbers[rid].on_shared_plan = True
+    if shared_unread:
+        print(f"WARNING: memberships item_allocation not readable on {shared_unread} "
+              "row(s): people on those shared plans are NOT held from emails")
 
     # the RGP member list (ABC only; Block 17 not_on_member_list)
     ms_path = getattr(client, "member_status_csv", None)

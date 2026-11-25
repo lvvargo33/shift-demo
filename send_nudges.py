@@ -399,7 +399,10 @@ def run_send(a) -> None:
             skip_emails={t.email for t in targets
                          if survey_dispatch.route_for(client, t) != "hold"}
             | {c.email for c in ci_due} | qr_pending,
-            qr_dates=qr_dates, optouts=ms_optouts)
+            qr_dates=qr_dates, optouts=ms_optouts,
+            # people on someone else's plan with their own email (2026-11-24)
+            contacts=member_survey_native.shared_plan_contacts(
+                ds.climbers, client.transactions_csv))
         print()
         for line in member_survey_native.report_lines(ms, ms_cfg, ms_live, asof):
             print(line)

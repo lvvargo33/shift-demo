@@ -21,6 +21,23 @@ opt-out list and Brevo blocks are applied again at send time by
 survey_dispatch. Members with no check-in for `inactive_days` (60) or more
 are INCLUDED and marked inactive (decision 4, revised).
 
+People on someone else's plan (Luke 2026-11-24): Beta lets one membership
+hand passes to other profiles (Dual / Family / group plans; the plan row's
+metadata `item_allocation`, ingest._allocated_ids). They have no plan row of
+their own, so they are added here ONLY when the caller hands in `contacts`
+(their name, email and birth date come from the purchase / check-in files,
+see shared_plan_contacts). Added when: the payer is a current member, the
+plan row is running, they have an email of their OWN (not the payer's, not
+another current member's), and they are not known to be under 13 (birth date
+on file says so; no birth date = sent). Every other rule is the same as for
+a payer; their 30 days count from their payer's own membership start (so a
+plan switch does not reset them). A frozen payer holds them too (on two
+payers' plans: held only when both are frozen). They are never part of the
+first wave: they take the plain 1/90 share like anyone who joins later.
+Several of them sharing ONE inbox with each other (Luke 2026-11-24): one
+survey goes to that address, to the oldest person with a birth date on file,
+else one with none; a child under 13 never stands for the inbox.
+
 How many a day (decision 2026-10-28, Chris's allocator rule): about 1/90 of
 the eligible members every day, as a running remainder with no stored state:
     quota(day d) = floor(N*(d+1)/S) - floor(N*d/S)
@@ -59,7 +76,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import gym_metrics, member_checkin
+from . import gym_metrics, ingest, member_checkin
 from .livesend import SendTarget
 
 TRIGGER_NAME = "member_survey"
@@ -128,6 +145,7 @@ class Member:
     inactive: bool
     last_survey: str = ""        # last member_survey send date ("" = never)
     skip: str = ""
+    shared_plan: bool = False    # holds a pass on someone else's plan (module doc)
 
     @property
     def context(self) -> dict:
@@ -152,6 +170,48 @@ class Result:
     quota: int = 0
     share: int = 0                                 # the plain 1/spread_days quota
     first_wave_left: int = 0                       # due first-wave members (see module doc)
+    shared_same_inbox: int = 0                     # on someone else's plan, no email of their own
+                                                   # (the payer's or another member's): not added
+
+
+MIN_SHARED_PLAN_AGE = 13
+# Beta's stand-in birth dates, never a real one (the same set as
+# insights_rows.PLACEHOLDER_DOBS; _verify_shared_plan_survey checks they match)
+PLACEHOLDER_DOBS = frozenset({"2000-01-01", "1900-01-01", "1970-01-01"})
+
+
+def age_on(dob, asof: date) -> int | None:
+    """Whole years old on asof from a YYYY-MM-DD birth date. None = unknown
+    (blank, unreadable, in the future, or before 1900)."""
+    try:
+        b = date.fromisoformat(str(dob or "").strip()[:10])
+    except ValueError:
+        return None
+    if b.year < 1900 or b > asof:
+        return None
+    return asof.year - b.year - ((asof.month, asof.day) < (b.month, b.day))
+
+
+def shared_plan_contacts(climbers, transactions=None) -> dict[str, dict]:
+    """climber_id -> {"name", "email", "dob"} for find(contacts=): name and
+    email from ingest's climbers (purchases + check-ins), birth date from the
+    Transactions `climber_dob` column (a person who never bought has none).
+    A missing or unreadable transactions file = no birth dates, never a crash."""
+    dob: dict[str, str] = {}
+    try:
+        if transactions is not None and Path(transactions).exists():
+            with open(transactions, encoding="utf-8-sig", newline="") as f:
+                for r in csv.DictReader(f):
+                    cid = str(r.get("climber_id") or "").strip()
+                    d = str(r.get("climber_dob") or "").strip()
+                    if cid and d and d[:10] not in PLACEHOLDER_DOBS and cid not in dob:
+                        dob[cid] = d
+    except (OSError, csv.Error, UnicodeError):
+        dob = {}
+    return {str(cid): {"name": str(getattr(c, "name", "") or "").strip(),
+                       "email": str(getattr(c, "email", "") or "").strip(),
+                       "dob": dob.get(str(cid), "")}
+            for cid, c in (climbers or {}).items()}
 
 
 def last_checkins(sessions) -> dict[str, date]:
@@ -181,13 +241,19 @@ def quota_for(n: int, asof: date, anchor: date | None, spread: int) -> int:
 
 
 def is_first_wave(m: Member, go_live: date, min_member_days: int) -> bool:
-    """Never asked, and already min_member_days a member on go_live day."""
-    return not m.last_survey and (go_live - m.since).days >= min_member_days
+    """Never asked, and already min_member_days a member on go_live day.
+    People on someone else's plan are never first wave (fresh-eyes 11/24:
+    they would restart the wave and take the payers' slots)."""
+    return (not getattr(m, "shared_plan", False) and not m.last_survey
+            and (go_live - m.since).days >= min_member_days)
 
 
 def find(memberships, sessions, asof: date, cfg: dict, *, log=None, unsubscribed=(),
-         staff_emails=(), skip_emails=(), qr_dates=None, optouts=()) -> Result:
-    """Who gets the member survey on the run dated asof. `skip_emails` =
+         staff_emails=(), skip_emails=(), qr_dates=None, optouts=(),
+         contacts=None) -> Result:
+    """Who gets the member survey on the run dated asof. `contacts` =
+    shared_plan_contacts(...): hand it in to add people on someone else's
+    plan (module doc); None = payers only, as before. `skip_emails` =
     inboxes getting another email from today's run (they wait a day).
     `qr_dates` = {climber_id: "YYYY-MM-DD"} of member surveys answered on the
     QR sign (member_qr.answer_dates): they count as a survey for the 90-day
@@ -247,6 +313,67 @@ def find(memberships, sessions, asof: date, cfg: dict, *, log=None, unsubscribed
         elif key in opted:
             m.skip = "opted out of survey emails"
         current.append(m)
+
+    if contacts is not None:
+        payers = {m.climber_id: m for m in current}
+        taken = {m.email.lower() for m in current if m.email}
+        on_plans: dict[str, list] = {}       # person -> [(payer, plan row)], running rows
+        for payer in list(current):
+            for r in by_cid.get(payer.climber_id, []):
+                if member_checkin._is_freeze_fee(r) or not member_checkin._running(r, asof):
+                    continue
+                for rid in ingest._allocated_ids(str(r.get("metadata") or "")):
+                    if rid not in payers:    # a member of their own (the payer included) is not added
+                        on_plans.setdefault(rid, []).append((payer, r))
+        riders: list[Member] = []
+        ages: dict[str, int | None] = {}
+        no_inbox = 0
+        for rid in sorted(on_plans):
+            links = on_plans[rid]
+            who = contacts.get(rid)
+            who = who if isinstance(who, dict) else {}
+            email = str(who.get("email") or "").strip()
+            if not email or email.lower() in taken:
+                # no inbox of their own: never added, so a payer or another
+                # member keeps their own survey
+                no_inbox += 1
+                continue
+            # the same answer whatever the file's row order: the payer who has
+            # been a member longest, then that payer's newest running row
+            payer = min((p for p, _r in links), key=lambda p: (p.since, p.climber_id))
+            row = max((r for p, r in links if p is payer),
+                      key=lambda r: str(r.get("created_date") or ""))
+            name = str(who.get("name") or "").strip()
+            last = seen_ci.get(rid)
+            days = max(0, (ci_ref - last).days) if last is not None else None
+            m = Member(rid, name, name.split(" ")[0] if name else "", email, payer.since,
+                       str(row.get("prices") or "").strip(), last, days,
+                       days is None or days >= inactive_days, shared_plan=True)
+            age = ages[rid] = age_on(who.get("dob"), asof)
+            key = email.lower()
+            if all(p.skip == "frozen" for p, _r in links):
+                m.skip = "frozen"
+            elif age is not None and age < MIN_SHARED_PLAN_AGE:
+                m.skip = f"under {MIN_SHARED_PLAN_AGE} on someone else's plan"
+            elif key in staff:
+                m.skip = "staff"
+            elif key in unsub:
+                m.skip = "email bounced in Mailchimp"
+            elif key in opted:
+                m.skip = "opted out of survey emails"
+            riders.append(m)
+        # one survey per inbox they share with each other: a person we can
+        # send to first, then the oldest known age, then no birth date, then
+        # the lowest id (the same person every run)
+        inboxes: dict[str, list[Member]] = {}
+        for m in riders:
+            inboxes.setdefault(m.email.lower(), []).append(m)
+        for group in inboxes.values():
+            group.sort(key=lambda m: (bool(m.skip), ages[m.climber_id] is None,
+                                      -(ages[m.climber_id] or 0), m.climber_id))
+            current.append(group[0])
+            no_inbox += len(group) - 1
+        res.shared_same_inbox = no_inbox
 
     owners: dict[str, set] = {}
     for m in current:
@@ -348,6 +475,10 @@ def report_lines(res: Result, cfg: dict, live: bool, asof: date | None = None) -
         lines.append(f"    {'ask ' if live else 'would'} {m.name:<22.22} {m.email}  (member since "
                      f"{m.since}{', INACTIVE' if m.inactive else ''}"
                      f"{', last survey ' + m.last_survey if m.last_survey else ', never asked'})")
+    shared = sum(1 for m in res.eligible if m.shared_plan)
+    if shared or res.shared_same_inbox:
+        lines.append(f"    on someone else's plan: {shared} eligible (counted above),"
+                     f" {res.shared_same_inbox} with no email of their own (not added)")
     reasons: dict[str, int] = {}
     for m in res.held:
         reasons[m.skip] = reasons.get(m.skip, 0) + 1

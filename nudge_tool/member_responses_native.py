@@ -267,4 +267,53 @@ def member_index(client) -> dict:
             "status": "ok" if e is not None and e["end"] is None else "ended",
             "membership_start": e["start"].isoformat() if e is not None else "",
         }
+    out.update(_shared_plan_people(client, rows, out))
     return out
+
+
+def _shared_plan_people(client, rows, known: dict) -> dict:
+    """People holding a pass on someone else's plan (Beta `item_allocation`),
+    who have no plan row of their own. Since 2026-11-24 the member survey
+    asks them too (member_survey_native), so their answers need a name here
+    or the reply screen drops them as unmatched. Name and email come from
+    the check-in file; status "ok" = on a row still running today. Any
+    problem = nobody added, never a crash."""
+    from datetime import date
+    from . import gym_metrics, ingest, member_checkin
+    try:
+        today = date.today()
+        found: dict = {}
+        for r in rows:
+            payer = str(r.get("climber_key") or "").strip()
+            start = gym_metrics._d(r.get("created_date"))
+            running = member_checkin._running(r, today)
+            for rid in ingest._allocated_ids(str(r.get("metadata") or "")):
+                if rid == payer or rid in known:
+                    continue
+                f = found.setdefault(rid, {"running": False, "start": None})
+                f["running"] = f["running"] or running
+                if start is not None and (f["start"] is None or start < f["start"]):
+                    f["start"] = start
+        if not found:
+            return {}
+        who: dict = {}
+        path = Path(client.sessions_csv)
+        if path.exists():
+            with open(path, encoding="utf-8-sig", newline="") as fh:
+                for r in csv.DictReader(fh):
+                    cid = str(r.get("climber_key") or "").strip()
+                    if cid in found and cid not in who:
+                        name = str(r.get("climber") or "").strip()
+                        email = str(r.get("email") or "").strip().lower()
+                        if name or email:
+                            who[cid] = (name, email)
+        out: dict = {}
+        for rid, f in found.items():
+            name, email = who.get(rid, ("", ""))
+            first, _, last = name.partition(" ")
+            out[rid] = {"first_name": first, "last_name": last.strip(), "email": email,
+                        "status": "ok" if f["running"] else "ended",
+                        "membership_start": f["start"].isoformat() if f["start"] else ""}
+        return out
+    except Exception:  # noqa: BLE001
+        return {}

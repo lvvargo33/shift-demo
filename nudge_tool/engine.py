@@ -471,7 +471,9 @@ def build_queue(ds: Dataset, client: ClientConfig, asof: date,
         # rule 2: converted -> stop. A trial bought AFTER the first visit is a
         # WIN too (Isaac 8/4: he follow-ups trial buyers manually), so it stops
         # every follow-up email; trial STARTERS (day-1 trial) stay in the flow.
-        if c.is_converted or c.trial_win_date:
+        # A pass on someone else's Dual / Family / group plan is a member
+        # too (ingest on_shared_plan, 2026-11-24): same stop.
+        if c.is_converted or c.trial_win_date or getattr(c, "on_shared_plan", False):
             continue
         # gather every trigger this person matches.
         matches: list[tuple[int, Trigger, int, str]] = []
