@@ -1639,7 +1639,7 @@ function renderSurveys() {
    and send, and each person's email history. Its by-month charts are on Insights. */
 const FR = (DATA.ftv_replies && DATA.ftv_replies.enabled) ? DATA.ftv_replies : null;
 let FR_TAB = 'needs';          // needs | replied | all (the charts live on Insights since 2026-11-18)
-const FR_PICK = {}, FR_ARMED = {}, FR_BUSY = {}, FR_EDIT = {}, FR_ARMED_AT = {};
+const FR_PICK = {}, FR_ARMED = {}, FR_BUSY = {}, FR_EDIT = {};
 function frOn() { return !!FR && surveyOn(); }
 /* SHIFT: replies go out through Brevo, so the server sends its own flag
    (ftv_replies.reply_send_enabled), like the member reply (mSendEnabled). */
@@ -1875,12 +1875,10 @@ function frSend(id, force) {
   if (!frSendEnabled()) { toast('Sending isn’t switched on for this server yet.'); return; }
   if (FR_BUSY[id]) return;
   if (!FR_ARMED[id]) {
-    FR_ARMED[id] = true; FR_ARMED_AT[id] = Date.now(); frRenderDetail(id);
+    FR_ARMED[id] = true; frRenderDetail(id);
     setTimeout(function () { if (FR_ARMED[id] === true && !FR_BUSY[id]) { FR_ARMED[id] = false; const cur = $('view-f-respdetail'); if (cur && cur.classList.contains('active')) frRenderDetail(id); } }, 8000);
     return;
   }
-  // a fast double-click is ONE click: it arms, it does not send (tester 2026-11-25)
-  if (FR_ARMED[id] === true && Date.now() - (FR_ARMED_AT[id] || 0) < 700) return;
   const key = frPick(r), txt = frText(r, key);
   if (!txt.subject.trim() || !txt.body.trim()) { toast('The subject and the email text cannot be blank.'); return; }
   FR_BUSY[id] = true; frRenderDetail(id);
